@@ -169,6 +169,23 @@ These are the deterministic `tests:` from the example config (run with
 | `k=foo;$k` | `foo` |
 | `^-1` (with `_messages`) | the last assistant message |
 
+## Sessions
+
+Expressions can read prior conversation from `_messages`: `^-1` is the last
+message (the assistant channel), and `$name` reads a context key. Point nlir at
+an existing transcript with `--session-file` (a Pi session's roles are kept and
+tool-call turns dropped), or accumulate turns yourself with `append-message`.
+
+`scripts/pi-dropin.sh` is a Pi drop-in filter over a shared context: a line
+beginning with `|` is expanded as an nlir expression, and every other turn is
+appended to `_messages`, so later `|` expansions can read the conversation.
+
+```sh
+printf '%s\n' 'the answer is 42' '|^-1' \
+  | NLIR=./target/debug/nlir scripts/pi-dropin.sh --role assistant
+# → the answer is 42        (the `|^-1` expression read the appended turn)
+```
+
 ## Development
 
 ```sh

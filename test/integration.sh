@@ -93,4 +93,12 @@ echo "$msgs" | grep -q 'hello' || fail "session import missing the user message"
 echo "$msgs" | grep -q 'hi' || fail "session import missing the assistant message"
 rm -f "$sess"
 
+echo "==> scripts/pi-dropin.sh: leading | expands, other turns append-message (bd-684213)"
+pctx="$(mktemp -u "${TMPDIR:-/tmp}/nlir-pi-XXXXXX.json")"
+dropout="$(printf '%s\n' 'the answer is 42' '|^-1' \
+  | NLIR="$bin" bash "$root/scripts/pi-dropin.sh" --role assistant --context-file "$pctx")"
+[ "$dropout" = "the answer is 42" ] \
+  || fail "pi-dropin did not expand |^-1 to the appended assistant turn: '$dropout'"
+rm -f "$pctx"
+
 echo "==> integration smoke OK"
