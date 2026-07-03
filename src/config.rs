@@ -872,6 +872,58 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
     errs
 }
 
+// ---------------------------------------------------------------------------
+// defaults resolution (bd-d0db40)
+// ---------------------------------------------------------------------------
+
+/// Caller (CLI) overrides for the resolvable run defaults. Each `Some` wins over
+/// the corresponding config value.
+#[derive(Debug, Clone, Default)]
+pub struct DefaultOverrides {
+    /// `--mode det|llm`.
+    pub mode: Option<Mode>,
+    /// `--model NAME`.
+    pub model: Option<String>,
+    /// `--parallelism N`.
+    pub parallelism: Option<usize>,
+}
+
+/// The effective run settings after merging CLI overrides over config defaults
+/// (SPEC §Modes; §Execution graph & parallelism; §Runtime state).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedDefaults {
+    /// Effective evaluation mode.
+    pub mode: Mode,
+    /// Effective default model name (a key into `models`), if any.
+    pub model: Option<String>,
+    /// Effective DAG scheduler parallelism.
+    pub parallelism: usize,
+    /// Effective list / message-range separator (context `_sep`).
+    pub sep: String,
+    /// Effective caching flag (context `_cache`).
+    pub cache: bool,
+}
+
+/// Resolve the effective run settings. Precedence is CLI override →
+/// `config.defaults` / `config.context.defaults` → built-in defaults (the latter
+/// two already carry the built-ins: `mode: llm`, `parallelism: 8`, `_sep: "\n"`,
+/// `_cache: true`, via [`Defaults`] / [`ContextDefaults`]). `_sep`/`_cache` have
+/// no CLI flags — they come from config and may be further overridden at runtime
+/// by context `=` writes (the context epic).
+#[must_use]
+pub fn resolve_defaults(config: &Config, overrides: &DefaultOverrides) -> ResolvedDefaults {
+    ResolvedDefaults {
+        mode: overrides.mode.unwrap_or(config.defaults.mode),
+        model: overrides
+            .model
+            .clone()
+            .or_else(|| config.defaults.model.clone()),
+        parallelism: overrides.parallelism.unwrap_or(config.defaults.parallelism),
+        sep: config.context.defaults.sep.clone(),
+        cache: config.context.defaults.cache,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1306,5 +1358,46 @@ models:
             other => panic!("expected Invalid, got {other:?}"),
         }
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn resolve_defaults_precedence() {
+        // Empty config, no overrides -> built-in defaults.
+        let cfg = Config::default();
+        let r = resolve_defaults(&cfg, &DefaultOverrides::default());
+        assert_eq!(r.mode, Mode::Llm);
+        assert_eq!(r.model, None);
+        assert_eq!(r.parallelism, crate::DEFAULT_PARALLELISM);
+        assert_eq!(r.sep, "\n");
+        assert!(r.cache);
+
+        // Config values, no overrides.
+        let cfg: Config = serde_yaml::from_str(
+            r##"
+defaults: { mode: det, model: haiku, parallelism: 4 }
+context:
+  defaults: { _sep: "|", _cache: false }
+"##,
+        )
+        .unwrap();
+        let r = resolve_defaults(&cfg, &DefaultOverrides::default());
+        assert_eq!(r.mode, Mode::Det);
+        assert_eq!(r.model.as_deref(), Some("haiku"));
+        assert_eq!(r.parallelism, 4);
+        assert_eq!(r.sep, "|");
+        assert!(!r.cache);
+
+        // CLI overrides win over config; sep/cache have no CLI flag so stay from config.
+        let over = DefaultOverrides {
+            mode: Some(Mode::Llm),
+            model: Some("sonnet".to_owned()),
+            parallelism: Some(16),
+        };
+        let r = resolve_defaults(&cfg, &over);
+        assert_eq!(r.mode, Mode::Llm);
+        assert_eq!(r.model.as_deref(), Some("sonnet"));
+        assert_eq!(r.parallelism, 16);
+        assert_eq!(r.sep, "|");
+        assert!(!r.cache);
     }
 }

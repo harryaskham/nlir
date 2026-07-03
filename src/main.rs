@@ -221,20 +221,32 @@ fn resolve_config(cli: &Cli) -> Result<nlir::config::Config, i32> {
     })
 }
 
+/// Build the resolvable-defaults overrides from the global CLI flags.
+fn cli_overrides(cli: &Cli) -> nlir::config::DefaultOverrides {
+    nlir::config::DefaultOverrides {
+        mode: cli.mode.map(Into::into),
+        model: cli.model.clone(),
+        parallelism: cli.parallelism,
+    }
+}
+
 /// `nlir -e 'EXPR'` — SKELETON identity passthrough (bd-57ad92).
 fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     let cfg = resolve_config(cli)?;
+    let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
     let input = EvalInput {
         expr: expr.to_owned(),
-        mode: cli.mode.map(Into::into),
-        model: cli.model.clone(),
+        mode: Some(settings.mode),
+        model: settings.model.clone(),
         dry_run: cli.dry_run,
     };
     match eval(&input) {
         Ok(out) => {
             if out.stub && !cli.quiet {
                 eprintln!(
-                    "nlir: evaluation is a skeleton stub (bd-57ad92); loaded {} configured operator(s), returning the input unchanged.",
+                    "nlir: evaluation is a skeleton stub (bd-57ad92); mode={}, parallelism={}, {} configured operator(s); returning the input unchanged.",
+                    settings.mode.as_str(),
+                    settings.parallelism,
                     cfg.operators.len()
                 );
             }
