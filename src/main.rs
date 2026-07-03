@@ -230,10 +230,18 @@ fn run(cli: Cli) -> Result<(), i32> {
 /// Load the nlir config (SPEC §CLI: `--config PATH` else the default path),
 /// mapping a discovery/parse failure to a clear diagnostic + exit code 2.
 fn resolve_config(cli: &Cli) -> Result<nlir::config::Config, i32> {
-    nlir::config::load(cli.config.as_deref()).map_err(|error| {
+    let mut cfg = nlir::config::load(cli.config.as_deref()).map_err(|error| {
         eprintln!("nlir: {error}");
         2
-    })
+    })?;
+    // Apply the `--parallelism N` override onto the config the DAG scheduler
+    // reads. The eval API takes `mode` per call but the Evaluator reads its
+    // parallelism from `config.defaults.parallelism`, so a CLI override must be
+    // written back here or it is resolved-then-silently-dropped (bd-149949).
+    if let Some(parallelism) = cli.parallelism {
+        cfg.defaults.parallelism = parallelism.max(1);
+    }
+    Ok(cfg)
 }
 
 /// Build the resolvable-defaults overrides from the global CLI flags.
