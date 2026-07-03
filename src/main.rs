@@ -239,8 +239,12 @@ fn cli_overrides(cli: &Cli) -> nlir::config::DefaultOverrides {
 /// `nlir -e 'EXPR'` — SKELETON identity passthrough (bd-57ad92).
 fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     let cfg = resolve_config(cli)?;
-    let mut ctx = open_context(cli)?;
     let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
+    // --dry-run: parse to the DAG and make NO calls (bd-e432fc).
+    if cli.dry_run {
+        return run_dry_run(cli, &cfg, expr, settings.mode);
+    }
+    let mut ctx = open_context(cli)?;
     // Evaluate against a MUTABLE context (assignments write through).
     let result = nlir::eval::evaluate(expr, &cfg, &mut ctx, settings.mode);
     // Read `_sep` AFTER eval so a `_sep=` assignment affects rendering.
@@ -268,6 +272,43 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
             Err(1)
         }
     }
+}
+
+/// `--dry-run`: tokenise + parse `expr` into the DAG and print it, making NO
+/// calls (no LLM request, no `command:` subprocess) (bd-e432fc). Assembled-prompt
+/// preview for llm mode follows the LLM realisation wiring.
+fn run_dry_run(
+    cli: &Cli,
+    cfg: &nlir::config::Config,
+    expr: &str,
+    mode: nlir::Mode,
+) -> Result<(), i32> {
+    let out = match parse(
+        &ParseInput {
+            expr: expr.to_owned(),
+        },
+        &cfg.operators,
+    ) {
+        Ok(out) => out,
+        Err(error) => {
+            eprintln!("nlir: {error}");
+            return Err(1);
+        }
+    };
+    if let Some(err) = &out.parse_error {
+        eprintln!("nlir --dry-run: parse error: {err}");
+        return Err(1);
+    }
+    if !cli.quiet {
+        eprintln!(
+            "nlir --dry-run [{}]: DAG below; no calls made.",
+            mode.as_str()
+        );
+    }
+    if let Some(ast) = &out.ast {
+        println!("{ast}");
+    }
+    Ok(())
 }
 
 fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
