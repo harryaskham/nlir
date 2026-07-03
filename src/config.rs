@@ -669,7 +669,14 @@ fn interpolate_value(value: &mut serde_yaml::Value, lookup: &dyn Fn(&str) -> Opt
             }
         }
         serde_yaml::Value::Mapping(map) => {
-            for (_key, val) in map.iter_mut() {
+            for (key, val) in map.iter_mut() {
+                // `command:` values are bash scripts (SPEC command realisation);
+                // bash does its own `$var` expansion, so config env-interp must
+                // NOT touch them — otherwise a bare shell `$out`/`$PWD`-style var
+                // that collides with a SET env var is clobbered (bd-a31ff7).
+                if key.as_str() == Some("command") {
+                    continue;
+                }
                 interpolate_value(val, lookup);
             }
         }
@@ -1246,6 +1253,42 @@ models:
         assert!(cmd.contains("${NLIR_ARGS[0]}"), "cmd={cmd}");
         assert!(cmd.contains("$UNSET_LOCAL"), "cmd={cmd}");
         assert!(cmd.contains("$(seq 1 $((n-1)))"), "cmd={cmd}");
+    }
+
+    #[test]
+    fn command_blocks_are_not_env_interpolated() {
+        // A bash `$out` in a command: block must survive config interp even when
+        // `out` is a SET env var (the nix dev-shell exports it) — bd-a31ff7.
+        let env = |name: &str| -> Option<String> {
+            match name {
+                "out" => Some("/nix/store/xxx/outputs/out".to_owned()),
+                "ANTHROPIC_API_KEY" => Some("sk-secret".to_owned()),
+                _ => None,
+            }
+        };
+        let yaml = r##"
+operators:
+  echo:
+    op: "_"
+    arity: 2
+    fixity: infix
+    command: 'out="$t"; printf "%s" "$out"'
+models:
+  m:
+    type: command
+    command: 'run $out'
+    api_key: $ANTHROPIC_API_KEY
+"##;
+        let cfg = parse_str_with_env(yaml, Path::new("cfg.yaml"), &env).expect("parses");
+        // `$out` in command: blocks stays literal (bash owns it) for both the
+        // operator and model command realisations.
+        assert_eq!(
+            cfg.operators["echo"].command.as_deref(),
+            Some(r#"out="$t"; printf "%s" "$out""#)
+        );
+        assert_eq!(cfg.models["m"].command.as_deref(), Some("run $out"));
+        // Non-command fields still interpolate SET os-env vars.
+        assert_eq!(cfg.models["m"].api_key.as_deref(), Some("sk-secret"));
     }
 
     #[test]
