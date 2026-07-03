@@ -69,6 +69,11 @@ pub enum Expr {
     /// prefix over its whole RHS; the marked subtree evaluates serially inside
     /// while still running in parallel with respect to its siblings).
     Serial(Box<Expr>),
+    /// `key = RHS` — a context assignment (SPEC §Context: read & assign). `key`
+    /// is a literal key string (identifier; `_`-prefixed = system key); the RHS
+    /// is an expression. Yields the value and writes context immediately
+    /// (eval-side is bd-c85dee).
+    Assign { key: String, value: Box<Expr> },
     /// An operator application; `operands.len()` is 1 for prefix/postfix, 2 for
     /// infix/mixfix (until variadic flattening makes mixfix n-ary).
     Apply {
@@ -101,6 +106,7 @@ impl Expr {
                 format!("[{}]", parts.join(", "))
             }
             Expr::Serial(inner) => format!("(` {})", inner.render()),
+            Expr::Assign { key, value } => format!("({key} = {})", value.render()),
             Expr::Apply {
                 op,
                 fixity,
@@ -349,7 +355,34 @@ impl Parser<'_> {
 
     fn expr(&mut self, min_bp: u32) -> Result<Expr, ParseError> {
         let mut lhs = self.nud()?;
-        while let Some((op, info)) = self.peek_led() {
+        loop {
+            // Assignment `key = RHS`: the builtin `=` is the loosest-binding,
+            // right-associative form; its target must be a literal key (bd-4c3498).
+            if matches!(self.peek(), Some(Token::Equals)) {
+                const ASSIGN_BP: u32 = 1;
+                if ASSIGN_BP < min_bp {
+                    break;
+                }
+                let key = match &lhs {
+                    Expr::Bare(k) => k.clone(),
+                    _ => {
+                        return Err(ParseError {
+                            position: self.pos,
+                            message: "assignment target must be a literal key".to_owned(),
+                        });
+                    }
+                };
+                self.pos += 1; // consume '='
+                let value = self.expr(ASSIGN_BP)?;
+                lhs = Expr::Assign {
+                    key,
+                    value: Box::new(value),
+                };
+                continue;
+            }
+            let Some((op, info)) = self.peek_led() else {
+                break;
+            };
             match info.fixity {
                 Fixity::Postfix => {
                     let l_bp = bp(info.priority);
@@ -703,5 +736,23 @@ mod tests {
         let ops = ladder();
         let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
         assert!(parse_expr(&tokenize("a&", &sigils).unwrap(), &ops).is_err());
+    }
+
+    #[test]
+    fn assignment() {
+        // `key = RHS`: literal key, expression RHS (bd-4c3498).
+        assert_eq!(render("k=foo"), "(k = foo)");
+        assert_eq!(render("k=a+b"), "(k = (a + b))");
+        // `_`-prefixed system keys lex and assign.
+        assert_eq!(render("_sep=x"), "(_sep = x)");
+        // Lowest precedence + right-associative.
+        assert_eq!(render("a=b=c"), "(a = (b = c))");
+        // Assignment is a statement value; a program can read it back.
+        let ops = ladder();
+        let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
+        let prog = parse_program(&tokenize("k=foo;$k", &sigils).unwrap(), &ops).unwrap();
+        assert_eq!(prog.render(), "(k = foo); $k");
+        // A non-literal-key target is an error.
+        assert!(parse_expr(&tokenize("(a)=b", &sigils).unwrap(), &ops).is_err());
     }
 }

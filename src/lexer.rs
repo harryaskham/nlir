@@ -200,8 +200,9 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
                 tokens.push(tok);
                 i = next;
             }
-            // A bare literal starts with an alphanumeric or an escape.
-            '\\' | 'a'..='z' | 'A'..='Z' | '0'..='9' => {
+            // A bare literal starts with an alphanumeric, an escape, or a `_`
+            // (for `_`-prefixed system keys such as `_sep`, `_cache`).
+            '\\' | '_' | 'a'..='z' | 'A'..='Z' | '0'..='9' => {
                 let (tok, next) = lex_bare(&chars, i)?;
                 tokens.push(tok);
                 i = next;
@@ -365,7 +366,7 @@ fn lex_bare(chars: &[char], start: usize) -> Result<(Token, usize), LexError> {
             let (ch, next) = read_escape(chars, i)?;
             out.push(ch);
             i = next;
-        } else if c.is_ascii_alphanumeric() {
+        } else if c.is_ascii_alphanumeric() || c == '_' {
             out.push(c);
             i += 1;
         } else {
