@@ -13,7 +13,7 @@
 
 defaults:
   mode: llm
-  model: haiku
+  model: sonnet
   parallelism: 8
 
 context:
@@ -34,14 +34,14 @@ context:
 
 types: # coercion targets (deterministic parse first, LLM fallback)
   number:
-    model: haiku
+    model: sonnet
     prompt: |
       Interpret the text inside <text> as a single number. Return only the number.
 
       %
     schema: { type: object, properties: { result: { type: number } }, required: [result] }
   bool:
-    model: haiku
+    model: sonnet
     prompt: |
       Interpret the text inside <text> as true or false.
 
@@ -83,22 +83,12 @@ models:
           additionalProperties: false
   sonnet:
     type: command
-    format: json
-    result_field: result
-    command: >
-      claude --model claude-sonnet-5
-        --system-prompt "${NLIR_SYSTEM_PROMPT}"
-        --append-system-prompt "${NLIR_STRUCTURED_PROMPT}"
-        --output-format json --json-schema '{"result": "string"}'
-        --print "${NLIR_PROMPT}"
-  gpt-5.5:
+    format: text
+    command: claude --model claude-sonnet-5 --append-system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
+  copilot:
     type: command
     format: text
-    command: >
-      pi --no-extensions --no-session --model github_copilot/gpt-5.5
-        --system-prompt "${NLIR_SYSTEM_PROMPT}"
-        --append-system-prompt "${NLIR_UNSTRUCTURED_PROMPT}"
-        --print "${NLIR_PROMPT}"
+    command: pi --no-extensions --no-session --model github-copilot/claude-sonnet-4.6 --system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
 
 prompts:
   system: { env: NLIR_SYSTEM_PROMPT, text: "Perform the following text transformation task.\nRespond with the transformed text in plain language.\nDo not include <text> tags in your output." }
@@ -106,11 +96,12 @@ prompts:
   unstructured: { env: NLIR_UNSTRUCTURED_PROMPT, text: "Output only the text result of your transformation with no preamble." }
 
 operators: # `%` = operand under replacement; `%%` = literal %
-  subject: { op: "#", arity: 1, fixity: prefix, model: haiku, prompt: "Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.\n\n%" }
-  not: { op: "!", arity: 1, fixity: prefix, template: "not %", model: haiku, prompt: "Negate the text inside <text>...</text>, changing nothing else.\n\n%" }
+  subject: { op: "#", arity: 1, fixity: prefix, model: sonnet, prompt: "Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.\n\n%" }
+  not: { op: "!", arity: 1, fixity: prefix, template: "not %", model: sonnet, prompt: "Negate the text inside <text>...</text>, changing nothing else.\n\n%" }
   and: { op: "&", arity: ">0", fixity: mixfix, join: " and ", model: sonnet, prompt: "Combine the <text> items with an \"and\" connective into one text meaning \"t_0 and t_1 and ...\".\n\n%" }
   or: { op: "|", arity: ">0", fixity: mixfix, join: " or ", model: sonnet, prompt: "Combine the <text> items with an \"or\" connective into one text meaning \"t_0 or t_1 or ...\".\n\n%" }
-  question: { op: "?", arity: 1, fixity: postfix, priority: 0, template: "is it the case that %?", model: gpt-5.5, prompt: "Convert the text inside <text> into a question, preserving subject and meaning.\n\n%" }
+  question: { op: "?", arity: 1, fixity: postfix, priority: 0, template: "is it the case that %?", model: copilot, prompt: "Convert the text inside <text> into a question, preserving subject and meaning.\n\n%" }
+  summary: { op: "~", arity: 1, fixity: prefix, model: sonnet, prompt: "Summarise the text inside <text> in one short sentence. Return only the summary.\n\n%" }
   echo:
     op: "_"
     arity: 2
