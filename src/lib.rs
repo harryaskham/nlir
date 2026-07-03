@@ -30,6 +30,7 @@ pub mod lexer;
 pub mod llm;
 pub mod messages;
 pub mod parser;
+pub mod realise;
 pub mod stack;
 pub mod value;
 
