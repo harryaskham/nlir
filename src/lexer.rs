@@ -175,6 +175,11 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
     // negative index (Number) rather than the subtract operator. Preserved across
     // intervening whitespace.
     let mut after_caret = false;
+    // Set right after any value-producing token so a following `_` lexes as the
+    // configured `_` operator (operand position) rather than the start of a
+    // `_`-prefixed system key (nud position). Preserved across whitespace like
+    // `after_caret` (bd-ebf385).
+    let mut prev_is_value = false;
     while i < chars.len() {
         let c = chars[i];
         if c.is_whitespace() {
@@ -200,9 +205,18 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
                 tokens.push(tok);
                 i = next;
             }
-            // A bare literal starts with an alphanumeric, an escape, or a `_`
-            // (for `_`-prefixed system keys such as `_sep`, `_cache`).
-            '\\' | '_' | 'a'..='z' | 'A'..='Z' | '0'..='9' => {
+            // A `_`-prefixed system key (`_sep`, `_cache`, …) in operand
+            // position. A `_` that follows a value is instead the configured
+            // `_` operator sigil, handled below via `match_operator` (bd-ebf385).
+            '_' if !prev_is_value
+                && chars.get(i + 1).is_some_and(|n| n.is_ascii_alphanumeric()) =>
+            {
+                let (tok, next) = lex_bare(&chars, i)?;
+                tokens.push(tok);
+                i = next;
+            }
+            // A bare literal starts with an alphanumeric or an escape.
+            '\\' | 'a'..='z' | 'A'..='Z' | '0'..='9' => {
                 let (tok, next) = lex_bare(&chars, i)?;
                 tokens.push(tok);
                 i = next;
@@ -264,6 +278,19 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
                 }
             }
         }
+        prev_is_value = matches!(
+            tokens.last(),
+            Some(
+                Token::Bare(_)
+                    | Token::Quoted(_)
+                    | Token::Number(_)
+                    | Token::RParen
+                    | Token::RBracket
+                    | Token::ContextRead(_)
+                    | Token::StackPeek
+                    | Token::StackIndex(_)
+            )
+        );
     }
     Ok(tokens)
 }
@@ -360,13 +387,20 @@ fn match_operator(chars: &[char], i: usize, op_sigils: &[String]) -> Option<(Str
 fn lex_bare(chars: &[char], start: usize) -> Result<(Token, usize), LexError> {
     let mut out = String::new();
     let mut i = start;
+    // A single leading `_` marks a `_`-prefixed system key (`_sep`, `_cache`).
+    // `_` is NOT a mid-token continuation char, so `xxx_2` splits at `_` and the
+    // configured `_` operator can match (bd-ebf385).
+    if chars.get(i) == Some(&'_') {
+        out.push('_');
+        i += 1;
+    }
     while i < chars.len() {
         let c = chars[i];
         if c == '\\' {
             let (ch, next) = read_escape(chars, i)?;
             out.push(ch);
             i = next;
-        } else if c.is_ascii_alphanumeric() || c == '_' {
+        } else if c.is_ascii_alphanumeric() {
             out.push(c);
             i += 1;
         } else {
@@ -742,5 +776,43 @@ mod tests {
             ]
         );
         assert_eq!(Token::Number(-1.0).numeric_value(), Some(-1.0));
+    }
+
+    #[test]
+    fn underscore_key_vs_echo_operator() {
+        let op_sigils = ops(&["_"]);
+        // `_` after a value is the configured operator, so `xxx_2` splits
+        // (bd-ebf385: det-echo `xxx_2` -> `xxx _ 2`).
+        assert_eq!(
+            tokenize("xxx_2", &op_sigils).unwrap(),
+            vec![
+                Token::Bare("xxx".to_owned()),
+                Token::Operator("_".to_owned()),
+                Token::Bare("2".to_owned()),
+            ]
+        );
+        assert_eq!(
+            tokenize("a_b", &op_sigils).unwrap(),
+            vec![
+                Token::Bare("a".to_owned()),
+                Token::Operator("_".to_owned()),
+                Token::Bare("b".to_owned()),
+            ]
+        );
+        // A `_`-prefixed system key in operand position stays one bare
+        // (det-sep `_sep=\ `).
+        assert_eq!(
+            tokenize("_sep=x", &op_sigils).unwrap(),
+            vec![
+                Token::Bare("_sep".to_owned()),
+                Token::Equals,
+                Token::Bare("x".to_owned()),
+            ]
+        );
+        // A `_`-key lexes even when `_` is not a configured operator.
+        assert_eq!(
+            tokenize("_cache", NO_OPS).unwrap(),
+            vec![Token::Bare("_cache".to_owned())]
+        );
     }
 }
