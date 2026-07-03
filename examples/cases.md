@@ -30,6 +30,28 @@ These are exact and reproducible — they are the `nlir test` regression suite.
 | `nlir --mode det -e "'one two'"` | `one two` | quoted multi-word literal |
 | `nlir --mode det -e 'k=foo;$k'` | `foo` | assignment + `$name` read |
 | `nlir --mode det -e '_sep=\ ;[a,b]'` | `a b` | `_sep` + list render |
+| `nlir --mode det -e '1+2*3'` | `7` | precedence ladder (`*` binds before `+`) |
+| `nlir --mode det -e '(1+2)*(3+4)'` | `21` | grouping + precedence |
+| `nlir --mode det -e '2**10'` | `1024` | power |
+| `nlir --mode det -e '1+2;3+4'` | `7` | program result = final statement |
+| `nlir --mode det -e 'x=5;y=10;$x+$y'` | `15` | multi-statement, two reads |
+| `nlir --mode det -e '1/0'` | *(error)* `division by zero` | loud arithmetic error |
+
+## Lists & spread
+
+A `[a,b,c]` list **spreads** into a variadic operator, and stringifies by
+joining its elements with `_sep`.
+
+| Expression | Result | Notes |
+|---|---|---|
+| `&[1,2,3]` | `1 and 2 and 3` | list spreads into variadic `&` |
+| `+[1,2,3,4]` | `10` | list spreads into variadic `+` |
+| `[1,2]+3` | `6` | spread ≡ `1+2+3` (NOT a list→number coercion) |
+| `[2,3]*4` | `24` | spread ≡ `2*3*4` |
+| `1-[2,3]` | *(error)* `a list is never a number` | arity-2 `-` does not spread |
+| `'a';'b';&` | `a and b` | nullary `&` pops the statement stack |
+| `[a,b,c]` (fresh ctx) | `a`⏎`b`⏎`c` | bare list joins with `_sep` (default `\n`) |
+| `_sep=', ';[a,b,c]` | `a, b, c` | explicit `_sep` overrides the default |
 
 Interpolation and messages (with a context):
 
@@ -75,6 +97,21 @@ first, then (in `llm` mode) the per-type LLM coercion from the `types:` map.
 | `2+'three'` | `5` | `'three'` → 3 via the `number` coercion, then reduce |
 | `'ten'*'two'` | `20` | both operands LLM-coerced to numbers |
 
+## Model backends
+
+In `llm` mode, `model`/`prompt` operators realise via the configured `models:`.
+Three transports are all verified end-to-end; the concurrent DAG scheduler
+parallelises independent subtrees across every backend:
+
+- **command** — `sonnet` (`claude` → claude-sonnet-5), `copilot`
+  (`pi` → github-copilot/claude-sonnet-4.6).
+- **HTTP** — `direct` (`anthropic_messages` → a LiteLLM proxy at `:4000/v1`,
+  `x-api-key` auth). See the `direct:` block's comment in `config.example.yaml`
+  for the URL/port and the `LITELLM_MASTER_KEY` env caveat.
+
+Point an operator at a specific model via its `model:` field; an unset `model:`
+falls back to `defaults.model`.
+
 ## Gotchas
 
 - **Bare literals are single words.** `#the quick brown fox` is a parse error
@@ -86,3 +123,10 @@ first, then (in `llm` mode) the per-type LLM coercion from the `types:` map.
 - **`det` vs `llm`.** `command`/`reduce` realisations and coercion math are
   deterministic in both modes; `template`/`join` realise deterministically in
   `det` mode, while `model`/`prompt` realise via the LLM in `llm` mode.
+- **Unresolved `$name`.** In a double-quoted string an undefined `$name` is left
+  literal (forgiving templating); a bare `$name` read of an undefined name is a
+  loud error (a value must resolve). This asymmetry is intentional.
+- **The context file persists.** Assignments and `_sep=`/`_cache=` write through
+  to the active context file (`context.file_default`), so they persist across
+  runs and can silently pollute later invocations. Use `--context-file <temp>`
+  for clean, reproducible runs.

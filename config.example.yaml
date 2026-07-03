@@ -89,6 +89,22 @@ models:
     type: command
     format: text
     command: pi --no-extensions --no-session --model github-copilot/claude-sonnet-4.6 --system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
+  # Direct HTTP against a LiteLLM proxy speaking the Anthropic Messages API.
+  # Replace base_url with your own proxy; NOTE the explicit :4000 port here
+  # (a bare host + /v1 hits port 80). The key is read from the environment, so
+  # if yours lives in a file, export it first, e.g.:
+  #   export LITELLM_MASTER_KEY=$(cat "$CACOPHONY_LITELLM_MASTER_KEY_FILE")
+  direct:
+    type: anthropic_messages
+    base_url: http://helsinki.miku-owl.ts.net:4000/v1
+    api_key: $LITELLM_MASTER_KEY
+    model: claude-sonnet-5
+    format: text
+    messages:
+      - role: system
+        content: "${NLIR_SYSTEM_PROMPT}"
+      - role: user
+        content: "${NLIR_PROMPT}"
 
 prompts:
   system: { env: NLIR_SYSTEM_PROMPT, text: "Perform the following text transformation task.\nRespond with the transformed text in plain language.\nDo not include <text> tags in your output." }
