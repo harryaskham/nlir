@@ -250,26 +250,39 @@ impl<'a> Evaluator<'a> {
             .find(|configured| configured.op == op)
             .ok_or_else(|| EvalError::UnknownOperator(op.to_owned()))?;
 
-        // SPEC: grouping is preserved in string output — remember which operands
-        // were parenthesised before we lose that in their values.
-        let grouped: Vec<bool> = operand_exprs
-            .iter()
-            .map(|expr| matches!(expr, Expr::Group(_)))
-            .collect();
-
-        // Operand-first (bd-168ef8): resolve every operand to a value.
-        let mut operands = Vec::with_capacity(operand_exprs.len());
-        for expr in operand_exprs {
-            operands.push(self.eval(expr)?);
-        }
-
-        // A list operand spreads into a variadic op — `&[a,b,c]` ≡ `a&b&c`
-        // (SPEC §Structure; bd-02a795). Non-variadic ops keep the list as one
-        // value (it renders via `_sep`).
-        let (operands, grouped) = if op_cfg.arity == Arity::Variadic {
-            spread_lists(operands, grouped)
+        let (operands, grouped) = if operand_exprs.is_empty() {
+            // Nullary-pop (bd-9aac32): an operator given no operands consumes
+            // from the stack — arity-k pops k, variadic pops all (SPEC §Builtins).
+            let popped = match op_cfg.arity {
+                Arity::Exact(k) => self.stack.pop_n(k as usize).ok_or_else(|| {
+                    EvalError::Stack(format!("`{op}` needs {k} value(s) on the stack to pop"))
+                })?,
+                Arity::Variadic => self.stack.pop_all(),
+            };
+            let grouped = vec![false; popped.len()];
+            (popped, grouped)
         } else {
-            (operands, grouped)
+            // SPEC: grouping is preserved in string output — remember which
+            // operands were parenthesised before we lose that in their values.
+            let grouped: Vec<bool> = operand_exprs
+                .iter()
+                .map(|expr| matches!(expr, Expr::Group(_)))
+                .collect();
+
+            // Operand-first (bd-168ef8): resolve every operand to a value.
+            let mut operands = Vec::with_capacity(operand_exprs.len());
+            for expr in operand_exprs {
+                operands.push(self.eval(expr)?);
+            }
+
+            // A list operand spreads into a variadic op — `&[a,b,c]` ≡ `a&b&c`
+            // (SPEC §Structure; bd-02a795). Non-variadic ops keep the list as one
+            // value (it renders via `_sep`).
+            if op_cfg.arity == Arity::Variadic {
+                spread_lists(operands, grouped)
+            } else {
+                (operands, grouped)
+            }
         };
 
         let sep = self.sep();
@@ -523,6 +536,24 @@ operators:
         // (This mirrors the SPEC `_` echo op; the SPEC `_` sigil itself is
         // currently lexer-blocked — see the note in this bead's session.)
         assert_eq!(det("xxx@2"), "xxx xxx");
+    }
+
+    #[test]
+    fn nullary_operator_pops_the_stack() {
+        // SPEC: an operator given no operands pops the stack. The parser only
+        // produces the bare/nullary form for variadic mixfix ops, which pop all
+        // (bd-9aac32).
+        assert_eq!(det("a;b;&"), "a and b");
+        // A nullary numeric reduce pops + coerces its operands too.
+        assert_eq!(det("2;3;+"), "5");
+    }
+
+    #[test]
+    fn context_reads_resolve_greedily_at_eval_time() {
+        // bd-91e573: `$name` reads `context[name]` at eval time, so a read after
+        // an assignment reflects the current value (and a later reassignment).
+        assert_eq!(det("k=a;$k"), "a");
+        assert_eq!(det("k=a;k=b;$k"), "b");
     }
 
     #[test]
