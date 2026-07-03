@@ -131,6 +131,10 @@ pub struct Evaluator<'a> {
     context: &'a mut Context,
     mode: Mode,
     stack: Stack,
+    /// Per-run memoisation of operator realisations keyed by
+    /// `(op, mode, model, grouping, operand-texts)` — SPEC §parallelism dedupes
+    /// identical subcalls when `_cache` is on (bd-1d078c).
+    realise_cache: std::collections::HashMap<String, Value>,
 }
 
 impl<'a> Evaluator<'a> {
@@ -143,6 +147,7 @@ impl<'a> Evaluator<'a> {
             context,
             mode,
             stack: Stack::new(),
+            realise_cache: std::collections::HashMap::new(),
         }
     }
 
@@ -303,7 +308,39 @@ impl<'a> Evaluator<'a> {
             .map(|value| value.coerce(op_cfg.operands, &sep))
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.realise(op, op_cfg, &coerced, &grouped, &sep)
+        self.realise_cached(op, op_cfg, &coerced, &grouped, &sep)
+    }
+
+    /// [`Evaluator::realise`] with per-run memoisation (bd-1d078c). When `_cache`
+    /// is on (default), identical realisations — same `(op, mode, model,
+    /// grouping, operand-texts)` — are computed once and reused, deduping
+    /// repeated LLM/command subcalls (SPEC §Execution graph: caching). `_cache`
+    /// off bypasses the cache entirely.
+    fn realise_cached(
+        &mut self,
+        op: &str,
+        op_cfg: &OperatorConfig,
+        operands: &[Value],
+        grouped: &[bool],
+        sep: &str,
+    ) -> Result<Value, EvalError> {
+        if !self.context.cache() {
+            return self.realise(op, op_cfg, operands, grouped, sep);
+        }
+        let key = realise_cache_key(
+            op,
+            self.mode,
+            op_cfg.model.as_deref(),
+            operands,
+            grouped,
+            sep,
+        );
+        if let Some(cached) = self.realise_cache.get(&key) {
+            return Ok(cached.clone());
+        }
+        let result = self.realise(op, op_cfg, operands, grouped, sep)?;
+        self.realise_cache.insert(key, result.clone());
+        Ok(result)
     }
 
     /// Resolve + run an operator's realisation (bd-d58371). Order (SPEC §Modes):
@@ -460,6 +497,25 @@ fn value_to_json(value: &Value) -> Json {
     }
 }
 
+/// Build the per-run realisation cache key (bd-1d078c): the operator sigil,
+/// mode, model alias, grouping, and rendered operand texts uniquely identify a
+/// realisation result, so identical subcalls dedupe.
+fn realise_cache_key(
+    op: &str,
+    mode: Mode,
+    model: Option<&str>,
+    operands: &[Value],
+    grouped: &[bool],
+    sep: &str,
+) -> String {
+    let texts: Vec<String> = operands.iter().map(|value| value.render(sep)).collect();
+    format!(
+        "{op}\u{1f}{}\u{1f}{}\u{1f}{grouped:?}\u{1f}{texts:?}",
+        mode.as_str(),
+        model.unwrap_or("")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -490,6 +546,13 @@ operators:
       t="${NLIR_ARGS[0]}"; n="${NLIR_ARGS[1]}"; out="$t"
       for i in $(seq 1 $((n-1))); do out="$out $t"; done
       printf '%s' "$out"
+  rand:
+    op: "~"
+    arity: 1
+    fixity: prefix
+    operands: string
+    command: |
+      od -An -tx1 -N6 /dev/urandom | tr -d ' '
 "##;
         config::parse_str(yaml, Path::new("test-config.yaml")).expect("valid test config")
     }
@@ -585,6 +648,37 @@ operators:
         // an assignment reflects the current value (and a later reassignment).
         assert_eq!(det("k=a;$k"), "a");
         assert_eq!(det("k=a;k=b;$k"), "b");
+    }
+
+    #[test]
+    fn subcall_cache_dedupes_identical_realisations() {
+        // bd-1d078c: with `_cache` on (default), two identical realisations (`~x`
+        // via a random command) are computed once and reused, so both halves of
+        // the join match.
+        let out = det("~x&~x");
+        let parts: Vec<&str> = out.split(" and ").collect();
+        assert_eq!(parts.len(), 2, "expected a two-part join, got {out:?}");
+        assert_eq!(
+            parts[0], parts[1],
+            "identical cached subcalls must return the same value, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn cache_disabled_reruns_each_subcall() {
+        // bd-1d078c: with `_cache=false`, identical subcalls are NOT deduped, so
+        // two random commands differ. Retry to avoid a rare 6-byte nonce clash.
+        let differ = (0..8).any(|_| {
+            let out = det("_cache=false;~x&~x");
+            matches!(
+                out.split(" and ").collect::<Vec<_>>().as_slice(),
+                [a, b] if a != b
+            )
+        });
+        assert!(
+            differ,
+            "with _cache=false, uncached random subcalls should differ across retries"
+        );
     }
 
     #[test]

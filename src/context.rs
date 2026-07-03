@@ -222,12 +222,21 @@ impl Context {
 
     /// Whether subcall/coercion caching is on: `_cache` if set, else the config
     /// default (`true`).
+    ///
+    /// Accepts either a JSON bool or the strings `"true"`/`"false"`, since an
+    /// in-expression `_cache=false` assignment stores the bare literal as a
+    /// string (SPEC bool coercion of `"true"`/`"false"`).
     #[must_use]
     pub fn cache(&self) -> bool {
-        self.data
-            .get("_cache")
-            .and_then(Value::as_bool)
-            .unwrap_or(self.cache_default)
+        match self.data.get("_cache") {
+            Some(Value::Bool(flag)) => *flag,
+            Some(Value::String(text)) => match text.trim() {
+                "true" => true,
+                "false" => false,
+                _ => self.cache_default,
+            },
+            _ => self.cache_default,
+        }
     }
 
     /// The `_messages` array (empty when absent or not an array). The key is
