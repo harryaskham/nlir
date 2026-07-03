@@ -481,6 +481,11 @@ pub enum ConfigError {
         path: PathBuf,
         source: serde_yaml::Error,
     },
+    /// The config parsed but failed semantic validation (bd-cef403).
+    Invalid {
+        path: PathBuf,
+        issues: Vec<ValidationError>,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -495,6 +500,18 @@ impl fmt::Display for ConfigError {
             ConfigError::Parse { path, source } => {
                 write!(f, "failed to parse config {}: {source}", path.display())
             }
+            ConfigError::Invalid { path, issues } => {
+                writeln!(
+                    f,
+                    "invalid config {} ({} issue(s)):",
+                    path.display(),
+                    issues.len()
+                )?;
+                for issue in issues {
+                    writeln!(f, "  - {issue}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -505,6 +522,7 @@ impl std::error::Error for ConfigError {
             ConfigError::NotFound(_) => None,
             ConfigError::Read { source, .. } => Some(source),
             ConfigError::Parse { source, .. } => Some(source),
+            ConfigError::Invalid { .. } => None,
         }
     }
 }
@@ -523,8 +541,9 @@ pub fn load(explicit: Option<&Path>) -> Result<Config, ConfigError> {
     }
 }
 
-/// Read and parse a config file, mapping I/O and parse failures to
-/// [`ConfigError`] with the path attached.
+/// Read and parse a config file, then run semantic [`validate`] (bd-cef403),
+/// mapping I/O, parse, and validation failures to [`ConfigError`] with the path
+/// attached.
 pub fn load_file(path: &Path) -> Result<Config, ConfigError> {
     let text = fs::read_to_string(path).map_err(|source| {
         if source.kind() == io::ErrorKind::NotFound {
@@ -536,7 +555,16 @@ pub fn load_file(path: &Path) -> Result<Config, ConfigError> {
             }
         }
     })?;
-    parse_str(&text, path)
+    let config = parse_str(&text, path)?;
+    let issues = validate(&config);
+    if issues.is_empty() {
+        Ok(config)
+    } else {
+        Err(ConfigError::Invalid {
+            path: path.to_path_buf(),
+            issues,
+        })
+    }
 }
 
 /// Parse config from a YAML string, interpolating OS-env references at load
@@ -670,6 +698,178 @@ fn interpolate_str(input: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Stri
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// validation (bd-cef403)
+// ---------------------------------------------------------------------------
+
+/// Builtin sigils reserved by the engine (SPEC §Builtins). A configured operator
+/// `op` may not contain any of these, or it would shadow a builtin.
+pub const RESERVED_SIGILS: &[char] = &[
+    ';', '$', '^', '=', '[', ']', ',', '(', ')', '`', '"', '\'', '\\',
+];
+
+/// One semantic validation problem, with a dotted `location` into the config.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationError {
+    /// Dotted config location, e.g. `operators.subject` or `defaults.model`.
+    pub location: String,
+    /// Human-readable description of the problem.
+    pub message: String,
+}
+
+impl ValidationError {
+    fn new(location: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            location: location.into(),
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.location, self.message)
+    }
+}
+
+/// Semantically validate a parsed [`Config`] (bd-cef403). Returns every problem
+/// found (an empty vec means the config is valid). Structural/unknown-key errors
+/// are already rejected at parse time by `deny_unknown_fields`; this layer adds
+/// cross-field and referential checks: operator op/arity/fixity sanity,
+/// reserved-sigil collisions, duplicate ops, realisation presence, model-kind
+/// required fields, model-reference integrity, and `parallelism >= 1`.
+#[must_use]
+pub fn validate(config: &Config) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+
+    if config.defaults.parallelism == 0 {
+        errs.push(ValidationError::new("defaults.parallelism", "must be >= 1"));
+    }
+    if let Some(model) = &config.defaults.model {
+        if !config.models.contains_key(model) {
+            errs.push(ValidationError::new(
+                "defaults.model",
+                format!("references unknown model {model:?}"),
+            ));
+        }
+    }
+
+    for (name, model) in &config.models {
+        let loc = format!("models.{name}");
+        match model.kind {
+            ModelKind::Command => {
+                if model.command.as_deref().is_none_or(str::is_empty) {
+                    errs.push(ValidationError::new(
+                        &loc,
+                        "type: command requires a non-empty `command`",
+                    ));
+                }
+            }
+            ModelKind::AnthropicMessages => {
+                if model.base_url.as_deref().is_none_or(str::is_empty) {
+                    errs.push(ValidationError::new(
+                        &loc,
+                        "type: anthropic_messages requires `base_url`",
+                    ));
+                }
+                if model.model.as_deref().is_none_or(str::is_empty) {
+                    errs.push(ValidationError::new(
+                        &loc,
+                        "type: anthropic_messages requires `model`",
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut seen_ops: BTreeMap<&str, &str> = BTreeMap::new();
+    for (name, op) in &config.operators {
+        let loc = format!("operators.{name}");
+        if op.op.is_empty() {
+            errs.push(ValidationError::new(&loc, "`op` must not be empty"));
+        } else {
+            for c in op.op.chars() {
+                if RESERVED_SIGILS.contains(&c) {
+                    errs.push(ValidationError::new(
+                        &loc,
+                        format!("op {:?} collides with reserved builtin sigil {c:?}", op.op),
+                    ));
+                }
+            }
+            if let Some(prev) = seen_ops.get(op.op.as_str()) {
+                errs.push(ValidationError::new(
+                    &loc,
+                    format!("op {:?} duplicates operator {prev:?}", op.op),
+                ));
+            } else {
+                seen_ops.insert(op.op.as_str(), name.as_str());
+            }
+        }
+
+        match op.fixity {
+            Fixity::Prefix | Fixity::Postfix => {
+                if op.arity != Arity::Exact(1) {
+                    errs.push(ValidationError::new(
+                        &loc,
+                        format!("{:?} operator must have arity 1", op.fixity),
+                    ));
+                }
+            }
+            Fixity::Infix => {
+                if op.arity != Arity::Exact(2) {
+                    errs.push(ValidationError::new(
+                        &loc,
+                        "infix operator must have arity 2",
+                    ));
+                }
+            }
+            Fixity::Mixfix => {
+                if op.arity != Arity::Variadic {
+                    errs.push(ValidationError::new(
+                        &loc,
+                        "mixfix operator must have arity \">0\"",
+                    ));
+                }
+            }
+        }
+
+        let has_realisation = op.command.is_some()
+            || op.reduce.is_some()
+            || op.template.is_some()
+            || op.join.is_some()
+            || op.model.is_some()
+            || op.prompt.is_some();
+        if !has_realisation {
+            errs.push(ValidationError::new(
+                &loc,
+                "operator has no realisation (need command/reduce/template/join or model+prompt)",
+            ));
+        }
+
+        if let Some(model) = &op.model {
+            if !config.models.contains_key(model) {
+                errs.push(ValidationError::new(
+                    &loc,
+                    format!("model {model:?} is not defined in `models`"),
+                ));
+            }
+        }
+    }
+
+    for (name, ty) in &config.types {
+        if let Some(model) = &ty.model {
+            if !config.models.contains_key(model) {
+                errs.push(ValidationError::new(
+                    format!("types.{name}"),
+                    format!("model {model:?} is not defined in `models`"),
+                ));
+            }
+        }
+    }
+
+    errs
 }
 
 #[cfg(test)]
@@ -956,5 +1156,155 @@ models:
         assert!(is_valid_env_name("FOO_1"));
         assert!(!is_valid_env_name("1FOO"));
         assert!(!is_valid_env_name(""));
+    }
+
+    #[test]
+    fn sample_config_validates_clean() {
+        let cfg: Config = serde_yaml::from_str(SAMPLE).unwrap();
+        let issues = validate(&cfg);
+        assert!(issues.is_empty(), "sample should be valid, got: {issues:?}");
+    }
+
+    #[test]
+    fn reserved_sigil_and_duplicate_ops_are_rejected() {
+        let cfg: Config = serde_yaml::from_str(
+            r##"
+operators:
+  semi: { op: ";", arity: 1, fixity: prefix, template: "x" }
+  a:    { op: "&", arity: ">0", fixity: mixfix, join: " and " }
+  b:    { op: "&", arity: ">0", fixity: mixfix, join: " et " }
+"##,
+        )
+        .unwrap();
+        let issues = validate(&cfg);
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "operators.semi"
+                    && e.message.contains("reserved builtin sigil")),
+            "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.message.contains("duplicates operator")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn fixity_arity_mismatches_are_rejected() {
+        let cfg: Config = serde_yaml::from_str(
+            r##"
+operators:
+  badinfix:  { op: "-", arity: 1, fixity: infix, reduce: sub }
+  badmixfix: { op: "+", arity: 2, fixity: mixfix, reduce: add }
+  badprefix: { op: "#", arity: 2, fixity: prefix, template: "x" }
+"##,
+        )
+        .unwrap();
+        let issues = validate(&cfg);
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "operators.badinfix" && e.message.contains("arity 2")),
+            "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "operators.badmixfix" && e.message.contains(">0")),
+            "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "operators.badprefix" && e.message.contains("arity 1")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn missing_realisation_and_unknown_model_ref_rejected() {
+        let cfg: Config = serde_yaml::from_str(
+            r##"
+operators:
+  empty: { op: "@", arity: 1, fixity: prefix }
+  refs:  { op: "~", arity: 1, fixity: prefix, model: nope, prompt: "%" }
+"##,
+        )
+        .unwrap();
+        let issues = validate(&cfg);
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "operators.empty" && e.message.contains("no realisation")),
+            "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "operators.refs"
+                    && e.message.contains("not defined in `models`")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn model_kind_required_fields_and_parallelism() {
+        let cfg: Config = serde_yaml::from_str(
+            r##"
+defaults:
+  parallelism: 0
+models:
+  cmd:  { type: command }
+  http: { type: anthropic_messages }
+"##,
+        )
+        .unwrap();
+        let issues = validate(&cfg);
+        assert!(
+            issues.iter().any(|e| e.location == "defaults.parallelism"),
+            "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "models.cmd" && e.message.contains("command")),
+            "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "models.http" && e.message.contains("base_url")),
+            "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "models.http" && e.message.contains("model")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn load_file_rejects_invalid_config() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("nlir-invalid-{}-{nanos}.yaml", std::process::id()));
+        fs::write(
+            &path,
+            "operators:\n  bad: { op: \";\", arity: 1, fixity: prefix, template: x }\n",
+        )
+        .expect("write temp config");
+        match load(Some(&path)) {
+            Err(ConfigError::Invalid { issues, .. }) => assert!(!issues.is_empty()),
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+        let _ = fs::remove_file(&path);
     }
 }
