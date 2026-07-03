@@ -153,6 +153,52 @@ impl Value {
                 .join(sep),
         }
     }
+
+    /// Attempt a *deterministic* coercion of this value to `target`, using `sep`
+    /// to join list elements when rendering to a string (SPEC §Types & coercion,
+    /// steps 1–2 — before any LLM call).
+    ///
+    /// Returns `Some(value)` when a deterministic rule applies; returns `None`
+    /// when no deterministic rule produces `target`, so the caller can fall back
+    /// to the constrained LLM coercion (bd-ecb930) or raise a loud error
+    /// (bd-20df97). Note `list → number` has no deterministic rule here and no
+    /// LLM path either — it is always an error, enforced by the loud-error layer.
+    ///
+    /// Deterministic rules:
+    /// - `→ string`: always succeeds — any value stringifies deterministically
+    ///   (numbers/bools render; lists join with `sep`).
+    /// - `→ number`: a number stays; a numeric string parses (`"1"` → `1`);
+    ///   any other source has no deterministic rule.
+    /// - `→ bool`: a bool stays; the trimmed strings `"true"` / `"false"` map to
+    ///   `true` / `false`; any other source has no deterministic rule.
+    /// - `→ list`: a list stays; scalars have no deterministic rule.
+    #[must_use]
+    pub fn coerce_deterministic(&self, target: TypeName, sep: &str) -> Option<Value> {
+        // Step 1: a value already of the requested type is used as-is.
+        if self.is_type(target) {
+            return Some(self.clone());
+        }
+        // Step 2: deterministic parses/renders. Anything not handled here is
+        // `None` (defer to the LLM fallback / loud-error layers).
+        match target {
+            // Every value has a deterministic string form.
+            TypeName::String => Some(Value::String(self.render(sep))),
+            TypeName::Number => match self {
+                Value::String(s) => s.trim().parse::<f64>().ok().map(Value::Number),
+                _ => None,
+            },
+            TypeName::Bool => match self {
+                Value::String(s) => match s.trim() {
+                    "true" => Some(Value::Bool(true)),
+                    "false" => Some(Value::Bool(false)),
+                    _ => None,
+                },
+                _ => None,
+            },
+            // No deterministic scalar → list rule (already-list handled above).
+            TypeName::List => None,
+        }
+    }
 }
 
 /// Render an nlir number to its canonical string form.
@@ -330,6 +376,105 @@ mod tests {
         assert_eq!(
             Value::from(vec![Value::number(1.0)]),
             Value::List(vec![Value::Number(1.0)])
+        );
+    }
+
+    // --- deterministic coercion (bd-456f12) ---
+
+    #[test]
+    fn coerce_same_type_is_identity() {
+        assert_eq!(
+            Value::number(3.0).coerce_deterministic(TypeName::Number, "\n"),
+            Some(Value::number(3.0))
+        );
+        let list = Value::list(vec![Value::string("a")]);
+        assert_eq!(
+            list.coerce_deterministic(TypeName::List, "\n"),
+            Some(list.clone())
+        );
+    }
+
+    #[test]
+    fn coerce_to_string_always_succeeds_deterministically() {
+        // number/bool/list all stringify without an LLM call.
+        assert_eq!(
+            Value::number(2.0).coerce_deterministic(TypeName::String, "\n"),
+            Some(Value::string("2"))
+        );
+        assert_eq!(
+            Value::bool(true).coerce_deterministic(TypeName::String, "\n"),
+            Some(Value::string("true"))
+        );
+        let list = Value::list(vec![Value::string("a"), Value::string("b")]);
+        assert_eq!(
+            list.coerce_deterministic(TypeName::String, ", "),
+            Some(Value::string("a, b"))
+        );
+    }
+
+    #[test]
+    fn coerce_string_to_number_parses_numeric_text() {
+        assert_eq!(
+            Value::string("1").coerce_deterministic(TypeName::Number, "\n"),
+            Some(Value::number(1.0))
+        );
+        assert_eq!(
+            Value::string("1.5").coerce_deterministic(TypeName::Number, "\n"),
+            Some(Value::number(1.5))
+        );
+        assert_eq!(
+            Value::string("-2").coerce_deterministic(TypeName::Number, "\n"),
+            Some(Value::number(-2.0))
+        );
+        // Surrounding whitespace is tolerated.
+        assert_eq!(
+            Value::string("  3  ").coerce_deterministic(TypeName::Number, "\n"),
+            Some(Value::number(3.0))
+        );
+        // Non-numeric text has no deterministic rule (defers to LLM/error layer).
+        assert_eq!(
+            Value::string("ten").coerce_deterministic(TypeName::Number, "\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn coerce_string_to_bool_maps_true_false_only() {
+        assert_eq!(
+            Value::string("true").coerce_deterministic(TypeName::Bool, "\n"),
+            Some(Value::bool(true))
+        );
+        assert_eq!(
+            Value::string(" false ").coerce_deterministic(TypeName::Bool, "\n"),
+            Some(Value::bool(false))
+        );
+        // "yes"/"1" are not deterministic bools (an LLM may interpret them).
+        assert_eq!(
+            Value::string("yes").coerce_deterministic(TypeName::Bool, "\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn coerce_without_deterministic_rule_returns_none() {
+        // list -> number: never deterministic (and an error in the loud layer).
+        assert_eq!(
+            Value::list(vec![Value::number(1.0)]).coerce_deterministic(TypeName::Number, "\n"),
+            None
+        );
+        // number -> bool and bool -> number: no deterministic rule.
+        assert_eq!(
+            Value::number(1.0).coerce_deterministic(TypeName::Bool, "\n"),
+            None
+        );
+        assert_eq!(
+            Value::bool(true).coerce_deterministic(TypeName::Number, "\n"),
+            None
+        );
+        // scalar -> list: no deterministic rule.
+        assert_eq!(
+            Value::string("a").coerce_deterministic(TypeName::List, "\n"),
+            None
         );
     }
 }
