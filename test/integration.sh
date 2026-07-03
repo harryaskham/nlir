@@ -3,9 +3,10 @@
 #   nix run .#test
 #
 # This is the project's end-to-end smoke test: it builds the package and drives
-# each user-facing surface (eval / parse / mcp / status via mcp / --help) against
-# the real binary, asserting on output where it is cheap. It must NOT start any
-# blocking server; only `mcp stdio` is exercised via `mcp tools` (no loop).
+# each user-facing surface (eval / parse / set / get / append-message / mcp /
+# status via mcp / --help) against the real binary, asserting on output where it
+# is cheap. It must NOT start any blocking server; only `mcp stdio` is exercised
+# via `mcp tools` (no loop).
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -40,5 +41,17 @@ echo "$tools" | grep -q 'feedback' || fail "mcp tools missing the feedback tools
 
 echo "==> nlir test (skeleton no-op, exit 0)"
 "$bin" test || fail "test exited non-zero"
+
+echo "==> nlir set/get/append-message context round-trip (bd-bf6faf/bd-f60fac/bd-6cfd88/bd-f6ba99)"
+ctx="$(mktemp -u "${TMPDIR:-/tmp}/nlir-it-XXXXXX.json")"
+"$bin" set greeting hello --context-file "$ctx" --quiet || fail "set KEY VALUE exited non-zero"
+got="$("$bin" get greeting --context-file "$ctx" --quiet)" || fail "get exited non-zero"
+[ "$got" = "hello" ] || fail "get mismatch: '$got'"
+"$bin" set '{"a":"1","b":"two"}' --context-file "$ctx" --quiet || fail "set JSON object exited non-zero"
+[ "$("$bin" get b --context-file "$ctx" --quiet)" = "two" ] || fail "JSON-merge get mismatch"
+"$bin" append-message --role user "hi" --context-file "$ctx" --quiet || fail "append-message exited non-zero"
+grep -q '"role": "user"' "$ctx" || fail "append-message did not persist a message"
+if "$bin" get missing --context-file "$ctx" --quiet 2>/dev/null; then fail "get of a missing key should exit non-zero"; fi
+rm -f "$ctx"
 
 echo "==> integration smoke OK"

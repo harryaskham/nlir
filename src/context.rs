@@ -263,6 +263,15 @@ impl Context {
         self.data.get(key)
     }
 
+    /// Render a context key's value as `$name` interpolation would (a string is
+    /// the raw text; a list joins its elements with `_sep`); `None` if the key
+    /// is absent. Used by `nlir get` (bd-f60fac).
+    #[must_use]
+    pub fn render_key(&self, key: &str) -> Option<String> {
+        let sep = self.sep();
+        self.data.get(key).map(|value| render_json(value, &sep))
+    }
+
     /// The whole context object (read-only).
     #[must_use]
     pub fn data(&self) -> &Map<String, Value> {
@@ -705,6 +714,23 @@ mod tests {
         assert_eq!(store.get("a").and_then(Value::as_i64), Some(1));
         assert_eq!(store.get("b").and_then(Value::as_i64), Some(99)); // replaced
         assert_eq!(store.get("c").and_then(Value::as_i64), Some(3));
+    }
+
+    #[test]
+    fn render_key_renders_like_interpolation() {
+        let mut store = Context::empty(&cfg());
+        store.merge(object(&[
+            ("greeting", Value::from("hello")),
+            (
+                "items",
+                Value::Array(vec![Value::from("a"), Value::from("b")]),
+            ),
+            ("_sep", Value::from(",")),
+        ]));
+        // A string renders raw; a list joins with `_sep`; a missing key is None.
+        assert_eq!(store.render_key("greeting").as_deref(), Some("hello"));
+        assert_eq!(store.render_key("items").as_deref(), Some("a,b"));
+        assert_eq!(store.render_key("missing"), None);
     }
 
     // -- system keys & defaults (bd-fdd3bc) --------------------------------

@@ -194,9 +194,9 @@ fn run(cli: Cli) -> Result<(), i32> {
         Some(Command::Parse(ref args)) => run_parse(&cli, args),
         Some(Command::Test) => run_test(&cli),
         Some(Command::Repl(ref args)) => run_repl(&cli, args),
-        Some(Command::Set(ref args)) => run_set(args),
-        Some(Command::Get(ref args)) => run_get(args),
-        Some(Command::AppendMessage(ref args)) => run_append_message(args),
+        Some(Command::Set(ref args)) => run_set(&cli, args),
+        Some(Command::Get(ref args)) => run_get(&cli, args),
+        Some(Command::AppendMessage(ref args)) => run_append_message(&cli, args),
         Some(Command::Mcp(ref mcp)) => run_mcp(mcp),
         Some(Command::SelfUpdate) => run_self_update(),
         Some(Command::Feedback(ref args)) => run_feedback(args),
@@ -304,22 +304,109 @@ fn run_repl(cli: &Cli, _args: &ReplArgs) -> Result<(), i32> {
     Ok(())
 }
 
-fn run_set(_args: &SetArgs) -> Result<(), i32> {
-    // SKELETON (bd-57ad92): context write-through lands downstream.
-    eprintln!("nlir set: context write is not yet implemented (bd-57ad92 skeleton).");
-    Ok(())
+/// Open the context store by SPEC source precedence (bd-f6ba99): resolve the
+/// ambient env (`--context-file`, `NLIR_CONTEXT`, the config default file) into a
+/// [`LoadSources`] and let [`nlir::context::Context::load`] apply strict
+/// first-present-wins. Session-file *parsing* is the sessions epic, so
+/// `session` is `None` here.
+fn open_context(cli: &Cli) -> Result<nlir::context::Context, i32> {
+    let cfg = resolve_config(cli)?;
+    let env_inline = std::env::var("NLIR_CONTEXT").ok();
+    let home = std::env::var_os("HOME");
+    let default_file = nlir::context::default_context_path(&cfg.context, home.as_deref());
+    let sources = nlir::context::LoadSources {
+        context_file: cli.context_file.as_deref(),
+        session: None,
+        env_inline: env_inline.as_deref(),
+        default_file: default_file.as_deref(),
+    };
+    nlir::context::Context::load(sources, &cfg.context).map_err(|error| {
+        eprintln!("nlir: context: {error}");
+        1
+    })
 }
 
-fn run_get(_args: &GetArgs) -> Result<(), i32> {
-    // SKELETON (bd-57ad92): context read lands downstream.
-    eprintln!("nlir get: context read is not yet implemented (bd-57ad92 skeleton).");
-    Ok(())
+/// Warn (unless `--quiet`) when a mutation targets a transient store with no
+/// write-through file, so a `set`/`append-message` that cannot persist is not
+/// silently lost (SPEC: `NLIR_CONTEXT` env / session imports are transient).
+fn warn_if_transient(cli: &Cli, ctx: &nlir::context::Context) {
+    if !cli.quiet && ctx.file().is_none() {
+        eprintln!(
+            "nlir: warning: no write-through context file (transient store); the change will not persist. Set `--context-file PATH` or `context.file_default`."
+        );
+    }
 }
 
-fn run_append_message(_args: &AppendMessageArgs) -> Result<(), i32> {
-    // SKELETON (bd-57ad92): `_messages` append lands downstream.
-    eprintln!("nlir append-message: not yet implemented (bd-57ad92 skeleton).");
-    Ok(())
+fn run_set(cli: &Cli, args: &SetArgs) -> Result<(), i32> {
+    let mut ctx = open_context(cli)?;
+    match args.args.as_slice() {
+        // `set '{...}'` — a JSON object whose named keys replace (not deep-merge).
+        [single] => {
+            if single.trim_start().starts_with('{') {
+                match serde_json::from_str::<serde_json::Value>(single) {
+                    Ok(serde_json::Value::Object(map)) => ctx.merge(map),
+                    Ok(_) => {
+                        eprintln!(
+                            "nlir set: the single-argument form must be a JSON object `{{...}}`"
+                        );
+                        return Err(2);
+                    }
+                    Err(error) => {
+                        eprintln!("nlir set: invalid JSON object: {error}");
+                        return Err(2);
+                    }
+                }
+            } else {
+                eprintln!("nlir set: expected `set KEY VALUE` or `set '{{...}}'`");
+                return Err(2);
+            }
+        }
+        // `set KEY VALUE` — replace one key with a string value.
+        [key, value] => {
+            ctx.set(key.clone(), serde_json::Value::String(value.clone()))
+                .map_err(|error| {
+                    eprintln!("nlir set: {error}");
+                    1
+                })?;
+        }
+        _ => {
+            eprintln!("nlir set: expected `set KEY VALUE` or `set '{{...}}'`");
+            return Err(2);
+        }
+    }
+    warn_if_transient(cli, &ctx);
+    ctx.save().map_err(|error| {
+        eprintln!("nlir set: write-through: {error}");
+        1
+    })
+}
+
+fn run_get(cli: &Cli, args: &GetArgs) -> Result<(), i32> {
+    let ctx = open_context(cli)?;
+    match ctx.render_key(&args.key) {
+        Some(text) => {
+            println!("{text}");
+            Ok(())
+        }
+        None => {
+            eprintln!("nlir get: no such context key {:?}", args.key);
+            Err(1)
+        }
+    }
+}
+
+fn run_append_message(cli: &Cli, args: &AppendMessageArgs) -> Result<(), i32> {
+    let mut ctx = open_context(cli)?;
+    ctx.append_message(&args.role, &args.text)
+        .map_err(|error| {
+            eprintln!("nlir append-message: {error}");
+            1
+        })?;
+    warn_if_transient(cli, &ctx);
+    ctx.save().map_err(|error| {
+        eprintln!("nlir append-message: write-through: {error}");
+        1
+    })
 }
 
 fn run_mcp(mcp: &McpCommand) -> Result<(), i32> {
