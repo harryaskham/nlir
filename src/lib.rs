@@ -226,24 +226,42 @@ pub struct ParseInput {
 /// Output for the `parse` command / MCP tool.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ParseOutput {
-    /// The token stream (each token's literal text) from the [`lexer`] literal
-    /// layer. Operator/sigil lexing and the AST/DAG parser land downstream.
+    /// The token stream (each token rendered) from the [`lexer`].
     pub tokens: Vec<String>,
-    /// True while `parse` returns only the token stream (no AST/DAG yet).
+    /// The rendered AST when the [`parser`] could build one from the tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ast: Option<String>,
+    /// The parse error when the parser could not build an AST (e.g. a construct
+    /// the parser core does not yet handle, like list literals or statements).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parse_error: Option<String>,
+    /// True while `parse` does not yet evaluate / build the full runtime DAG.
     pub stub: bool,
 }
 
-/// `parse` implementation shared by the CLI and the MCP tool.
+/// `parse` implementation shared by the CLI and the MCP tool (bd-c701b1).
 ///
-/// Tokenises the expression via the [`lexer`] literal layer
-/// (bd-a14b8a/5e6a92/80e0d1) and returns the token stream. `stub` stays true
-/// until the AST/DAG parser lands (parser epic). An unlexable character (e.g. an
-/// operator sigil, not yet in the lexer) is a validation error.
-pub fn parse(input: &ParseInput, op_sigils: &[String]) -> Result<ParseOutput, AppError> {
-    let tokens = lexer::tokenize(&input.expr, op_sigils)
+/// Tokenises the expression, then runs the precedence-climbing [`parser`] to
+/// build and render the AST. Both the token stream and the AST are returned; if
+/// the parser cannot yet handle a construct (list literals, statements, …) the
+/// tokens are still returned with a `parse_error`. An unlexable character is a
+/// hard validation error.
+pub fn parse(
+    input: &ParseInput,
+    operators: &std::collections::BTreeMap<String, config::OperatorConfig>,
+) -> Result<ParseOutput, AppError> {
+    let op_sigils: Vec<String> = operators.values().map(|op| op.op.clone()).collect();
+    let tokens = lexer::tokenize(&input.expr, &op_sigils)
         .map_err(|error| AppError::validation("lex_error", error.to_string()))?;
+    let token_strs = tokens.iter().map(|t| t.render()).collect();
+    let (ast, parse_error) = match parser::parse_expr(&tokens, operators) {
+        Ok(expr) => (Some(expr.render()), None),
+        Err(err) => (None, Some(err.to_string())),
+    };
     Ok(ParseOutput {
-        tokens: tokens.iter().map(|t| t.render()).collect(),
+        tokens: token_strs,
+        ast,
+        parse_error,
         stub: true,
     })
 }
@@ -279,12 +297,10 @@ pub fn build_router() -> ToolRouter<AppContext> {
 
     router.add_typed_tool(
         "parse",
-        "Tokenise an nlir shorthand expression (literal + operator layers, using configured operators from ~/.config/nlir/config.yaml). The AST/DAG parser lands downstream.",
+        "Parse an nlir shorthand expression: returns the token stream and the rendered AST (precedence-climbing parser over the configured operators from ~/.config/nlir/config.yaml).",
         |_ctx: &AppContext, input: ParseInput| {
-            let sigils = config::load(None)
-                .map(|c| config::operator_sigils(&c))
-                .unwrap_or_default();
-            parse(&input, &sigils)
+            let cfg = config::load(None).unwrap_or_default();
+            parse(&input, &cfg.operators)
         },
     );
 
@@ -402,40 +418,56 @@ mod tests {
     }
 
     #[test]
-    fn parse_tokenises_literal_layer() {
+    fn parse_tokenises_and_asts() {
+        use std::collections::BTreeMap;
+        let no_ops: BTreeMap<String, config::OperatorConfig> = BTreeMap::new();
+        // A single atom parses to an AST.
         let out = parse(
             &ParseInput {
-                expr: "one two three".to_owned(),
+                expr: "foo".to_owned(),
             },
-            &[],
+            &no_ops,
         )
-        .expect("literals tokenise");
-        assert_eq!(out.tokens, vec!["one", "two", "three"]);
-        assert!(out.stub);
-        // A quoted literal collapses to its content.
+        .expect("literal parses");
+        assert_eq!(out.tokens, vec!["foo"]);
+        assert_eq!(out.ast.as_deref(), Some("foo"));
+        assert!(out.parse_error.is_none());
+        // Multiple juxtaposed atoms tokenise but do not form one expression.
         let out = parse(
             &ParseInput {
-                expr: "'a b' c".to_owned(),
+                expr: "one two".to_owned(),
             },
-            &[],
+            &no_ops,
         )
-        .expect("quoted tokenises");
-        assert_eq!(out.tokens, vec!["a b", "c"]);
-        // A configured operator splits bares; an unconfigured sigil errors.
+        .expect("tokenises");
+        assert_eq!(out.tokens, vec!["one", "two"]);
+        assert!(out.ast.is_none());
+        assert!(out.parse_error.is_some());
+        // A configured operator both tokenises and parses into an AST.
+        let and_ops = BTreeMap::from([(
+            "and".to_owned(),
+            config::OperatorConfig {
+                op: "&".to_owned(),
+                fixity: config::Fixity::Mixfix,
+                ..config::OperatorConfig::default()
+            },
+        )]);
         let out = parse(
             &ParseInput {
                 expr: "a&b".to_owned(),
             },
-            &["&".to_owned()],
+            &and_ops,
         )
-        .expect("operator tokenises");
+        .expect("operator parses");
         assert_eq!(out.tokens, vec!["a", "&", "b"]);
+        assert_eq!(out.ast.as_deref(), Some("(a & b)"));
+        // An unconfigured sigil is a lex error.
         assert!(
             parse(
                 &ParseInput {
                     expr: "a&b".to_owned(),
                 },
-                &[],
+                &no_ops,
             )
             .is_err()
         );

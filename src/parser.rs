@@ -24,10 +24,24 @@ use std::fmt;
 use crate::config::{Fixity, OperatorConfig};
 use crate::lexer::{MessageRole, Token};
 
-/// Default operator priority when the config leaves it unset (SPEC: default 9).
+/// Default operator priority when the config leaves it unset. Per SPEC's
+/// precedence ladder the default is per-fixity so the coarse ordering holds
+/// without every config setting explicit priorities: prefix binds above binary,
+/// which binds above the loose postfix. The finer binary ladder
+/// (`**` > `* /` > `+ -`) is achieved by setting explicit config priorities.
 pub const DEFAULT_PRIORITY: i64 = 9;
 /// The `^` message index binds tightest (SPEC precedence ladder: `^` = 20).
 pub const CARET_PRIORITY: i64 = 20;
+
+/// The default priority for an operator of the given fixity when the config
+/// leaves `priority` unset (SPEC ladder: prefix 14, binary 9, postfix 1).
+fn default_priority(fixity: Fixity) -> i64 {
+    match fixity {
+        Fixity::Prefix => 14,
+        Fixity::Postfix => 1,
+        Fixity::Infix | Fixity::Mixfix => DEFAULT_PRIORITY,
+    }
+}
 
 /// The parsed expression AST.
 #[derive(Debug, Clone, PartialEq)]
@@ -129,7 +143,7 @@ fn op_table(operators: &BTreeMap<String, OperatorConfig>) -> BTreeMap<String, Op
                 o.op.clone(),
                 OpInfo {
                     fixity: o.fixity,
-                    priority: o.priority.unwrap_or(DEFAULT_PRIORITY),
+                    priority: o.priority.unwrap_or_else(|| default_priority(o.fixity)),
                 },
             )
         })
@@ -358,6 +372,31 @@ mod tests {
     fn message_index_prefix() {
         assert_eq!(render("^-1"), "^-1");
         assert_eq!(render("^_-1"), "^_-1");
+    }
+
+    #[test]
+    fn default_precedence_without_explicit_priority() {
+        // Operators with NO explicit priority default per fixity: prefix (14)
+        // above binary (9) above postfix (1), so `!a&b?` == `((!a)&b)?`.
+        fn op(op: &str, fixity: Fixity) -> OperatorConfig {
+            OperatorConfig {
+                op: op.to_owned(),
+                fixity,
+                priority: None,
+                ..OperatorConfig::default()
+            }
+        }
+        let ops = BTreeMap::from([
+            ("not".to_owned(), op("!", Fixity::Prefix)),
+            ("and".to_owned(), op("&", Fixity::Mixfix)),
+            ("q".to_owned(), op("?", Fixity::Postfix)),
+        ]);
+        let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
+        let toks = tokenize("!a&b?", &sigils).expect("tokenises");
+        assert_eq!(
+            parse_expr(&toks, &ops).expect("parses").render(),
+            "(((! a) & b) ?)"
+        );
     }
 
     #[test]

@@ -266,7 +266,7 @@ fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
         &ParseInput {
             expr: args.expr.clone(),
         },
-        &nlir::config::operator_sigils(&cfg),
+        &cfg.operators,
     ) {
         Ok(out) => out,
         Err(error) => {
