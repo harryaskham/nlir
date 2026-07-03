@@ -197,3 +197,7 @@ cargo fmt --all --check
 CI (`.github/workflows/ci.yml`) runs fmt, clippy (deny-warnings), build, and test
 on every push/PR; a `v*` tag triggers `.github/workflows/release.yml` to build and
 publish per-target binaries. Both use the system Rust toolchain.
+
+`.github/workflows/pages.yml` builds the docs site (`scripts/build-docs.sh` renders
+this README + `SPEC.md` to HTML with pandoc) and publishes it to GitHub Pages on
+push to `main`. Build it locally with `scripts/build-docs.sh ./site`.

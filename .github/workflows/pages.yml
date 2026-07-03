@@ -1,0 +1,71 @@
+name: pages
+
+# Build the nlir docs site (README.md + SPEC.md -> HTML via scripts/build-docs.sh)
+# and deploy to GitHub Pages. Runs on the self-hosted azure-ephemeral pool
+# (secretless; rust-not-nix per bd-aa78ee) and installs pandoc via apt, mirroring
+# ci.yml's apt build-essential step rather than pulling the ~5GB nix cache. This
+# follows the cacophony docs Pages lane + the a.skh.am pattern, using the standard
+# actions/upload-pages-artifact + actions/deploy-pages artifact flow.
+#
+# Repo setting required once: Settings -> Pages -> "Build and deployment" ->
+# Source: "GitHub Actions".
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - README.md
+      - SPEC.md
+      - scripts/build-docs.sh
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Serialize Pages deploys; don't cancel an in-flight publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    name: build + deploy docs
+    runs-on: [self-hosted, azure-ephemeral]
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Reset leftover git url rewrite (persistent-runner hygiene)
+        shell: bash
+        run: git config --global --unset-all url."ssh://git@github.com/".insteadOf 2>/dev/null || true
+
+      - uses: actions/checkout@v4
+
+      - name: Install pandoc
+        shell: bash
+        run: |
+          if ! command -v pandoc >/dev/null 2>&1; then
+            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends pandoc
+          fi
+
+      - name: Build docs site
+        shell: bash
+        run: bash scripts/build-docs.sh "$PWD/site"
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
