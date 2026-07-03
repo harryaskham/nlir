@@ -539,12 +539,137 @@ pub fn load_file(path: &Path) -> Result<Config, ConfigError> {
     parse_str(&text, path)
 }
 
-/// Parse config from a YAML string. `path` is only used for error context.
+/// Parse config from a YAML string, interpolating OS-env references at load
+/// (SPEC §Prompt templating layer 1). `path` is only used for error context.
 pub fn parse_str(yaml: &str, path: &Path) -> Result<Config, ConfigError> {
-    serde_yaml::from_str(yaml).map_err(|source| ConfigError::Parse {
+    parse_str_with_env(yaml, path, &|name| std::env::var(name).ok())
+}
+
+/// Testable core of [`parse_str`]: parse the YAML, interpolate `$FOO`/`${FOO}`
+/// OS-env references (using `lookup`) in every string scalar, then deserialize
+/// into [`Config`]. Taking `lookup` explicitly keeps tests hermetic without env
+/// mutation (which is `unsafe` under `unsafe_code = "forbid"`).
+///
+/// Interpolation rules (bd-7b1dd4):
+/// - `$NAME` and `${NAME}` are replaced with the OS-env value of `NAME`.
+/// - `NLIR_`-prefixed names are ENGINE-INTERNAL and are left literal here
+///   (they are resolved later during prompt/command assembly).
+/// - An unset (non-`NLIR_`) variable is left literal, so a missing secret is a
+///   visible `$NAME` for the validation layer rather than a silent empty.
+/// - `$` not starting a valid name (e.g. `$(`, `$5`, `$((`) is left literal, so
+///   embedded bash in `command:` scripts survives to run-time.
+pub fn parse_str_with_env(
+    yaml: &str,
+    path: &Path,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Config, ConfigError> {
+    let mut value: serde_yaml::Value =
+        serde_yaml::from_str(yaml).map_err(|source| ConfigError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    interpolate_value(&mut value, lookup);
+    serde_yaml::from_value(value).map_err(|source| ConfigError::Parse {
         path: path.to_path_buf(),
         source,
     })
+}
+
+/// Recursively interpolate OS-env references in every string scalar of a YAML
+/// value tree. Mapping KEYS are left untouched (they are fixed identifiers).
+fn interpolate_value(value: &mut serde_yaml::Value, lookup: &dyn Fn(&str) -> Option<String>) {
+    match value {
+        serde_yaml::Value::String(s) => {
+            if s.contains('$') {
+                *s = interpolate_str(s, lookup);
+            }
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            for item in seq.iter_mut() {
+                interpolate_value(item, lookup);
+            }
+        }
+        serde_yaml::Value::Mapping(map) => {
+            for (_key, val) in map.iter_mut() {
+                interpolate_value(val, lookup);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// True when `name` is a valid POSIX-ish env var name: `[A-Za-z_][A-Za-z0-9_]*`.
+fn is_valid_env_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Resolve a single reference: `NLIR_`-prefixed and unset names fall back to the
+/// original literal text (`original`), otherwise the OS-env value is used.
+fn substitute(name: &str, original: &str, lookup: &dyn Fn(&str) -> Option<String>) -> String {
+    if name.starts_with("NLIR_") {
+        return original.to_owned();
+    }
+    lookup(name).unwrap_or_else(|| original.to_owned())
+}
+
+/// Interpolate `$NAME` / `${NAME}` references in one string (see
+/// [`parse_str_with_env`] for the rules).
+fn interpolate_str(input: &str, lookup: &dyn Fn(&str) -> Option<String>) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '$' {
+            out.push(c);
+            continue;
+        }
+        match chars.peek().copied() {
+            // ${NAME}
+            Some('{') => {
+                chars.next(); // consume '{'
+                let mut name = String::new();
+                let mut closed = false;
+                while let Some(&nc) = chars.peek() {
+                    if nc == '}' {
+                        chars.next();
+                        closed = true;
+                        break;
+                    }
+                    name.push(nc);
+                    chars.next();
+                }
+                if closed && is_valid_env_name(&name) {
+                    out.push_str(&substitute(&name, &format!("${{{name}}}"), lookup));
+                } else {
+                    out.push_str("${");
+                    out.push_str(&name);
+                    if closed {
+                        out.push('}');
+                    }
+                }
+            }
+            // $NAME
+            Some(nc) if nc.is_ascii_alphabetic() || nc == '_' => {
+                let mut name = String::new();
+                while let Some(&nc) = chars.peek() {
+                    if nc.is_ascii_alphanumeric() || nc == '_' {
+                        name.push(nc);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                out.push_str(&substitute(&name, &format!("${name}"), lookup));
+            }
+            // bare '$' not starting a name (e.g. `$(`, `$5`, end of string)
+            _ => out.push('$'),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -766,5 +891,70 @@ tests:
         assert_eq!(cfg.defaults.parallelism, 4);
 
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn env_interpolation_resolves_os_vars_but_protects_nlir_and_unset() {
+        let env = |name: &str| -> Option<String> {
+            match name {
+                "ANTHROPIC_API_KEY" => Some("sk-secret".to_owned()),
+                "BASE" => Some("https://api.example.com".to_owned()),
+                _ => None,
+            }
+        };
+        let yaml = r##"
+models:
+  haiku:
+    type: anthropic_messages
+    base_url: ${BASE}/v1
+    api_key: $ANTHROPIC_API_KEY
+    messages:
+      - role: system
+        content: "${NLIR_SYSTEM_PROMPT} then $NLIR_PROMPT"
+  echo:
+    type: command
+    command: 't="${NLIR_ARGS[0]}"; n=$UNSET_LOCAL; for i in $(seq 1 $((n-1))); do :; done'
+"##;
+        let cfg =
+            parse_str_with_env(yaml, Path::new("cfg.yaml"), &env).expect("interpolates + parses");
+
+        // Real OS vars resolve (both `${X}` and `$X`).
+        assert_eq!(
+            cfg.models["haiku"].base_url.as_deref(),
+            Some("https://api.example.com/v1")
+        );
+        assert_eq!(cfg.models["haiku"].api_key.as_deref(), Some("sk-secret"));
+
+        // NLIR_-prefixed engine-internal refs are left literal.
+        assert_eq!(
+            cfg.models["haiku"].messages[0].content,
+            "${NLIR_SYSTEM_PROMPT} then $NLIR_PROMPT"
+        );
+
+        // command: NLIR arg + unset local + bash $(...) / $((...)) all survive.
+        let cmd = cfg.models["echo"].command.as_deref().unwrap();
+        assert!(cmd.contains("${NLIR_ARGS[0]}"), "cmd={cmd}");
+        assert!(cmd.contains("$UNSET_LOCAL"), "cmd={cmd}");
+        assert!(cmd.contains("$(seq 1 $((n-1)))"), "cmd={cmd}");
+    }
+
+    #[test]
+    fn interpolate_str_edge_cases() {
+        let env = |name: &str| -> Option<String> {
+            match name {
+                "FOO" => Some("bar".to_owned()),
+                _ => None,
+            }
+        };
+        assert_eq!(interpolate_str("a $FOO b", &env), "a bar b");
+        assert_eq!(interpolate_str("pre${FOO}post", &env), "prebarpost");
+        assert_eq!(interpolate_str("cost is $5", &env), "cost is $5");
+        assert_eq!(interpolate_str("trailing $", &env), "trailing $");
+        assert_eq!(interpolate_str("$MISSING kept", &env), "$MISSING kept");
+        assert_eq!(interpolate_str("${NLIR_X}", &env), "${NLIR_X}");
+        assert_eq!(interpolate_str("${unclosed", &env), "${unclosed");
+        assert!(is_valid_env_name("FOO_1"));
+        assert!(!is_valid_env_name("1FOO"));
+        assert!(!is_valid_env_name(""));
     }
 }
