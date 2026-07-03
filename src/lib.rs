@@ -25,6 +25,7 @@ use feedback_cli::{FeedbackConfig, ReportStrategy, Reporter, WebhookConfig};
 use mcp_cli::{ErrorCategory, StructuredError, ToolRouter};
 
 pub mod config;
+pub mod lexer;
 
 /// GitHub `owner/repo` the self-updater pulls release assets from.
 pub const UPDATE_REPO_SLUG: &str = "harryaskham/nlir";
@@ -223,24 +224,26 @@ pub struct ParseInput {
 /// Output for the `parse` command / MCP tool.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ParseOutput {
-    /// Rough token preview. SKELETON: whitespace-split of the raw expression;
-    /// the real tokeniser (bare/quoted/number/operator/sigil) lands downstream.
+    /// The token stream (each token's literal text) from the [`lexer`] literal
+    /// layer. Operator/sigil lexing and the AST/DAG parser land downstream.
     pub tokens: Vec<String>,
-    /// True while this is the skeleton stub (bd-57ad92).
+    /// True while `parse` returns only the token stream (no AST/DAG yet).
     pub stub: bool,
 }
 
 /// `parse` implementation shared by the CLI and the MCP tool.
 ///
-/// SKELETON (bd-57ad92): a placeholder tokeniser that whitespace-splits the
-/// expression. The real grammar-driven tokeniser + DAG parser land downstream.
+/// Tokenises the expression via the [`lexer`] literal layer
+/// (bd-a14b8a/5e6a92/80e0d1) and returns the token stream. `stub` stays true
+/// until the AST/DAG parser lands (parser epic). An unlexable character (e.g. an
+/// operator sigil, not yet in the lexer) is a validation error.
 pub fn parse(input: &ParseInput) -> Result<ParseOutput, AppError> {
-    let tokens = input
-        .expr
-        .split_whitespace()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    Ok(ParseOutput { tokens, stub: true })
+    let tokens = lexer::tokenize(&input.expr)
+        .map_err(|error| AppError::validation("lex_error", error.to_string()))?;
+    Ok(ParseOutput {
+        tokens: tokens.iter().map(|t| t.text().to_owned()).collect(),
+        stub: true,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -274,7 +277,7 @@ pub fn build_router() -> ToolRouter<AppContext> {
 
     router.add_typed_tool(
         "parse",
-        "Tokenise/parse an nlir shorthand expression. SKELETON: currently a whitespace-split token preview.",
+        "Tokenise an nlir shorthand expression (literal layer: whitespace/bare/numeric/quoted). Operator/sigil lexing and the AST/DAG parser land downstream.",
         |_ctx: &AppContext, input: ParseInput| parse(&input),
     );
 
@@ -392,13 +395,26 @@ mod tests {
     }
 
     #[test]
-    fn parse_splits_on_whitespace_stub() {
+    fn parse_tokenises_literal_layer() {
         let out = parse(&ParseInput {
             expr: "one two three".to_owned(),
         })
-        .expect("parse stub is infallible");
+        .expect("literals tokenise");
         assert_eq!(out.tokens, vec!["one", "two", "three"]);
         assert!(out.stub);
+        // A quoted literal collapses to its content.
+        let out = parse(&ParseInput {
+            expr: "'a b' c".to_owned(),
+        })
+        .expect("quoted tokenises");
+        assert_eq!(out.tokens, vec!["a b", "c"]);
+        // An operator sigil is not lexed yet -> validation error.
+        assert!(
+            parse(&ParseInput {
+                expr: "a&b".to_owned(),
+            })
+            .is_err()
+        );
     }
 
     #[test]
