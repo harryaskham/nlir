@@ -107,8 +107,9 @@ enum Command {
     /// Self-update from GitHub releases (updatable-cli). Also runs as `nlir update`.
     #[command(visible_alias = "update")]
     SelfUpdate,
-    /// Report a feedback / error / perf event (feedback-cli).
-    Feedback(FeedbackArgs),
+    /// Feedback / error / perf reporting (feedback-cli).
+    #[command(subcommand)]
+    Feedback(FeedbackCommand),
 }
 
 #[derive(Debug, Args)]
@@ -155,6 +156,14 @@ enum McpCommand {
     Stdio,
     /// Print the MCP tool metadata as JSON (no server loop).
     Tools,
+}
+
+#[derive(Debug, Subcommand)]
+enum FeedbackCommand {
+    /// Report a feedback / error / perf event to the configured sink.
+    Report(FeedbackArgs),
+    /// Show the configured feedback sink (secret-free), without sending an event.
+    Status,
 }
 
 #[derive(Debug, Args)]
@@ -205,7 +214,7 @@ fn run(cli: Cli) -> Result<(), i32> {
         Some(Command::AppendMessage(ref args)) => run_append_message(&cli, args),
         Some(Command::Mcp(ref mcp)) => run_mcp(mcp),
         Some(Command::SelfUpdate) => run_self_update(),
-        Some(Command::Feedback(ref args)) => run_feedback(args),
+        Some(Command::Feedback(ref cmd)) => run_feedback(cmd),
         None => match cli.expr {
             Some(ref expr) => run_eval(&cli, expr),
             None => {
@@ -704,7 +713,28 @@ fn run_self_update() -> Result<(), i32> {
     }
 }
 
-fn run_feedback(args: &FeedbackArgs) -> Result<(), i32> {
+fn run_feedback(cmd: &FeedbackCommand) -> Result<(), i32> {
+    match cmd {
+        FeedbackCommand::Report(args) => run_feedback_report(args),
+        FeedbackCommand::Status => run_feedback_status(),
+    }
+}
+
+/// `nlir feedback status`: report the configured sink without sending an event.
+/// The destination is secret-free (feedback-cli never renders tokens into it).
+fn run_feedback_status() -> Result<(), i32> {
+    let reporter = Reporter::from_config(&feedback_config());
+    let state = if reporter.is_enabled() {
+        "enabled"
+    } else {
+        "disabled (events print to stderr)"
+    };
+    println!("feedback: {state}");
+    println!("destination: {}", reporter.destination());
+    Ok(())
+}
+
+fn run_feedback_report(args: &FeedbackArgs) -> Result<(), i32> {
     let kind = match args.kind.to_ascii_lowercase().as_str() {
         "error" => FeedbackKind::Error,
         "exception" => FeedbackKind::Exception,

@@ -519,4 +519,22 @@ mod tests {
             updatable_cli::AssetStrategy::TendrilStyle
         ));
     }
+
+    #[test]
+    fn feedback_webhook_url_joins_secret_free_per_project_path() {
+        // The base URL + project sub-path join must tolerate slashes and must not
+        // carry any token (secrets stay in the token env var, never the URL).
+        assert_eq!(
+            feedback_webhook_url("https://hooks.example/global", "nlir"),
+            "https://hooks.example/global/nlir"
+        );
+        assert_eq!(
+            feedback_webhook_url("https://hooks.example/global/", "/nlir"),
+            "https://hooks.example/global/nlir"
+        );
+        assert!(
+            !feedback_webhook_url("https://hooks.example/global", "nlir").contains('@'),
+            "the routed URL must not embed credentials"
+        );
+    }
 }
