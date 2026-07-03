@@ -12,7 +12,7 @@
 //! beads fill in with the tokeniser, parser, stack machine, and realisation
 //! layers.
 
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
@@ -382,11 +382,129 @@ fn run_test(cli: &Cli) -> Result<(), i32> {
     if failed > 0 { Err(1) } else { Ok(()) }
 }
 
-fn run_repl(cli: &Cli, _args: &ReplArgs) -> Result<(), i32> {
-    // Validate config up front so a bad --config fails fast; REPL loop lands downstream.
+fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
+    // Fail fast on a bad config before entering the loop.
     resolve_config(cli)?;
-    eprintln!("nlir repl: not yet implemented (bd-57ad92 skeleton).");
+    let interactive = !args.raw;
+    if interactive {
+        eprintln!(
+            "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:set`/`:get`/`:append-message`/`:quit`); Ctrl-D to exit."
+        );
+    }
+    let stdin = io::stdin();
+    let mut input = stdin.lock();
+    let mut pending = String::new();
+    loop {
+        if interactive {
+            eprint!(
+                "{}",
+                if pending.is_empty() {
+                    "nlir> "
+                } else {
+                    "  ... "
+                }
+            );
+            let _ = io::stderr().flush();
+        }
+        let mut line = String::new();
+        match input.read_line(&mut line) {
+            Ok(0) => {
+                if interactive {
+                    eprintln!();
+                }
+                break;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("nlir repl: read error: {error}");
+                return Err(1);
+            }
+        }
+        let trimmed = line.trim_end_matches(['\n', '\r']);
+        // A trailing backslash continues onto the next line (bd-6a0ca8).
+        if let Some(head) = trimmed.strip_suffix('\\') {
+            pending.push_str(head);
+            pending.push('\n');
+            continue;
+        }
+        pending.push_str(trimmed);
+        let submission = std::mem::take(&mut pending);
+        let submission = submission.trim();
+        if submission.is_empty() {
+            continue;
+        }
+        // `:cmd` meta-command == `nlir cmd` (bd-c2ac59).
+        if let Some(meta) = submission.strip_prefix(':') {
+            let _ = repl_meta_command(cli, meta.trim());
+        } else {
+            // Evaluate; context is re-opened each time so writes/reloads reflect.
+            repl_eval(cli, submission);
+        }
+    }
     Ok(())
+}
+
+/// Evaluate one REPL submission, re-reading config + context each time (context
+/// reload, bd-6a0ca8). Prints the result to stdout; an error goes to stderr and
+/// does not end the loop.
+fn repl_eval(cli: &Cli, expr: &str) {
+    let Ok(cfg) = resolve_config(cli) else {
+        return;
+    };
+    let Ok(mut ctx) = open_context(cli) else {
+        return;
+    };
+    let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
+    let result = nlir::eval::evaluate(expr, &cfg, &mut ctx, settings.mode);
+    let sep = ctx.sep();
+    match result {
+        Ok(value) => {
+            let _ = ctx.save();
+            println!("{}", value.render(&sep));
+        }
+        Err(error) => eprintln!("nlir: {error}"),
+    }
+}
+
+/// Run a REPL `:cmd` meta-command as the matching `nlir` subcommand (bd-c2ac59).
+fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
+    let parts: Vec<&str> = meta.split_whitespace().collect();
+    match parts.as_slice() {
+        [] => Ok(()),
+        ["quit" | "exit" | "q"] => std::process::exit(0),
+        ["set", tail @ ..] if !tail.is_empty() => run_set(
+            cli,
+            &SetArgs {
+                args: tail.iter().map(|s| (*s).to_owned()).collect(),
+            },
+        ),
+        ["get", key] => run_get(
+            cli,
+            &GetArgs {
+                key: (*key).to_owned(),
+            },
+        ),
+        ["append-message", "--role", role, tail @ ..] if !tail.is_empty() => run_append_message(
+            cli,
+            &AppendMessageArgs {
+                role: (*role).to_owned(),
+                text: tail.join(" "),
+            },
+        ),
+        ["append-message", tail @ ..] if !tail.is_empty() => run_append_message(
+            cli,
+            &AppendMessageArgs {
+                role: "user".to_owned(),
+                text: tail.join(" "),
+            },
+        ),
+        _ => {
+            eprintln!(
+                "nlir repl: unknown meta-command ':{meta}' (try :set KEY VALUE, :get KEY, :append-message [--role R] TEXT, :quit)"
+            );
+            Err(2)
+        }
+    }
 }
 
 /// Open the context store, then optionally overlay a `--session-file` import.
