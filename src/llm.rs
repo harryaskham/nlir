@@ -820,6 +820,57 @@ impl std::error::Error for RealiseError {
 ///
 /// # Errors
 /// See [`RealiseError`].
+/// Assemble (but do NOT send) the llm request for `--dry-run` previews
+/// (bd-256baa): resolve the model and fill the prompt / NLIR_* vars exactly as
+/// [`realise_llm`] does, then render a human-readable view of the model and the
+/// prompt / messages that WOULD be sent. Makes no network or subprocess call.
+///
+/// # Errors
+/// Returns [`RealiseError`] if the model cannot be resolved.
+pub fn realise_llm_preview(
+    model_alias: Option<&str>,
+    prompt_template: &str,
+    operands: &[String],
+    config: &Config,
+    cli_model: Option<&str>,
+    env_lookup: impl Fn(&str) -> Option<String>,
+) -> Result<String, RealiseError> {
+    let (name, model) =
+        resolve_model(config, model_alias, cli_model).map_err(RealiseError::Model)?;
+    let filled = substitute_operands(prompt_template, operands);
+    let fragments = resolve_prompt_fragments(&config.prompts, &env_lookup);
+    let vars = assemble_nlir_vars(&filled, &fragments);
+    let mut out = String::new();
+    match model.kind {
+        ModelKind::Command => {
+            out.push_str(&format!("model `{name}` (command)"));
+            if let Some(prompt) = vars.get(NLIR_PROMPT_VAR) {
+                out.push_str(&format!(
+                    "\n    {NLIR_PROMPT_VAR}={}",
+                    prompt.replace('\n', "\n      ")
+                ));
+            }
+            if let Some(command) = model.command.as_deref() {
+                out.push_str("\n    $ ");
+                out.push_str(&command.replace('\n', "\n      "));
+            }
+        }
+        ModelKind::AnthropicMessages => {
+            let id = model.model.as_deref().unwrap_or("<no model id>");
+            out.push_str(&format!("model `{name}` (anthropic_messages: {id})"));
+            for message in &model.messages {
+                let content = substitute_nlir_vars(&message.content, &vars);
+                out.push_str(&format!(
+                    "\n    [{}] {}",
+                    message.role,
+                    content.replace('\n', "\n      ")
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub fn realise_llm(
     model_alias: Option<&str>,
     prompt_template: &str,
@@ -910,6 +961,39 @@ mod tests {
         assert_eq!(
             resolve_model(&config, None, None),
             Err(ModelResolveError::NoModel)
+        );
+    }
+
+    #[test]
+    fn realise_llm_preview_assembles_without_calling() {
+        // The `--dry-run` preview resolves the model + assembles the prompt/
+        // NLIR_* vars, making NO call (bd-256baa).
+        let mut config = config_with_models();
+        config.models.get_mut("sonnet").unwrap().command =
+            Some("printf %s \"$NLIR_PROMPT\"".to_owned());
+        let out = realise_llm_preview(
+            Some("sonnet"),
+            "Answer: %",
+            &["foo".to_owned()],
+            &config,
+            None,
+            |_| None,
+        )
+        .expect("preview assembles");
+        assert!(out.contains("model `sonnet` (command)"), "out={out}");
+        assert!(
+            out.contains("Answer: <text>foo</text>"),
+            "prompt not assembled: {out}"
+        );
+        assert!(out.contains("printf %s"), "command not shown: {out}");
+    }
+
+    #[test]
+    fn realise_llm_preview_errors_when_model_unresolved() {
+        let mut config = config_with_models();
+        config.defaults.model = None;
+        assert!(
+            realise_llm_preview(None, "p: %", &["x".to_owned()], &config, None, |_| None).is_err()
         );
     }
 

@@ -284,8 +284,8 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
 }
 
 /// `--dry-run`: tokenise + parse `expr` into the DAG and print it, making NO
-/// calls (no LLM request, no `command:` subprocess) (bd-e432fc). Assembled-prompt
-/// preview for llm mode follows the LLM realisation wiring.
+/// calls (no LLM request, no `command:` subprocess) (bd-e432fc). In llm mode it
+/// also previews the assembled prompts that WOULD be sent, per operator (bd-256baa).
 fn run_dry_run(
     cli: &Cli,
     cfg: &nlir::config::Config,
@@ -317,7 +317,98 @@ fn run_dry_run(
     if let Some(ast) = &out.ast {
         println!("{ast}");
     }
+    // llm mode: preview the assembled prompts that WOULD be sent (bd-256baa).
+    if matches!(mode, nlir::Mode::Llm) {
+        preview_llm_prompts(cli, cfg, expr);
+    }
     Ok(())
+}
+
+/// `--dry-run` llm preview (bd-256baa): for each llm-realised operator in `expr`,
+/// print the model + the prompt that WOULD be sent, making NO call. Operands are
+/// shown as their source form — exact for literals; a nested subcall is rendered
+/// as its (unevaluated) source expression in «…», since its real value is the
+/// child's result at eval time.
+fn preview_llm_prompts(cli: &Cli, cfg: &nlir::config::Config, expr: &str) {
+    let sigils = nlir::config::operator_sigils(cfg);
+    let Ok(tokens) = nlir::lexer::tokenize(expr, &sigils) else {
+        return;
+    };
+    let Ok(program) = nlir::parser::parse_program(&tokens, &cfg.operators) else {
+        return;
+    };
+    let mut previews = Vec::new();
+    for statement in &program.statements {
+        collect_llm_previews(cli, cfg, statement, &mut previews);
+    }
+    if previews.is_empty() {
+        if !cli.quiet {
+            eprintln!("nlir --dry-run: no llm-realised operators in this expression.");
+        }
+        return;
+    }
+    println!("--- assembled prompts (no calls) ---");
+    for preview in previews {
+        println!("{preview}");
+    }
+}
+
+/// Recursively collect assembled-prompt previews for llm-realised operators
+/// (no deterministic `command:`/`reduce:`, but a `prompt:`).
+fn collect_llm_previews(
+    cli: &Cli,
+    cfg: &nlir::config::Config,
+    expr: &nlir::parser::Expr,
+    out: &mut Vec<String>,
+) {
+    use nlir::parser::Expr;
+    match expr {
+        Expr::Apply { op, operands, .. } => {
+            if let Some(op_cfg) = cfg.operators.values().find(|o| &o.op == op) {
+                if op_cfg.command.is_none() && op_cfg.reduce.is_none() {
+                    if let Some(prompt) = op_cfg.prompt.as_deref() {
+                        let args: Vec<String> = operands.iter().map(operand_preview).collect();
+                        let rendered = nlir::llm::realise_llm_preview(
+                            op_cfg.model.as_deref(),
+                            prompt,
+                            &args,
+                            cfg,
+                            cli.model.as_deref(),
+                            |name| std::env::var(name).ok(),
+                        );
+                        match rendered {
+                            Ok(text) => out.push(format!("`{op}` -> {text}")),
+                            Err(error) => {
+                                out.push(format!("`{op}` -> (cannot preview: {error})"));
+                            }
+                        }
+                    }
+                }
+            }
+            for operand in operands {
+                collect_llm_previews(cli, cfg, operand, out);
+            }
+        }
+        Expr::Group(inner) | Expr::Serial(inner) => collect_llm_previews(cli, cfg, inner, out),
+        Expr::Message { index, .. } => collect_llm_previews(cli, cfg, index, out),
+        Expr::Assign { value, .. } => collect_llm_previews(cli, cfg, value, out),
+        Expr::List(items) => {
+            for item in items {
+                collect_llm_previews(cli, cfg, item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Render one operand for the preview: literals exactly; any other sub-expression
+/// as its source form wrapped in «…» to signal it is not yet evaluated.
+fn operand_preview(expr: &nlir::parser::Expr) -> String {
+    use nlir::parser::Expr;
+    match expr {
+        Expr::Bare(_) | Expr::Number(_) | Expr::Quoted { .. } => expr.render(),
+        other => format!("«{}»", other.render()),
+    }
 }
 
 fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {

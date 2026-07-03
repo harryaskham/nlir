@@ -42,6 +42,20 @@ YAML
 [ "$("$bin" -e 'a&b&c' --config "$ecfg" --dry-run --quiet)" = "(a & b & c)" ] || fail "dry-run DAG mismatch"
 rm -f "$ecfg"
 
+echo "==> nlir --dry-run previews llm prompts + makes no call (bd-256baa)"
+pcfg="$(mktemp -u "${TMPDIR:-/tmp}/nlir-pcfg-XXXXXX.yaml")"
+cat > "$pcfg" <<'YAML'
+defaults: { mode: llm }
+models:
+  echo: { type: command, command: 'printf "%s" "$NLIR_PROMPT"' }
+operators:
+  ask: { op: "?", arity: 1, fixity: postfix, prompt: "Q: %", model: echo }
+YAML
+prev="$("$bin" -e 'foo?' --config "$pcfg" --dry-run --mode llm --quiet)"
+echo "$prev" | grep -q 'assembled prompts' || fail "dry-run llm did not preview prompts: $prev"
+echo "$prev" | grep -q 'Q: <text>foo</text>' || fail "dry-run llm did not assemble the prompt: $prev"
+rm -f "$pcfg"
+
 echo "==> nlir parse 'one two' (token preview JSON)"
 "$bin" parse 'one two' | grep -q '"tokens"' || fail "parse did not emit tokens"
 
