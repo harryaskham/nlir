@@ -190,6 +190,12 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), i32> {
+    // First-run convenience (bd-8523df): write a starter ~/.config/nlir/config.yaml
+    // if none exists yet. Best-effort — a write failure must not block the command,
+    // and an existing config is never overwritten.
+    if let Ok(Some(path)) = nlir::config::scaffold_default_config() {
+        eprintln!("nlir: wrote a starter config to {}", path.display());
+    }
     match cli.command {
         Some(Command::Parse(ref args)) => run_parse(&cli, args),
         Some(Command::Test) => run_test(&cli),

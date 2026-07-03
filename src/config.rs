@@ -489,6 +489,38 @@ pub fn resolve_config_path(explicit: Option<&Path>) -> Option<PathBuf> {
     }
 }
 
+/// The starter config nlir writes on first run: the shipped `config.example.yaml`
+/// (the full SPEC example — operators, models, prompts, coercions, and tests).
+pub const EXAMPLE_CONFIG: &str = include_str!("../config.example.yaml");
+
+/// Scaffold the default config on first run: when [`default_config_path`]
+/// resolves and no file exists there yet, create the parent directory and write
+/// [`EXAMPLE_CONFIG`]. Returns the written path, or `None` when a config already
+/// exists (never overwritten) or no home is discoverable.
+///
+/// # Errors
+/// Propagates directory-create / write I/O errors.
+pub fn scaffold_default_config() -> io::Result<Option<PathBuf>> {
+    match default_config_path() {
+        Some(path) => scaffold_config_at(&path).map(|written| written.then_some(path)),
+        None => Ok(None),
+    }
+}
+
+/// Testable core of [`scaffold_default_config`]: write [`EXAMPLE_CONFIG`] to
+/// `path` if it does not already exist, creating parent directories. Returns
+/// whether a file was written (`false` when one already existed).
+fn scaffold_config_at(path: &Path) -> io::Result<bool> {
+    if path.exists() {
+        return Ok(false);
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, EXAMPLE_CONFIG)?;
+    Ok(true)
+}
+
 /// A config discovery / load error, carrying the offending path for clear
 /// operator-facing diagnostics.
 #[derive(Debug)]
@@ -1425,5 +1457,39 @@ context:
         assert_eq!(r.parallelism, 16);
         assert_eq!(r.sep, "|");
         assert!(!r.cache);
+    }
+
+    // --- example config + first-run scaffolding (bd-8523df) ---
+
+    #[test]
+    fn example_config_parses_and_validates() {
+        // The shipped starter config must always deserialize and validate — this
+        // guards config.example.yaml against schema drift (and CI enforces it).
+        let cfg: Config =
+            serde_yaml::from_str(EXAMPLE_CONFIG).expect("config.example.yaml must deserialize");
+        let issues = validate(&cfg);
+        assert!(
+            issues.is_empty(),
+            "shipped example config should validate, got: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn scaffold_writes_when_missing_and_preserves_existing() {
+        let dir = std::env::temp_dir().join(format!("nlir-scaffold-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("nlir").join("config.yaml");
+
+        // First run: writes the example config and creates parent dirs.
+        assert!(scaffold_config_at(&path).expect("scaffold write"));
+        assert!(path.is_file());
+        assert_eq!(fs::read_to_string(&path).unwrap(), EXAMPLE_CONFIG);
+
+        // Second run: an existing config is preserved, never overwritten.
+        fs::write(&path, "user: edits").unwrap();
+        assert!(!scaffold_config_at(&path).expect("scaffold noop"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "user: edits");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

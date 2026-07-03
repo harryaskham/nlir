@@ -1,0 +1,145 @@
+# nlir example / default configuration.
+#
+# `~/.config/nlir/config.yaml` is where the whole language lives: nlir is a small
+# stack machine, and the operators, their fixity/priority/arity/types, the models,
+# the prompts, the coercions, and the tests are all defined here. This file is the
+# starter config nlir writes to `~/.config/nlir/config.yaml` on first run; edit it
+# to taste. See SPEC.md for the full contract.
+#
+# `llm`-mode operators call the models below. `det` mode (`--mode det`) uses only
+# the deterministic realisations (`command:` / `reduce:` / `template:` / `join:`),
+# so the numeric and template operators work offline with no API key. Set
+# `ANTHROPIC_API_KEY` in the environment to use the `haiku` model.
+
+defaults:
+  mode: llm
+  model: haiku
+  parallelism: 8
+
+context:
+  env: NLIR_CONTEXT
+  file_default: ~/.config/nlir/context.json
+  messages:
+    key: _messages
+    role_field: role
+    content_field: content
+    views: # ^ / ^_ / ^* / ^/
+      default: [assistant]
+      user: [user]
+      all: [user, assistant, system]
+      system: [system]
+  defaults:
+    _sep: "\n" # list & message-range → text separator
+    _cache: true
+
+types: # coercion targets (deterministic parse first, LLM fallback)
+  number:
+    model: haiku
+    prompt: |
+      Interpret the text inside <text> as a single number. Return only the number.
+
+      %
+    schema: { type: object, properties: { result: { type: number } }, required: [result] }
+  bool:
+    model: haiku
+    prompt: |
+      Interpret the text inside <text> as true or false.
+
+      %
+    schema: { type: object, properties: { result: { type: boolean } }, required: [result] }
+  # string: numbers/bools/lists stringify deterministically (lists join with _sep)
+
+sessions:
+  pi:
+    format: pi
+    keep_roles: [user, assistant]
+    drop_tool_messages: true
+    role_field: role
+    content_field: content
+
+models:
+  haiku:
+    type: anthropic_messages
+    base_url: https://api.anthropic.com/v1
+    api_key: $ANTHROPIC_API_KEY
+    model: claude-haiku-4-5
+    format: json
+    result_field: result
+    messages:
+      - role: system
+        content: |
+          ${NLIR_SYSTEM_PROMPT}
+          ${NLIR_STRUCTURED_PROMPT}
+      - role: user
+        content: |
+          ${NLIR_PROMPT}
+    output_config:
+      format:
+        type: json_schema
+        schema:
+          type: object
+          properties: { result: { type: string } }
+          required: [result]
+          additionalProperties: false
+  sonnet:
+    type: command
+    format: json
+    result_field: result
+    command: >
+      claude --model claude-sonnet-5
+        --system-prompt "${NLIR_SYSTEM_PROMPT}"
+        --append-system-prompt "${NLIR_STRUCTURED_PROMPT}"
+        --output-format json --json-schema '{"result": "string"}'
+        --print "${NLIR_PROMPT}"
+  gpt-5.5:
+    type: command
+    format: text
+    command: >
+      pi --no-extensions --no-session --model github_copilot/gpt-5.5
+        --system-prompt "${NLIR_SYSTEM_PROMPT}"
+        --append-system-prompt "${NLIR_UNSTRUCTURED_PROMPT}"
+        --print "${NLIR_PROMPT}"
+
+prompts:
+  system: { env: NLIR_SYSTEM_PROMPT, text: "Perform the following text transformation task.\nRespond with the transformed text in plain language.\nDo not include <text> tags in your output." }
+  structured: { env: NLIR_STRUCTURED_PROMPT, text: "Format your response as JSON containing only a \"result\" field with the transformation, no preamble." }
+  unstructured: { env: NLIR_UNSTRUCTURED_PROMPT, text: "Output only the text result of your transformation with no preamble." }
+
+operators: # `%` = operand under replacement; `%%` = literal %
+  subject: { op: "#", arity: 1, fixity: prefix, model: haiku, prompt: "Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.\n\n%" }
+  not: { op: "!", arity: 1, fixity: prefix, template: "not %", model: haiku, prompt: "Negate the text inside <text>...</text>, changing nothing else.\n\n%" }
+  and: { op: "&", arity: ">0", fixity: mixfix, join: " and ", model: sonnet, prompt: "Combine the <text> items with an \"and\" connective into one text meaning \"t_0 and t_1 and ...\".\n\n%" }
+  or: { op: "|", arity: ">0", fixity: mixfix, join: " or ", model: sonnet, prompt: "Combine the <text> items with an \"or\" connective into one text meaning \"t_0 or t_1 or ...\".\n\n%" }
+  question: { op: "?", arity: 1, fixity: postfix, priority: 0, template: "is it the case that %?", model: gpt-5.5, prompt: "Convert the text inside <text> into a question, preserving subject and meaning.\n\n%" }
+  echo:
+    op: "_"
+    arity: 2
+    fixity: infix
+    command: |
+      t="${NLIR_ARGS[0]}"; n="${NLIR_ARGS[1]}"; out="$t"
+      for i in $(seq 1 $((n-1))); do out="$out $t"; done
+      printf '%s' "$out"
+  add: { op: "+", arity: ">0", fixity: mixfix, operands: number, result: number, reduce: add }
+  mul: { op: "*", arity: ">0", fixity: mixfix, operands: number, result: number, reduce: mul }
+  sub: { op: "-", arity: 2, fixity: infix, operands: number, result: number, reduce: sub }
+  div: { op: "/", arity: 2, fixity: infix, operands: number, result: number, reduce: div }
+  pow: { op: "**", arity: 2, fixity: infix, operands: number, result: number, reduce: pow }
+
+tests:
+  det-echo: { mode: det, expr: "xxx_2", expected: "xxx xxx" }
+  det-not: { mode: det, expr: "!foo", expected: "not foo" }
+  det-and: { mode: det, expr: "a&b&c", expected: "a and b and c" }
+  det-group: { mode: det, expr: "!(a&b)", expected: "not (a and b)" }
+  det-quote: { mode: det, expr: "'one two'", expected: "one two" }
+  det-sep: { mode: det, expr: "_sep=\\ ;[a,b]", expected: "a b" }
+  det-assign: { mode: det, expr: "k=foo;$k", expected: "foo" }
+  num-add: { mode: det, expr: "1+2+3", expected: "6" }
+  num-index: { mode: det, expr: "(1+1)**3", expected: "8" }
+  msg:
+    mode: det
+    context:
+      _messages:
+        - { role: user, content: "hi" }
+        - { role: assistant, content: "in rust" }
+    expr: "^-1"
+    expected: "in rust"
