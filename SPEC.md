@@ -1,0 +1,422 @@
+# nlir — natural-language IR
+
+`nlir` transpiles a terse, sigil-laden **shorthand** into fluent **English**. The
+shorthand is an intermediate representation: it is *tokenised*, *parsed* into a
+DAG using a config-defined grammar, and *evaluated* over a small **stack machine**
+with a **tiny type system**, where each operator is realised either
+**deterministically** (mechanical string/number expansion) or via an **LLM** call
+(a structured text-transformation).
+
+Invocation — typically from a coding agent's prompt window:
+
+```
+nlir -e 'EXPR'
+```
+
+The engine ships only a tiny set of **builtins** (stack / context / indexing /
+assignment / arithmetic / coercion / list plumbing). Everything else — the
+operator vocabulary, their fixity/priority/arity/types, the models, the prompts,
+the coercions, the tests — lives in `~/.config/nlir/config.yaml`. The binary is a
+small VM; the language is config.
+
+---
+
+## Mental model
+
+```
+EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval──▶ English
+                             (grammar from config)   (stack machine; types+coercion; per-op det|llm; parallel)
+```
+
+- An expression is a sequence of **statements** separated by `;`.
+- Evaluating a statement yields a **typed value** and pushes it onto the stack.
+- **Atoms**: literal text (bare/quoted), numbers, list literals, context accessors
+  (`^` messages, `$` stack/context).
+- **Operators** combine values; each operator declares the **types** it needs, and
+  operands are **coerced** to those types first (deterministically, or via an LLM
+  coercion call).
+- Given no operands an operator **pops from the stack**.
+- The parse is a **DAG**: independent subtrees run concurrently (see Parallelism),
+  except where context is written or serial is forced.
+- **Program result** = the final statement's value → stdout.
+
+---
+
+## Runtime state (two namespaces)
+
+| Name | Owner | Lifetime | Access |
+|---|---|---|---|
+| **context** (`NLIR_CONTEXT` env, or a context file) | harness / scripts / `nlir set` / in-expr `=` | transient by default; persistent with a context file | read `$name` / `^`; write `LHS=RHS` (immediate) or `set`/`append-message` |
+| **stack** | `nlir`, internal | one run | `;` pushes, `$` / `$N` peek, nullary-op pops |
+
+- **context** is one JSON object. Default context file
+  **`~/.config/nlir/context.json`** (beside `config.yaml`); `--context-file`
+  overrides; else `NLIR_CONTEXT` env.
+- Messages live under **`_messages`** (`{role, content}` array); `^` indexes
+  role-filtered views.
+- System keys (`_`-prefixed): `_messages`, `_sep` (list/range → text separator,
+  default `"\n"`), `_cache` (caching on/off, default `true`).
+- **Context writes happen immediately** (write-through to the context file when
+  one is active).
+
+---
+
+## Types & coercion
+
+Every value has a type: **`string`** (default), **`number`**, **`bool`**,
+**`list`**.
+
+- Operators declare `operands:` / `result:` types (default `string`). `^` indices
+  and arithmetic want `number`; `#`/`!`/`&` want `string`.
+- Before an operator runs, each operand is **coerced** to the required type:
+  1. already that type → use as-is;
+  2. **deterministic** parse — `"1"`↔`1`, `number→string`, `list→string` (join
+     with `_sep`), `"true"→bool`;
+  3. else an **LLM coercion** — "interpret the text as a value of type T" with a
+     structured-output schema `{result: T}`, config-defined per type. This turns a
+     vague `"ten to twenty"` into `15`.
+
+Coercion that cannot produce the target type is a **loud error** (the LLM path is
+constrained by its output JSON schema, so it returns a valid typed value or
+fails). `list → number` is an error.
+
+Coercion is part of the same expand/contract machinery as operators, and its
+results honour `_cache`.
+
+---
+
+## Modes
+
+`det` (no network) or `llm`. Default `defaults.mode`, override `--mode`.
+Realisation resolution for an operator:
+
+1. `command:` (subprocess, det) or `reduce:` (builtin numeric add/sub/mul/div/pow,
+   det) → run it;
+2. else mode `det` → `template:` / `join:`;
+3. else mode `llm` → `model:` + `prompt:`.
+
+`command`/`reduce`/coercion math are deterministic regardless of mode; only string
+transformations differ by mode.
+
+---
+
+## Builtins (fixed engine layer, not config)
+
+### Sequencing & stack
+- **`;`** — evaluate, push. `a;b;&` → "a and b".
+- **`$`** — peek stack top; **`$N`** — peek by index (`$0` bottom, `$-1` top). No
+  pop.
+- **nullary-pop** — a config op with no operands pops the stack (arity-`k` pops
+  `k`; variadic pops all).
+
+### Context: read & assign
+- **`$name`** — read `context[name]` (typed; `$_messages` is the array).
+- **`key=RHS`** — assign. `key` is a **literal key string** (identifier;
+  `_`-prefixed = system key), `RHS` an expression. Yields the value; **writes
+  immediately**. E.g. `_sep=\ `, `_cache=false`, `k=#^-1`.
+
+### Message indexing (role-filtered views of `_messages`)
+- **`^N`** — assistant; **`^_N`** — user; **`^*N`** — all; **`^/N`** — system.
+- Indices are **expressions coerced to number**; negatives from the end.
+- Ranges `M^N` (and `^_`/`^*`/`^/` variants): contents joined with `_sep`. `^`
+  binds tightest. E.g. `(1+1)^(5+5)` = assistant messages 2..10.
+
+### Structure
+- **`[a,b,c]`** — list; spreads into a variadic op (`&[a,b,c]` ≡ `a&b&c`), or
+  renders to text by joining with `_sep`.
+- **`(…)`** — grouping; overrides precedence and is preserved in output
+  (parens always win).
+- **`` ` ``** — a low-precedence prefix that forces the **whole of its right-hand
+  subexpression** to evaluate **serially**; the marked subtree still runs in
+  parallel with respect to its siblings.
+
+Reserved builtin sigils: `; $ ^ = [ ] , ( ) \` `` ` `` , the quote chars `" '`,
+the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
+After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
+
+---
+
+## Whitespace, escapes & quoting
+
+- **Whitespace between tokens is non-semantic** (spaces/tabs/newlines stripped) —
+  expressions can be written as multi-line programs.
+- **Bare literal** = `[a-zA-Z0-9]+`; numbers are numeric literals in numeric
+  positions. For spaces/sigils use escapes or quotes.
+- **POSIX escapes** → literal chars incl. whitespace: `\ ` `\t` `\n` `\\` `\"`
+  `\'`.
+- **Quotes** preserve internal whitespace:
+  - `'…'` — raw (no escapes, no interpolation);
+  - `"…"` — escapes processed **and** bare `$name` interpolated (see below);
+  - `'one two'` → "one two".
+
+---
+
+## Interpolation & evaluation timing
+
+- Context reads (`$name`, `$N`, `^…`) and `"…"` interpolation are resolved
+  **greedily at evaluation time**, not parse time — context may change mid-run
+  (appended messages, `=` writes), so late resolution reflects current state.
+- Only bare `$name` interpolates inside `"…"` — not `${…}`, `$N`, `^…`, or nested
+  expressions. `"the subject is $k"` interpolates `$k` when that node evaluates.
+
+---
+
+## Execution graph & parallelism
+
+- The program is a **DAG**; independent LLM calls / `command:` subprocesses run
+  **concurrently**, bounded by `--parallelism` (default `8`).
+- **Safety:** greedy interpolation + context writes make blind parallelism unsafe.
+  Any subtree that **writes context** (`=`) is serialised against readers; when in
+  doubt the scheduler forces serial.
+- **`` ` `` prefix** forces serial evaluation of the whole of its RHS for ordering
+  automatic detection can't infer — but the marked subtree stays parallel with its
+  siblings. In `` a+`(a+b) `` the outer operands `a` and `` `(a+b) `` run in
+  parallel, while `a` then `b` inside the backtick run serially.
+- **Caching:** identical subcalls `(op, mode, model, operand-texts)` and coercions
+  are deduped/cached when `_cache` is true (default); `_cache=false` disables it.
+
+---
+
+## Output & tracing
+
+- **Default:** result → **stdout**; a pretty, real-time trace of the expansion
+  (ops / LLM calls resolving) → **stderr**.
+- **`--quiet`** — stdout result only.
+- **`--dry-run`** — DAG + assembled prompts, no calls.
+
+---
+
+## Config operators (the language proper)
+
+Canonical set:
+
+- string: **`#`** subject (1, prefix), **`!`** not (1, prefix), **`&`** and
+  (variadic, mixfix), **`|`** or (variadic, mixfix), **`?`** question (1, postfix,
+  `priority: 0`), **`_`** echo (2, infix, `command:`).
+- numeric: **`+`** add, **`*`** mul (variadic), **`-`** sub, **`/`** div, **`**`**
+  pow (binary) — `operands: number`, `result: number`, `reduce:`.
+
+---
+
+## Grammar & parsing
+
+**Tokens:** bare literal `[a-zA-Z0-9]+`; numeric literal; quoted literal
+(`'…'`/`"…"`); operator (longest configured `op:`, so `**` before `*`); builtin
+sigils `; $ ^ = [ ] , ( )` `` ` `` (with `$name`/`$N`, `^`/`^_`/`^*`/`^/`, `LHS=`
+sub-forms); escapes `\x`.
+
+**Operator attributes (config):** `op`, `arity` (`1`,`2`,…,`>0`), `fixity`
+(`prefix`/`postfix`/`infix`/`mixfix`), `priority` (higher binds tighter,
+default `9`), `operands`/`result` types.
+
+**Precedence (config-tunable):** `^` indexing is tightest; **prefix unary**
+(`# !`) binds above **all binary**; binary follows normal math — `**` > `* /` >
+`+ -` — then string `& |`; the postfix `?` is the deliberate loose exception
+(binds everything to its left); `=` is loosest. Concretely: `^` 20 · `# !` 14 ·
+`**` 13 · `* /` 12 · `+ -` 11 · `& |` 9 · `?` 1 · `=` 0. prefix takes one right
+operand; postfix takes leftward to its priority; variadic flattens; mixfix unifies
+infix/list/nullary; ties → prefix > infix > postfix. `(…)` overrides and is
+preserved in output.
+
+---
+
+## Worked examples
+
+Assume the last assistant message (`^-1`) is about *a rust-rewrite*.
+
+| Expression | Reading |
+|---|---|
+| `^-1` | last assistant message |
+| `^_-1` / `^/-1` | last user / last system message |
+| `(1+1)^(5+5)` | assistant messages 2..10, joined with `_sep` |
+| `1+1` | "2" (number, stringified on output) |
+| `#^-1` | "a rust-rewrite" |
+| `!#^-1` | "not a rust-rewrite" |
+| `#0^3;#^-1;&` | "subject(0..3), and a rust-rewrite" |
+| `&[a,b,c]` | "a, b, and c" |
+| `!(a&b)` | "not (a and b)" — parens preserved |
+| `'one two'` | "one two" |
+| `"the subject is $k"` | interpolates `$k` at eval time |
+| `_sep=\ ;[a,b]` | "a b" |
+| `` `k=#^-1;$k `` | serial: store subject as `k`, then read it |
+
+---
+
+## CLI surface
+
+```
+nlir -e 'EXPR' [--quiet] [--mode det|llm] [--model haiku] [--parallelism 8] [--dry-run]
+
+# context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
+nlir … --context-file PATH
+nlir … --session-file PATH        # e.g. Pi session: roles kept, tool calls dropped
+
+# context write (immediate; on active/default context file); set = key replacement
+nlir set KEY VALUE
+nlir set '{"k":"v","_messages":[…]}'   # each named key replaced (not deep-merged)
+nlir get KEY
+nlir append-message [--role user] "text"
+
+# interactive: one expr per submission, trailing `\` continues; :cmd == `nlir cmd`
+nlir repl [--context-file F] [--raw]     # :set/:get/:append-message inside repl
+
+# plumbing (CLI template stack)
+nlir parse 'EXPR'
+nlir test
+nlir mcp stdio        # mcp-cli
+nlir self-update …    # updatable-cli
+nlir feedback …       # feedback-cli
+```
+
+**Pi plugin:** a prompt starting with `|` → the remainder is expanded as nlir
+first; the plugin `append-message`s each turn and pipes shorthand into a long-lived
+`nlir repl --raw`.
+
+---
+
+## Example `~/.config/nlir/config.yaml`
+
+```yaml
+defaults:
+  mode: llm
+  model: haiku
+  parallelism: 8
+
+context:
+  env: NLIR_CONTEXT
+  file_default: ~/.config/nlir/context.json
+  messages:
+    key: _messages
+    role_field: role
+    content_field: content
+    views:                      # ^ / ^_ / ^* / ^/
+      default: [assistant]
+      user:    [user]
+      all:     [user, assistant, system]
+      system:  [system]
+  defaults:
+    _sep: "\n"                  # list & message-range → text separator
+    _cache: true
+
+types:                          # coercion targets (deterministic parse first, LLM fallback)
+  number:
+    model: haiku
+    prompt: |
+      Interpret the text inside <text> as a single number. Return only the number.
+
+      %
+    schema: { type: object, properties: { result: { type: number } }, required: [result] }
+  bool:
+    model: haiku
+    prompt: |
+      Interpret the text inside <text> as true or false.
+
+      %
+    schema: { type: object, properties: { result: { type: boolean } }, required: [result] }
+  # string: numbers/bools/lists stringify deterministically (lists join with _sep)
+
+sessions:
+  pi:
+    format: pi
+    keep_roles: [user, assistant]
+    drop_tool_messages: true
+    role_field: role
+    content_field: content
+
+models:
+  haiku:
+    type: anthropic_messages
+    base_url: https://api.anthropic.com/v1
+    api_key: $ANTHROPIC_API_KEY
+    model: claude-haiku-4-5
+    format: json
+    result_field: result
+    messages:
+      - role: system
+        content: |
+          ${NLIR_SYSTEM_PROMPT}
+          ${NLIR_STRUCTURED_PROMPT}
+      - role: user
+        content: |
+          ${NLIR_PROMPT}
+    output_config:
+      format:
+        type: json_schema
+        schema:
+          type: object
+          properties: { result: { type: string } }
+          required: [result]
+          additionalProperties: false
+  sonnet:
+    type: command
+    format: json
+    result_field: result
+    command: >
+      claude --model claude-sonnet-5
+        --system-prompt "${NLIR_SYSTEM_PROMPT}"
+        --append-system-prompt "${NLIR_STRUCTURED_PROMPT}"
+        --output-format json --json-schema '{"result": "string"}'
+        --print "${NLIR_PROMPT}"
+  gpt-5.5:
+    type: command
+    format: text
+    command: >
+      pi --no-extensions --no-session --model github_copilot/gpt-5.5
+        --system-prompt "${NLIR_SYSTEM_PROMPT}"
+        --append-system-prompt "${NLIR_UNSTRUCTURED_PROMPT}"
+        --print "${NLIR_PROMPT}"
+
+prompts:
+  system:      { env: NLIR_SYSTEM_PROMPT, text: "Perform the following text transformation task.\nRespond with the transformed text in plain language.\nDo not include <text> tags in your output." }
+  structured:  { env: NLIR_STRUCTURED_PROMPT, text: "Format your response as JSON containing only a \"result\" field with the transformation, no preamble." }
+  unstructured:{ env: NLIR_UNSTRUCTURED_PROMPT, text: "Output only the text result of your transformation with no preamble." }
+
+operators:  # `%` = operand under replacement; `%%` = literal %
+  subject:  { op: "#", arity: 1,   fixity: prefix,  model: haiku, prompt: "Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.\n\n%" }
+  not:      { op: "!", arity: 1,   fixity: prefix,  template: "not %", model: haiku, prompt: "Negate the text inside <text>...</text>, changing nothing else.\n\n%" }
+  and:      { op: "&", arity: ">0", fixity: mixfix, join: " and ", model: sonnet, prompt: "Combine the <text> items with an \"and\" connective into one text meaning \"t_0 and t_1 and ...\".\n\n%" }
+  or:       { op: "|", arity: ">0", fixity: mixfix, join: " or ",  model: sonnet, prompt: "Combine the <text> items with an \"or\" connective into one text meaning \"t_0 or t_1 or ...\".\n\n%" }
+  question: { op: "?", arity: 1,   fixity: postfix, priority: 0, template: "is it the case that %?", model: gpt-5.5, prompt: "Convert the text inside <text> into a question, preserving subject and meaning.\n\n%" }
+  echo:
+    op: "_"
+    arity: 2
+    fixity: infix
+    command: |
+      t="${NLIR_ARGS[0]}"; n="${NLIR_ARGS[1]}"; out="$t"
+      for i in $(seq 1 $((n-1))); do out="$out $t"; done
+      printf '%s' "$out"
+  add: { op: "+",  arity: ">0", fixity: mixfix, operands: number, result: number, reduce: add }
+  mul: { op: "*",  arity: ">0", fixity: mixfix, operands: number, result: number, reduce: mul }
+  sub: { op: "-",  arity: 2,   fixity: infix,  operands: number, result: number, reduce: sub }
+  div: { op: "/",  arity: 2,   fixity: infix,  operands: number, result: number, reduce: div }
+  pow: { op: "**", arity: 2,   fixity: infix,  operands: number, result: number, reduce: pow }
+
+tests:
+  det-echo:   { mode: det, expr: "xxx_2",         expected: "xxx xxx" }
+  det-not:    { mode: det, expr: "!foo",           expected: "not foo" }
+  det-and:    { mode: det, expr: "a&b&c",          expected: "a and b and c" }
+  det-group:  { mode: det, expr: "!(a&b)",         expected: "not (a and b)" }
+  det-quote:  { mode: det, expr: "'one two'",      expected: "one two" }
+  det-sep:    { mode: det, expr: "_sep=\\ ;[a,b]", expected: "a b" }
+  det-assign: { mode: det, expr: "k=foo;$k",       expected: "foo" }
+  num-add:    { mode: det, expr: "1+2+3",          expected: "6" }
+  num-index:  { mode: det, expr: "(1+1)**3",       expected: "8" }
+  msg:
+    mode: det
+    context:
+      _messages:
+        - { role: user,      content: "hi" }
+        - { role: assistant, content: "in rust" }
+    expr: "^-1"
+    expected: "in rust"
+```
+
+---
+
+## Implementation / project shape
+
+Rust, Nix-flake-managed, on the harryaskham CLI template stack (mature examples
+under `~/.cacophony/daemon/checkouts/…`): **mcp-cli** (`nlir mcp stdio` — the whole
+surface is agent-callable), **updatable-cli** (`nlir self-update`), **feedback-cli**
+(`nlir feedback`). Behaviour above is the spec; this is the scaffolding pattern.
+```
