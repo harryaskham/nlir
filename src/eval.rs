@@ -341,7 +341,7 @@ impl<'a> Evaluator<'a> {
         // Coerce each operand to the operator's operand type (bd-dd7b5e).
         let coerced = operands
             .iter()
-            .map(|value| value.coerce(op_cfg.operands, &sep))
+            .map(|value| coerce_operand(value, op_cfg.operands, &sep, self.mode, self.config))
             .collect::<Result<Vec<_>, _>>()?;
 
         let cache_on = self.context.cache();
@@ -357,6 +357,42 @@ impl<'a> Evaluator<'a> {
             &self.realise_cache,
         )
     }
+}
+
+/// Coerce one operand to `target`: deterministic first, then (in llm mode) the
+/// type's `model` + `prompt` fallback from `config.types` (SPEC §Types, bd-ba9f85).
+/// Renders the value, asks the model to interpret it as the target type, and
+/// parses the model's answer deterministically.
+fn coerce_operand(
+    value: &Value,
+    target: TypeName,
+    sep: &str,
+    mode: Mode,
+    config: &Config,
+) -> Result<Value, EvalError> {
+    if let Some(coerced) = value.coerce_deterministic(target, sep) {
+        return Ok(coerced);
+    }
+    if matches!(mode, Mode::Llm) {
+        if let Some(type_cfg) = config.types.get(target.as_str()) {
+            if let Some(prompt) = type_cfg.prompt.as_deref() {
+                let rendered = value.render(sep);
+                let answer = crate::llm::realise_llm(
+                    type_cfg.model.as_deref(),
+                    prompt,
+                    std::slice::from_ref(&rendered),
+                    config,
+                    None,
+                    |name| std::env::var(name).ok(),
+                )
+                .map_err(|error| EvalError::Llm(error.to_string()))?;
+                return Value::string(answer)
+                    .coerce(target, sep)
+                    .map_err(EvalError::Coerce);
+            }
+        }
+    }
+    value.coerce(target, sep).map_err(EvalError::Coerce)
 }
 
 /// Resolve + run an operator's realisation (bd-d58371). Order (SPEC §Modes):
@@ -611,7 +647,7 @@ fn eval_parallel_safe(
             let sep = context.sep();
             let coerced = values
                 .iter()
-                .map(|value| value.coerce(op_cfg.operands, &sep))
+                .map(|value| coerce_operand(value, op_cfg.operands, &sep, mode, config))
                 .collect::<Result<Vec<_>, _>>()?;
             realise_cached(
                 op, op_cfg, &coerced, &grouped, &sep, mode, config, cache_on, cache,
@@ -793,6 +829,33 @@ operators:
         let value = evaluate(expr, &cfg, &mut ctx, Mode::Det)
             .unwrap_or_else(|e| panic!("eval `{expr}`: {e}"));
         value.render(&ctx.sep())
+    }
+
+    #[test]
+    fn llm_mode_coerces_operands_via_type_model() {
+        // In llm mode, a non-numeric operand is coerced through the type's
+        // model+prompt fallback (bd-ba9f85). A command model keeps it offline:
+        // `printf 5` returns 5 for any input, so 'five'+'five' -> 5+5 -> 10.
+        let yaml = r##"
+types:
+  number:
+    model: numify
+    prompt: "as a number: %"
+models:
+  numify:
+    type: command
+    format: text
+    command: 'printf 5'
+operators:
+  add: { op: "+", arity: ">0", fixity: mixfix, operands: number, result: number, reduce: add }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("coerce.yaml")).expect("valid config");
+        let mut ctx = Context::empty(&cfg.context);
+        let out = evaluate("'five'+'five'", &cfg, &mut ctx, Mode::Llm).expect("llm coercion");
+        assert_eq!(out.render(&ctx.sep()), "10");
+        // det mode has no model fallback: the same expression is a coercion error.
+        let mut ctx = Context::empty(&cfg.context);
+        assert!(evaluate("'five'+'five'", &cfg, &mut ctx, Mode::Det).is_err());
     }
 
     #[test]
