@@ -1,0 +1,84 @@
+name: CI
+
+# Build + test on the azure-ephemeral runners with the SYSTEM Rust toolchain
+# (rust-not-nix). nlir builds with the system toolchain on Linux (bd-aa78ee): the
+# nix dev shell segfaulted coreutils on x86, and pulling the ~5GB nix cache per
+# ephemeral job is too heavy. The ecosystem crate deps (mcp-cli, updatable-cli,
+# feedback-cli) are PUBLIC repos fetched anonymously over https, so this needs no
+# SSH key, deploy key, or token — it builds as-is on the secretless pool. The
+# runner needs Rust + a C toolchain.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Ephemeral runners have a fresh known_hosts; accept github.com's host key on
+  # first use so any ssh fetch can't be blocked (the deps are fetched over https
+  # below, but this keeps the job robust to transient config).
+  GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+
+jobs:
+  build-test:
+    name: build + test
+    runs-on: [self-hosted, azure-ephemeral]
+    timeout-minutes: 30
+    steps:
+      - name: Reset leftover git url rewrite (persistent-runner hygiene)
+        shell: bash
+        run: git config --global --unset-all url."ssh://git@github.com/".insteadOf 2>/dev/null || true
+      - uses: actions/checkout@v4
+
+      - name: Move cargo home off the SMB build-cache (bd-f35766 rustup hardlink fix)
+        shell: bash
+        run: |
+          # A shared /mnt/build-cache CARGO_HOME is an SMB (Azure Files) mount that
+          # cannot hardlink (os error 95), breaking rustup's toolchain install. Pin
+          # CARGO_HOME to local disk when it's on that mount so the toolchain
+          # installs on a hardlink-capable fs; CARGO_TARGET_DIR stays on the cache.
+          if [[ "${CARGO_HOME:-}" == /mnt/build-cache/* ]]; then
+            echo "CARGO_HOME=$RUNNER_TEMP/nlir-cargo-home" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install C toolchain (cc linker for cc/ring/libc build scripts)
+        shell: bash
+        run: |
+          if ! command -v cc >/dev/null 2>&1; then
+            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends build-essential
+          fi
+
+      # The ecosystem crate deps (mcp-cli/updatable-cli/feedback-cli) are PUBLIC
+      # repos; cargo fetches them anonymously over https. Rewrite the ssh source
+      # URLs to plain https so no SSH key or token/secret is needed on the runner.
+      - name: Use anonymous https for public crate deps
+        shell: bash
+        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+
+      - name: rustfmt check
+        shell: bash
+        run: cargo fmt --all --check
+
+      - name: clippy (deny warnings)
+        shell: bash
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: build
+        shell: bash
+        run: cargo build --release
+
+      - name: test
+        shell: bash
+        run: cargo test --all

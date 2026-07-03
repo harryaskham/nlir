@@ -341,24 +341,17 @@ fn run_set(cli: &Cli, args: &SetArgs) -> Result<(), i32> {
     let mut ctx = open_context(cli)?;
     match args.args.as_slice() {
         // `set '{...}'` — a JSON object whose named keys replace (not deep-merge).
-        [single] => {
-            if single.trim_start().starts_with('{') {
-                match serde_json::from_str::<serde_json::Value>(single) {
-                    Ok(serde_json::Value::Object(map)) => ctx.merge(map),
-                    Ok(_) => {
-                        eprintln!(
-                            "nlir set: the single-argument form must be a JSON object `{{...}}`"
-                        );
-                        return Err(2);
-                    }
-                    Err(error) => {
-                        eprintln!("nlir set: invalid JSON object: {error}");
-                        return Err(2);
-                    }
+        [single] if single.trim_start().starts_with('{') => {
+            match serde_json::from_str::<serde_json::Value>(single) {
+                Ok(serde_json::Value::Object(map)) => ctx.merge(map),
+                Ok(_) => {
+                    eprintln!("nlir set: the single-argument form must be a JSON object `{{...}}`");
+                    return Err(2);
                 }
-            } else {
-                eprintln!("nlir set: expected `set KEY VALUE` or `set '{{...}}'`");
-                return Err(2);
+                Err(error) => {
+                    eprintln!("nlir set: invalid JSON object: {error}");
+                    return Err(2);
+                }
             }
         }
         // `set KEY VALUE` — replace one key with a string value.

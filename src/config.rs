@@ -628,10 +628,8 @@ pub fn parse_str_with_env(
 /// value tree. Mapping KEYS are left untouched (they are fixed identifiers).
 fn interpolate_value(value: &mut serde_yaml::Value, lookup: &dyn Fn(&str) -> Option<String>) {
     match value {
-        serde_yaml::Value::String(s) => {
-            if s.contains('$') {
-                *s = interpolate_str(s, lookup);
-            }
+        serde_yaml::Value::String(s) if s.contains('$') => {
+            *s = interpolate_str(s, lookup);
         }
         serde_yaml::Value::Sequence(seq) => {
             for item in seq.iter_mut() {
