@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 use feedback_cli::{FeedbackConfig, ReportStrategy, Reporter, WebhookConfig};
 use mcp_cli::{ErrorCategory, StructuredError, ToolRouter};
 
+pub mod config;
+
 /// GitHub `owner/repo` the self-updater pulls release assets from.
 pub const UPDATE_REPO_SLUG: &str = "harryaskham/nlir";
 
