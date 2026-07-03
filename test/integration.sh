@@ -24,14 +24,28 @@ bin="./result/bin/nlir"
 echo "==> nlir --help"
 "$bin" --help >/dev/null || fail "--help exited non-zero"
 
-echo "==> nlir -e 'a&b&c' (skeleton identity passthrough on stdout)"
-out="$("$bin" -e 'a&b&c' --quiet)" || fail "eval exited non-zero"
-[ "$out" = "a&b&c" ] || fail "eval identity stub mismatch: '$out'"
+echo "==> nlir -e evaluates end-to-end (bd-55de93 flags + bd-28dbd4/bd-1d63dc)"
+# A bare literal evaluates to itself with no operators configured.
+out="$("$bin" -e 'hello' --quiet)" || fail "eval of a bare literal exited non-zero"
+[ "$out" = "hello" ] || fail "eval of a bare literal mismatch: '$out'"
+# With a config, operators + --mode det transpile deterministically.
+ecfg="$(mktemp -u "${TMPDIR:-/tmp}/nlir-ecfg-XXXXXX.yaml")"
+cat > "$ecfg" <<'YAML'
+defaults: { mode: det }
+operators:
+  and: { op: "&", arity: ">0", fixity: mixfix, join: " and " }
+  add: { op: "+", arity: ">0", fixity: mixfix, operands: number, result: number, reduce: add }
+YAML
+[ "$("$bin" -e 'a&b&c' --config "$ecfg" --quiet)" = "a and b and c" ] || fail "eval a&b&c mismatch"
+[ "$("$bin" -e '1+2+3' --config "$ecfg" --mode det --quiet)" = "6" ] || fail "eval 1+2+3 mismatch"
+# --dry-run makes no calls and prints the DAG (bd-e432fc).
+[ "$("$bin" -e 'a&b&c' --config "$ecfg" --dry-run --quiet)" = "(a & b & c)" ] || fail "dry-run DAG mismatch"
+rm -f "$ecfg"
 
 echo "==> nlir parse 'one two' (token preview JSON)"
 "$bin" parse 'one two' | grep -q '"tokens"' || fail "parse did not emit tokens"
 
-echo "==> nlir mcp tools (names) — the mcp/self-update/feedback stack is wired"
+echo "==> nlir mcp tools (bd-b0327c) — mcp/self-update (bd-1b0283)/feedback (bd-d83ea2) stack is wired"
 tools="$("$bin" mcp tools)"
 echo "$tools" | grep -q '"status"' || fail "mcp tools missing the status tool"
 echo "$tools" | grep -q '"eval"' || fail "mcp tools missing the eval tool"
@@ -39,8 +53,21 @@ echo "$tools" | grep -q '"parse"' || fail "mcp tools missing the parse tool"
 echo "$tools" | grep -q 'self_update' || fail "mcp tools missing the self_update tools (updatable-cli)"
 echo "$tools" | grep -q 'feedback' || fail "mcp tools missing the feedback tools (feedback-cli)"
 
-echo "==> nlir test (skeleton no-op, exit 0)"
-"$bin" test || fail "test exited non-zero"
+echo "==> nlir test runs the config tests: block, offline det gate (bd-6b10fd)"
+tcfg="$(mktemp -u "${TMPDIR:-/tmp}/nlir-tcfg-XXXXXX.yaml")"
+cat > "$tcfg" <<'YAML'
+defaults: { mode: det }
+operators:
+  not: { op: "!", arity: 1, fixity: prefix, template: "not %" }
+tests:
+  t-ok: { mode: det, expr: "!foo", expected: "not foo" }
+YAML
+"$bin" test --config "$tcfg" >/dev/null 2>&1 || fail "nlir test should exit 0 when all cases pass"
+cat >> "$tcfg" <<'YAML'
+  t-bad: { mode: det, expr: "!x", expected: "WRONG" }
+YAML
+if "$bin" test --config "$tcfg" >/dev/null 2>&1; then fail "nlir test should exit non-zero on a failing case"; fi
+rm -f "$tcfg"
 
 echo "==> nlir set/get/append-message context round-trip (bd-bf6faf/bd-f60fac/bd-6cfd88/bd-f6ba99)"
 ctx="$(mktemp -u "${TMPDIR:-/tmp}/nlir-it-XXXXXX.json")"
