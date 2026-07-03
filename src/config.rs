@@ -347,7 +347,14 @@ impl Default for MessagesConfig {
 }
 
 /// Role-filtered message views: `^` default, `^_` user, `^*` all, `^/` system.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+///
+/// Defaults to the SPEC canonical role mapping (SPEC §Example config `views:`):
+/// `^`=[assistant], `^_`=[user], `^*`=[user, assistant, system], `^/`=[system].
+/// A config that omits `views:` (or an individual view) gets these; an
+/// explicitly-empty view means "no roles" (matches nothing). This is the single
+/// source of the built-in view defaults (bd-127396) — the messages layer reads
+/// them straight through, no fallback.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MessageViews {
     /// `^` — roles for the default (assistant) view.
@@ -358,6 +365,21 @@ pub struct MessageViews {
     pub all: Vec<String>,
     /// `^/` — roles for the system view.
     pub system: Vec<String>,
+}
+
+impl Default for MessageViews {
+    fn default() -> Self {
+        Self {
+            default: vec!["assistant".to_owned()],
+            user: vec!["user".to_owned()],
+            all: vec![
+                "user".to_owned(),
+                "assistant".to_owned(),
+                "system".to_owned(),
+            ],
+            system: vec!["system".to_owned()],
+        }
+    }
 }
 
 /// Context system-key defaults (SPEC §Runtime state: `_sep`, `_cache`).

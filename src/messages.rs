@@ -26,27 +26,18 @@ use crate::config::MessageViews;
 pub use crate::index::resolve_index;
 use crate::lexer::MessageRole;
 
-/// The effective role set for a `^` view: the configured roles for that view
-/// when non-empty, otherwise the SPEC default mapping (SPEC §Example config
-/// `views:`).
-///
-/// The config schema defaults `MessageViews` to empty lists, but the built-in
-/// behaviour (`^` = assistant, etc., exercised by the `msg` config test) must
-/// work on a config that omits `context.messages.views`. So an empty configured
-/// view falls back to the SPEC defaults; a non-empty configured view overrides
-/// them wholesale.
+/// The role set for a `^` view, read straight from the configured
+/// [`MessageViews`] (bd-127396). The SPEC canonical defaults live in
+/// [`MessageViews::default`] (config), so a config that omits `views:` already
+/// carries `^`=assistant, `^_`=user, etc.; an explicitly-empty view means "no
+/// roles".
 #[must_use]
 pub fn effective_roles(views: &MessageViews, role: MessageRole) -> Vec<String> {
-    let (configured, fallback): (&[String], &[&str]) = match role {
-        MessageRole::Assistant => (&views.default, &["assistant"]),
-        MessageRole::User => (&views.user, &["user"]),
-        MessageRole::All => (&views.all, &["user", "assistant", "system"]),
-        MessageRole::System => (&views.system, &["system"]),
-    };
-    if configured.is_empty() {
-        fallback.iter().map(|role| (*role).to_owned()).collect()
-    } else {
-        configured.to_vec()
+    match role {
+        MessageRole::Assistant => views.default.clone(),
+        MessageRole::User => views.user.clone(),
+        MessageRole::All => views.all.clone(),
+        MessageRole::System => views.system.clone(),
     }
 }
 
@@ -183,7 +174,9 @@ mod tests {
     // -- role views (bd-f9809a) --------------------------------------------
 
     #[test]
-    fn effective_roles_fall_back_to_spec_defaults() {
+    fn effective_roles_come_from_the_config_defaults() {
+        // The SPEC canonical view roles now live in MessageViews::default()
+        // (config), read straight through — no messages-layer fallback (bd-127396).
         let v = views();
         assert_eq!(effective_roles(&v, MessageRole::Assistant), ["assistant"]);
         assert_eq!(effective_roles(&v, MessageRole::User), ["user"]);
@@ -192,6 +185,14 @@ mod tests {
             ["user", "assistant", "system"]
         );
         assert_eq!(effective_roles(&v, MessageRole::System), ["system"]);
+        // An explicitly-empty view means "no roles" (matches nothing).
+        let empty = MessageViews {
+            default: vec![],
+            user: vec![],
+            all: vec![],
+            system: vec![],
+        };
+        assert!(effective_roles(&empty, MessageRole::Assistant).is_empty());
     }
 
     #[test]
