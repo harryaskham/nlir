@@ -199,6 +199,41 @@ impl Value {
             TypeName::List => None,
         }
     }
+
+    /// Coerce this value to `target`, using `sep` to join list elements when
+    /// rendering to a string, raising a **loud error** when the target type
+    /// cannot be produced (SPEC §Types & coercion: "Coercion that cannot produce
+    /// the target type is a loud error").
+    ///
+    /// This is the deterministic-or-error coercion, correct for `det` mode and
+    /// for the hard rules that hold in every mode:
+    /// - `list → number` is **always** an error — it is structurally impossible
+    ///   and the LLM path is never attempted for it.
+    /// - otherwise the deterministic rules ([`Value::coerce_deterministic`]) are
+    ///   tried, and a value that no deterministic rule can convert is a loud
+    ///   [`CoerceError`].
+    ///
+    /// The constrained LLM coercion fallback (bd-ecb930) slots in between the
+    /// deterministic attempt and the loud error in `llm` mode; it turns vague
+    /// text (e.g. `"ten to twenty"`) into a typed value. Until it lands, this
+    /// function is the terminal coercion entry point.
+    ///
+    /// # Errors
+    /// Returns [`CoerceError`] when the value cannot be represented as `target`.
+    pub fn coerce(&self, target: TypeName, sep: &str) -> Result<Value, CoerceError> {
+        // `list → number` is structurally impossible: a loud error in every
+        // mode, and never routed to the LLM fallback.
+        if matches!((self, target), (Value::List(_), TypeName::Number)) {
+            return Err(CoerceError::list_to_number(self, sep));
+        }
+        // Deterministic parses/renders first (SPEC steps 1–2).
+        if let Some(value) = self.coerce_deterministic(target, sep) {
+            return Ok(value);
+        }
+        // NB: the LLM coercion fallback (bd-ecb930) is attempted here, before the
+        // loud error, once an LLM backend is available.
+        Err(CoerceError::unrepresentable(self, target, sep))
+    }
 }
 
 /// Render an nlir number to its canonical string form.
@@ -224,6 +259,90 @@ pub fn format_number(n: f64) -> String {
     // (NaN / inf): defer to the standard shortest representation.
     format!("{n}")
 }
+
+/// Maximum length of the source-value snippet embedded in a [`CoerceError`]
+/// message, so a huge operand cannot produce an unbounded error string.
+const COERCE_ERROR_SOURCE_MAX: usize = 80;
+
+/// Why a [`Value::coerce`] failed (SPEC §Types & coercion loud errors).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoerceErrorKind {
+    /// `list → number` — structurally impossible; always an error and never
+    /// routed to the LLM coercion path.
+    ListToNumber,
+    /// No deterministic rule produced the target type and (in `llm` mode) the
+    /// LLM coercion fallback did not yield a value either.
+    Unrepresentable,
+}
+
+/// A loud coercion failure: a value could not be produced as the required type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CoerceError {
+    /// The source value's type.
+    pub from: TypeName,
+    /// The requested target type.
+    pub to: TypeName,
+    /// Which loud-error rule fired.
+    pub kind: CoerceErrorKind,
+    /// A bounded rendering of the offending source value, for the message.
+    pub source: String,
+}
+
+impl CoerceError {
+    /// The always-invalid `list → number` coercion.
+    #[must_use]
+    pub fn list_to_number(value: &Value, sep: &str) -> Self {
+        Self {
+            from: value.type_name(),
+            to: TypeName::Number,
+            kind: CoerceErrorKind::ListToNumber,
+            source: bounded_source(value, sep),
+        }
+    }
+
+    /// A value that no deterministic (or LLM) rule could convert to `target`.
+    #[must_use]
+    pub fn unrepresentable(value: &Value, target: TypeName, sep: &str) -> Self {
+        Self {
+            from: value.type_name(),
+            to: target,
+            kind: CoerceErrorKind::Unrepresentable,
+            source: bounded_source(value, sep),
+        }
+    }
+}
+
+/// Render a value for an error message, truncated to [`COERCE_ERROR_SOURCE_MAX`]
+/// characters (on a char boundary) with an ellipsis when longer.
+fn bounded_source(value: &Value, sep: &str) -> String {
+    let rendered = value.render(sep);
+    match rendered.char_indices().nth(COERCE_ERROR_SOURCE_MAX) {
+        None => rendered,
+        Some((cut, _)) => format!("{}…", &rendered[..cut]),
+    }
+}
+
+impl fmt::Display for CoerceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            CoerceErrorKind::ListToNumber => write!(
+                f,
+                "cannot coerce {from} `{src}` to number: a list is never a number",
+                from = self.from,
+                src = self.source,
+            ),
+            CoerceErrorKind::Unrepresentable => write!(
+                f,
+                "cannot coerce {from} `{src}` to {to}: no deterministic or model coercion produced a {to}",
+                from = self.from,
+                src = self.source,
+                to = self.to,
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CoerceError {}
 
 impl fmt::Display for Value {
     /// Renders with the [`DEFAULT_SEP`] separator. Evaluation code that has the
@@ -476,5 +595,72 @@ mod tests {
             Value::string("a").coerce_deterministic(TypeName::List, "\n"),
             None
         );
+    }
+
+    // --- loud coercion errors + list->number (bd-20df97) ---
+
+    #[test]
+    fn coerce_succeeds_where_deterministic_rule_applies() {
+        assert_eq!(
+            Value::number(2.0).coerce(TypeName::String, "\n"),
+            Ok(Value::string("2"))
+        );
+        assert_eq!(
+            Value::string("1").coerce(TypeName::Number, "\n"),
+            Ok(Value::number(1.0))
+        );
+        // -> string never errors, even for a list.
+        let list = Value::list(vec![Value::string("a"), Value::string("b")]);
+        assert_eq!(
+            list.coerce(TypeName::String, ", "),
+            Ok(Value::string("a, b"))
+        );
+    }
+
+    #[test]
+    fn coerce_list_to_number_is_always_a_loud_error() {
+        let list = Value::list(vec![Value::number(1.0), Value::number(2.0)]);
+        let err = list
+            .coerce(TypeName::Number, ", ")
+            .expect_err("list -> number errors");
+        assert_eq!(err.kind, CoerceErrorKind::ListToNumber);
+        assert_eq!(err.from, TypeName::List);
+        assert_eq!(err.to, TypeName::Number);
+        let msg = err.to_string();
+        assert!(msg.contains("list"), "message names the source type: {msg}");
+        assert!(
+            msg.contains("number"),
+            "message names the target type: {msg}"
+        );
+    }
+
+    #[test]
+    fn coerce_unrepresentable_is_a_loud_error() {
+        // Non-numeric text with no deterministic rule and (for now) no LLM path.
+        let err = Value::string("ten")
+            .coerce(TypeName::Number, "\n")
+            .expect_err("non-numeric string -> number errors");
+        assert_eq!(err.kind, CoerceErrorKind::Unrepresentable);
+        assert_eq!(err.from, TypeName::String);
+        assert_eq!(err.to, TypeName::Number);
+        // A non-true/false string -> bool is likewise unrepresentable here.
+        assert_eq!(
+            Value::string("yes")
+                .coerce(TypeName::Bool, "\n")
+                .expect_err("non-bool string -> bool errors")
+                .kind,
+            CoerceErrorKind::Unrepresentable
+        );
+    }
+
+    #[test]
+    fn coerce_error_source_snippet_is_bounded() {
+        let long = "x".repeat(500);
+        let err = Value::string(long)
+            .coerce(TypeName::Number, "\n")
+            .expect_err("long non-numeric string -> number errors");
+        // Truncated to the bound + a single-char ellipsis marker.
+        assert!(err.source.chars().count() <= COERCE_ERROR_SOURCE_MAX + 1);
+        assert!(err.source.ends_with('…'));
     }
 }
