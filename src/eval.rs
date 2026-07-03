@@ -71,8 +71,8 @@ pub enum EvalError {
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EvalError::Lex(m) => write!(f, "lex error: {m}"),
-            EvalError::Parse(m) => write!(f, "parse error: {m}"),
+            EvalError::Lex(m) => write!(f, "{m}"),
+            EvalError::Parse(m) => write!(f, "{m}"),
             EvalError::UnknownOperator(op) => write!(f, "unknown operator `{op}`"),
             EvalError::UnknownContextKey(k) => write!(f, "unknown context key `{k}`"),
             EvalError::Stack(m) => write!(f, "stack error: {m}"),
@@ -104,6 +104,14 @@ impl From<RealiseError> for EvalError {
     }
 }
 
+/// Render a two-line source pointer for a positional diagnostic: the input
+/// `expr` on one line and a `^` caret under `position` (a char index) on the
+/// next, so lex diagnostics show *where* they failed (bd-1027d5).
+fn source_pointer(expr: &str, position: usize) -> String {
+    let col = position.min(expr.chars().count());
+    format!("  {expr}\n  {}^", " ".repeat(col))
+}
+
 /// Evaluate a full nlir program string end-to-end: tokenise → parse → evaluate
 /// (SPEC §Mental model). Convenience over [`Evaluator`] for the common path.
 ///
@@ -116,8 +124,9 @@ pub fn evaluate(
     mode: Mode,
 ) -> Result<Value, EvalError> {
     let sigils = crate::config::operator_sigils(config);
-    let tokens =
-        lexer::tokenize(expr, &sigils).map_err(|error| EvalError::Lex(error.to_string()))?;
+    let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
+        EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
+    })?;
     let program = parser::parse_program(&tokens, &config.operators)
         .map_err(|error| EvalError::Parse(error.to_string()))?;
     Evaluator::new(config, context, mode).run(&program)
@@ -565,6 +574,26 @@ operators:
         let value = evaluate(expr, &cfg, &mut ctx, Mode::Det)
             .unwrap_or_else(|e| panic!("eval `{expr}`: {e}"));
         value.render(&ctx.sep())
+    }
+
+    #[test]
+    fn lex_error_reports_position_with_a_source_caret() {
+        // Legible lex diagnostics: no doubled prefix + a source pointer (bd-1027d5).
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        let err = evaluate("\"abc", &cfg, &mut ctx, Mode::Det).unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.starts_with("lex error at position 0:"),
+            "want de-doubled prefix, got: {text}"
+        );
+        assert!(
+            !text.contains("lex error: lex error"),
+            "doubled prefix: {text}"
+        );
+        // The source line + a caret under the offending column.
+        assert!(text.contains("\n  \"abc\n"), "source line missing: {text}");
+        assert!(text.trim_end().ends_with('^'), "caret missing: {text}");
     }
 
     #[test]
