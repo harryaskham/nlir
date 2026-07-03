@@ -768,6 +768,90 @@ fn coercion_model_key(config: &Config, target: TypeName, cli_model: Option<&str>
         .unwrap_or_default()
 }
 
+/// Why [`realise_llm`] failed.
+#[derive(Debug)]
+pub enum RealiseError {
+    /// The realisation model could not be resolved.
+    Model(ModelResolveError),
+    /// The `command` backend failed.
+    Command(CommandError),
+    /// The `anthropic_messages` backend failed.
+    Anthropic(AnthropicError),
+}
+
+impl fmt::Display for RealiseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RealiseError::Model(error) => write!(f, "realisation model: {error}"),
+            RealiseError::Command(error) => write!(f, "realisation via command backend: {error}"),
+            RealiseError::Anthropic(error) => {
+                write!(f, "realisation via anthropic backend: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RealiseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            RealiseError::Model(error) => Some(error),
+            RealiseError::Command(error) => Some(error),
+            RealiseError::Anthropic(error) => Some(error),
+        }
+    }
+}
+
+/// Realise an `llm`-mode operator: resolve its model, assemble the prompt from
+/// `prompt_template` + `operands`, call the resolved backend, and return the
+/// extracted result text. This is the single seam the evaluator's `Mode::Llm`
+/// realisation calls; it composes the whole LLM pipeline
+/// ([`resolve_model`] → [`substitute_operands`] → [`resolve_prompt_fragments`] →
+/// [`assemble_nlir_vars`] → backend → [`extract_result`]).
+///
+/// `model_alias` is the operator's `model:` (or `None` to fall back to
+/// `cli_model` then `defaults.model` via [`resolve_model`]'s precedence).
+/// `env_lookup` resolves `${NLIR_*}` prompt-fragment overrides.
+///
+/// For a `command` backend the operator's `command:` is prefixed with the
+/// [`nlir_args_declaration`] bash array so it can index `${NLIR_ARGS[k]}`; for an
+/// `anthropic_messages` backend the `${NLIR_*}` vars are substituted into the
+/// message templates. The result is returned as a raw `String` (the caller wraps
+/// it in a [`Value`]).
+///
+/// # Errors
+/// See [`RealiseError`].
+pub fn realise_llm(
+    model_alias: Option<&str>,
+    prompt_template: &str,
+    operands: &[String],
+    config: &Config,
+    cli_model: Option<&str>,
+    env_lookup: impl Fn(&str) -> Option<String>,
+) -> Result<String, RealiseError> {
+    let (_, model) = resolve_model(config, model_alias, cli_model).map_err(RealiseError::Model)?;
+    let filled = substitute_operands(prompt_template, operands);
+    let fragments = resolve_prompt_fragments(&config.prompts, &env_lookup);
+    let vars = assemble_nlir_vars(&filled, &fragments);
+
+    match model.kind {
+        ModelKind::Command => {
+            let env: Vec<(&str, &str)> =
+                vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+            // Prepend the NLIR_ARGS bash array so command operators (e.g. the
+            // SPEC `echo`) can index `${NLIR_ARGS[k]}`.
+            let mut command_model = model.clone();
+            if let Some(command) = command_model.command.as_deref() {
+                command_model.command =
+                    Some(format!("{}\n{command}", nlir_args_declaration(operands)));
+            }
+            run_command_backend(&command_model, &env).map_err(RealiseError::Command)
+        }
+        ModelKind::AnthropicMessages => {
+            run_anthropic_backend(model, &vars).map_err(RealiseError::Anthropic)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1585,5 +1669,97 @@ mod tests {
             .expect("second coercion");
         assert_eq!(other, Value::number(9.0));
         assert_eq!(cache.len(), 2);
+    }
+
+    // --- realise_llm (bd-dc3c72) ---
+
+    #[test]
+    fn realise_llm_command_fills_prompt_and_reaches_backend() {
+        let mut config = Config::default();
+        config.models.insert(
+            "cmd".to_owned(),
+            command_model(r#"printf '%s' "$NLIR_PROMPT""#, ModelFormat::Text),
+        );
+        let out = realise_llm(
+            Some("cmd"),
+            "combine: %",
+            &["a".to_owned(), "b".to_owned()],
+            &config,
+            None,
+            |_| None,
+        )
+        .expect("command realisation");
+        assert_eq!(out, "combine: <text n=0>a</text>\n<text n=1>b</text>");
+    }
+
+    #[test]
+    fn realise_llm_command_gets_nlir_args_array() {
+        let mut config = Config::default();
+        config.models.insert(
+            "cmd".to_owned(),
+            command_model(r#"printf '%s' "${NLIR_ARGS[1]}""#, ModelFormat::Text),
+        );
+        let out = realise_llm(
+            Some("cmd"),
+            "%",
+            &["x".to_owned(), "y".to_owned()],
+            &config,
+            None,
+            |_| None,
+        )
+        .expect("nlir_args realisation");
+        assert_eq!(out, "y");
+    }
+
+    #[test]
+    fn realise_llm_falls_back_to_defaults_model() {
+        let mut config = Config::default();
+        config.defaults.model = Some("cmd".to_owned());
+        config.models.insert(
+            "cmd".to_owned(),
+            command_model("printf 'ok'", ModelFormat::Text),
+        );
+        let out = realise_llm(None, "%", &["a".to_owned()], &config, None, |_| None)
+            .expect("defaults realisation");
+        assert_eq!(out, "ok");
+    }
+
+    #[test]
+    fn realise_llm_unknown_model_errors() {
+        let config = Config::default();
+        assert!(matches!(
+            realise_llm(Some("nope"), "%", &[], &config, None, |_| None),
+            Err(RealiseError::Model(ModelResolveError::UnknownModel(_)))
+        ));
+    }
+
+    #[test]
+    fn realise_llm_dispatches_to_anthropic() {
+        let (base_url, handle) =
+            spawn_mock("200 OK", r#"{"content":[{"type":"text","text":"done"}]}"#);
+        let mut config = Config::default();
+        config.models.insert(
+            "claude".to_owned(),
+            anthropic_model(&base_url, ModelFormat::Text),
+        );
+        let out = realise_llm(
+            Some("claude"),
+            "do: %",
+            &["z".to_owned()],
+            &config,
+            None,
+            |_| None,
+        )
+        .expect("anthropic realisation");
+        assert_eq!(out, "done");
+        let request = handle.join().expect("mock thread");
+        assert!(
+            request.contains("do:"),
+            "prompt reached the request: {request}"
+        );
+        assert!(
+            request.contains("<text>z</text>"),
+            "operand reached the request"
+        );
     }
 }
