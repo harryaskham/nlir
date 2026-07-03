@@ -385,11 +385,11 @@ operators:  # `%` = operand under replacement; `%%` = literal %
       t="${NLIR_ARGS[0]}"; n="${NLIR_ARGS[1]}"; out="$t"
       for i in $(seq 1 $((n-1))); do out="$out $t"; done
       printf '%s' "$out"
-  add: { op: "+",  arity: ">0", fixity: mixfix, operands: number, result: number, reduce: add }
-  mul: { op: "*",  arity: ">0", fixity: mixfix, operands: number, result: number, reduce: mul }
-  sub: { op: "-",  arity: 2,   fixity: infix,  operands: number, result: number, reduce: sub }
-  div: { op: "/",  arity: 2,   fixity: infix,  operands: number, result: number, reduce: div }
-  pow: { op: "**", arity: 2,   fixity: infix,  operands: number, result: number, reduce: pow }
+  add: { op: "+",  arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
+  mul: { op: "*",  arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
+  sub: { op: "-",  arity: 2,   fixity: infix,  priority: 11, operands: number, result: number, reduce: sub }
+  div: { op: "/",  arity: 2,   fixity: infix,  priority: 12, operands: number, result: number, reduce: div }
+  pow: { op: "**", arity: 2,   fixity: infix,  priority: 13, operands: number, result: number, reduce: pow }
 
 tests:
   det-echo:   { mode: det, expr: "xxx_2",         expected: "xxx xxx" }
