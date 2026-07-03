@@ -11,10 +11,11 @@
 //! to a concrete [`ModelConfig`]. The backend calls, prompt assembly, and result
 //! extraction land in the sibling `llm` beads.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::process::Command;
 
-use crate::config::{Config, ModelConfig, ModelFormat};
+use crate::config::{Config, ModelConfig, ModelFormat, PromptDef};
 
 /// Why [`resolve_model`] could not select a model backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,6 +294,35 @@ fn operand_block(operands: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
     }
+}
+
+/// Resolve the configured `prompts:` fragments into `name -> text` environment
+/// variables (SPEC §Example config `prompts:`).
+///
+/// Each fragment names an env var (`env:`) and carries literal `text:`. A
+/// fragment is exported under its `env:` name; the value is the process
+/// environment's value for that name when set (an operator/script override),
+/// otherwise the fragment's `text:` (or the empty string when neither is
+/// present). Fragments without an `env:` name are skipped — there is no
+/// `${NLIR_*}` handle to reference them by.
+///
+/// `lookup` resolves an env var name to its current value, mirroring the config
+/// env-interpolation surface (and kept injectable for hermetic tests).
+pub fn resolve_prompt_fragments(
+    prompts: &BTreeMap<String, PromptDef>,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> BTreeMap<String, String> {
+    let mut vars = BTreeMap::new();
+    for def in prompts.values() {
+        let Some(env_name) = def.env.as_deref() else {
+            continue;
+        };
+        let value = lookup(env_name)
+            .or_else(|| def.text.clone())
+            .unwrap_or_default();
+        vars.insert(env_name.to_owned(), value);
+    }
+    vars
 }
 
 #[cfg(test)]
@@ -593,5 +623,68 @@ mod tests {
             substitute_operands("%", &["a<b>&c".to_owned()]),
             "<text>a<b>&c</text>"
         );
+    }
+
+    // --- prompt fragments (bd-b9a977) ---
+
+    fn prompt_def(env: Option<&str>, text: Option<&str>) -> PromptDef {
+        PromptDef {
+            env: env.map(str::to_owned),
+            text: text.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn prompt_fragments_export_env_named_text() {
+        let mut prompts = BTreeMap::new();
+        prompts.insert(
+            "system".to_owned(),
+            prompt_def(Some("NLIR_SYSTEM_PROMPT"), Some("sys text")),
+        );
+        prompts.insert(
+            "structured".to_owned(),
+            prompt_def(Some("NLIR_STRUCTURED_PROMPT"), Some("json only")),
+        );
+        let vars = resolve_prompt_fragments(&prompts, |_| None);
+        assert_eq!(
+            vars.get("NLIR_SYSTEM_PROMPT").map(String::as_str),
+            Some("sys text")
+        );
+        assert_eq!(
+            vars.get("NLIR_STRUCTURED_PROMPT").map(String::as_str),
+            Some("json only")
+        );
+    }
+
+    #[test]
+    fn prompt_fragment_env_override_wins_over_text() {
+        let mut prompts = BTreeMap::new();
+        prompts.insert(
+            "system".to_owned(),
+            prompt_def(Some("NLIR_SYSTEM_PROMPT"), Some("default")),
+        );
+        let vars = resolve_prompt_fragments(&prompts, |name| {
+            (name == "NLIR_SYSTEM_PROMPT").then(|| "overridden".to_owned())
+        });
+        assert_eq!(
+            vars.get("NLIR_SYSTEM_PROMPT").map(String::as_str),
+            Some("overridden")
+        );
+    }
+
+    #[test]
+    fn prompt_fragment_without_text_or_env_value_is_empty() {
+        let mut prompts = BTreeMap::new();
+        prompts.insert("bare".to_owned(), prompt_def(Some("NLIR_BARE"), None));
+        let vars = resolve_prompt_fragments(&prompts, |_| None);
+        assert_eq!(vars.get("NLIR_BARE").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn prompt_fragment_without_env_name_is_skipped() {
+        let mut prompts = BTreeMap::new();
+        prompts.insert("nameless".to_owned(), prompt_def(None, Some("text")));
+        let vars = resolve_prompt_fragments(&prompts, |_| None);
+        assert!(vars.is_empty());
     }
 }
