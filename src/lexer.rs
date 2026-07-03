@@ -56,9 +56,11 @@ pub enum Token {
     /// spaces/sigils). An all-ASCII-digit bare token is also a numeric literal
     /// in numeric positions.
     Bare(String),
-    /// A quoted literal's resolved content: raw for `'…'`, POSIX-escape-processed
-    /// for `"…"`.
-    Quoted(String),
+    /// A quoted literal: `content` is the resolved text (raw for `'…'`,
+    /// POSIX-escape-processed for `"…"`); `interpolate` is true for `"…"` so the
+    /// evaluator interpolates bare `$name` at eval time (SPEC §Interpolation),
+    /// and false for raw `'…'`.
+    Quoted { content: String, interpolate: bool },
     /// A configured operator sigil (bd-16d8fc), matched longest-first so `**`
     /// beats `*`.
     Operator(String),
@@ -97,7 +99,8 @@ impl Token {
     #[must_use]
     pub fn render(&self) -> String {
         match self {
-            Token::Bare(s) | Token::Quoted(s) | Token::Operator(s) => s.clone(),
+            Token::Bare(s) | Token::Operator(s) => s.clone(),
+            Token::Quoted { content, .. } => content.clone(),
             Token::Number(n) => format_number(*n),
             Token::Semicolon => ";".to_owned(),
             Token::LBracket => "[".to_owned(),
@@ -282,7 +285,7 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
             tokens.last(),
             Some(
                 Token::Bare(_)
-                    | Token::Quoted(_)
+                    | Token::Quoted { .. }
                     | Token::Number(_)
                     | Token::RParen
                     | Token::RBracket
@@ -423,7 +426,13 @@ fn lex_raw_quote(chars: &[char], start: usize) -> Result<(Token, usize), LexErro
             });
         };
         if c == '\'' {
-            return Ok((Token::Quoted(out), i + 1));
+            return Ok((
+                Token::Quoted {
+                    content: out,
+                    interpolate: false,
+                },
+                i + 1,
+            ));
         }
         out.push(c);
         i += 1;
@@ -443,7 +452,15 @@ fn lex_escaped_quote(chars: &[char], start: usize) -> Result<(Token, usize), Lex
             });
         };
         match c {
-            '"' => return Ok((Token::Quoted(out), i + 1)),
+            '"' => {
+                return Ok((
+                    Token::Quoted {
+                        content: out,
+                        interpolate: true,
+                    },
+                    i + 1,
+                ));
+            }
             '\\' => {
                 let (ch, next) = read_escape(chars, i)?;
                 out.push(ch);
@@ -556,7 +573,10 @@ mod tests {
         // No escape processing in raw quotes: backslash stays literal.
         assert_eq!(
             tokenize("'a\\nb'", NO_OPS).unwrap(),
-            vec![Token::Quoted("a\\nb".to_owned())]
+            vec![Token::Quoted {
+                content: "a\\nb".to_owned(),
+                interpolate: false
+            }]
         );
         // Multiple tokens around a raw quote.
         assert_eq!(bares("foo 'bar baz' qux"), vec!["foo", "bar baz", "qux"]);
@@ -566,21 +586,33 @@ mod tests {
     fn double_quotes_process_escapes_but_keep_interpolation_literal() {
         assert_eq!(
             tokenize("\"a\\tb\"", NO_OPS).unwrap(),
-            vec![Token::Quoted("a\tb".to_owned())]
+            vec![Token::Quoted {
+                content: "a\tb".to_owned(),
+                interpolate: true
+            }]
         );
         assert_eq!(
             tokenize("\"a\\nb\"", NO_OPS).unwrap(),
-            vec![Token::Quoted("a\nb".to_owned())]
+            vec![Token::Quoted {
+                content: "a\nb".to_owned(),
+                interpolate: true
+            }]
         );
         // $name interpolation is eval-time; the lexer keeps it literal.
         assert_eq!(
             tokenize("\"the subject is $k\"", NO_OPS).unwrap(),
-            vec![Token::Quoted("the subject is $k".to_owned())]
+            vec![Token::Quoted {
+                content: "the subject is $k".to_owned(),
+                interpolate: true
+            }]
         );
         // Escaped quote inside a double quote.
         assert_eq!(
             tokenize("\"a\\\"b\"", NO_OPS).unwrap(),
-            vec![Token::Quoted("a\"b".to_owned())]
+            vec![Token::Quoted {
+                content: "a\"b".to_owned(),
+                interpolate: true
+            }]
         );
     }
 

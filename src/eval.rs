@@ -168,7 +168,15 @@ impl<'a> Evaluator<'a> {
     /// Evaluate one expression node to a value (operand-first / bottom-up).
     fn eval(&mut self, expr: &Expr) -> Result<Value, EvalError> {
         match expr {
-            Expr::Bare(text) | Expr::Quoted(text) => Ok(Value::string(text.clone())),
+            Expr::Bare(text) => Ok(Value::string(text.clone())),
+            Expr::Quoted {
+                content,
+                interpolate,
+            } => Ok(Value::string(if *interpolate {
+                self.context.interpolate(content)
+            } else {
+                content.clone()
+            })),
             Expr::Number(n) => Ok(Value::number(*n)),
             Expr::ContextRead(name) => self.read_context(name),
             Expr::StackPeek => self

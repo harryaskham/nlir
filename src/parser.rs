@@ -51,7 +51,9 @@ pub enum Expr {
     /// A numeric literal.
     Number(f64),
     /// A quoted literal's content.
-    Quoted(String),
+    /// A quoted literal's content plus whether it interpolates bare `$name` at
+    /// eval time (`true` for `"…"`, `false` for raw `'…'`).
+    Quoted { content: String, interpolate: bool },
     /// `$name` — a context read.
     ContextRead(String),
     /// `$` — peek the stack top.
@@ -88,7 +90,8 @@ impl Expr {
     #[must_use]
     pub fn render(&self) -> String {
         match self {
-            Expr::Bare(s) | Expr::Quoted(s) => s.clone(),
+            Expr::Bare(s) => s.clone(),
+            Expr::Quoted { content, .. } => content.clone(),
             Expr::Number(n) => {
                 if n.fract() == 0.0 && n.is_finite() {
                     format!("{}", *n as i64)
@@ -309,7 +312,7 @@ impl Parser<'_> {
             Some(
                 Token::Bare(_)
                 | Token::Number(_)
-                | Token::Quoted(_)
+                | Token::Quoted { .. }
                 | Token::ContextRead(_)
                 | Token::StackPeek
                 | Token::StackIndex(_)
@@ -465,7 +468,13 @@ impl Parser<'_> {
         match tok {
             Token::Bare(s) => Ok(Expr::Bare(s)),
             Token::Number(n) => Ok(Expr::Number(n)),
-            Token::Quoted(s) => Ok(Expr::Quoted(s)),
+            Token::Quoted {
+                content,
+                interpolate,
+            } => Ok(Expr::Quoted {
+                content,
+                interpolate,
+            }),
             Token::ContextRead(s) => Ok(Expr::ContextRead(s)),
             Token::StackPeek => Ok(Expr::StackPeek),
             Token::StackIndex(n) => Ok(Expr::StackIndex(n)),
