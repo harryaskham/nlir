@@ -304,11 +304,19 @@ fn run_repl(cli: &Cli, _args: &ReplArgs) -> Result<(), i32> {
     Ok(())
 }
 
-/// Open the context store by SPEC source precedence (bd-f6ba99): resolve the
-/// ambient env (`--context-file`, `NLIR_CONTEXT`, the config default file) into a
-/// [`LoadSources`] and let [`nlir::context::Context::load`] apply strict
-/// first-present-wins. Session-file *parsing* is the sessions epic, so
-/// `session` is `None` here.
+/// Open the context store, then optionally overlay a `--session-file` import.
+///
+/// Base context follows SPEC source precedence (bd-f6ba99): `--context-file` >
+/// `NLIR_CONTEXT` env > the config default file (strict first-present-wins in
+/// [`nlir::context::Context::load`]). `--session-file` is then applied as an
+/// ADDITIVE `_messages` overlay (bd-000666): its parsed messages are appended to
+/// the effective context, so it is combinable with `--context-file` rather than
+/// a mutually-exclusive precedence slot.
+///
+/// NOTE (SPEC ambiguity, flagged for the author): SPEC §CLI lists
+/// `--session-file` inside the read precedence chain, which reads as
+/// strict-precedence; bd-000666 says "merge … combinable with --context-file".
+/// This wiring implements the combinable/additive reading.
 fn open_context(cli: &Cli) -> Result<nlir::context::Context, i32> {
     let cfg = resolve_config(cli)?;
     let env_inline = std::env::var("NLIR_CONTEXT").ok();
@@ -320,10 +328,44 @@ fn open_context(cli: &Cli) -> Result<nlir::context::Context, i32> {
         env_inline: env_inline.as_deref(),
         default_file: default_file.as_deref(),
     };
-    nlir::context::Context::load(sources, &cfg.context).map_err(|error| {
+    let mut ctx = nlir::context::Context::load(sources, &cfg.context).map_err(|error| {
         eprintln!("nlir: context: {error}");
         1
-    })
+    })?;
+    if let Some(path) = cli.session_file.as_deref() {
+        let text = std::fs::read_to_string(path).map_err(|error| {
+            eprintln!("nlir: session file {}: {error}", path.display());
+            1
+        })?;
+        let session_cfg = select_session_config(&cfg);
+        let messages = nlir::session::parse_pi_session(&text, &session_cfg).map_err(|error| {
+            eprintln!("nlir: session parse: {error}");
+            1
+        })?;
+        for (role, content) in messages {
+            ctx.append_message(&role, &content).map_err(|error| {
+                eprintln!("nlir: session import: {error}");
+                1
+            })?;
+        }
+    }
+    Ok(ctx)
+}
+
+/// Pick the session importer config: prefer a `pi` entry, else the first
+/// configured session, else a built-in Pi default (keep user/assistant, drop
+/// tool turns).
+fn select_session_config(cfg: &nlir::config::Config) -> nlir::config::SessionConfig {
+    cfg.sessions
+        .get("pi")
+        .or_else(|| cfg.sessions.values().next())
+        .cloned()
+        .unwrap_or_else(|| nlir::config::SessionConfig {
+            format: "pi".to_owned(),
+            keep_roles: vec!["user".to_owned(), "assistant".to_owned()],
+            drop_tool_messages: true,
+            ..Default::default()
+        })
 }
 
 /// Warn (unless `--quiet`) when a mutation targets a transient store with no

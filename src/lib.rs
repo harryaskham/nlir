@@ -32,6 +32,7 @@ pub mod llm;
 pub mod messages;
 pub mod parser;
 pub mod realise;
+pub mod session;
 pub mod stack;
 pub mod value;
 

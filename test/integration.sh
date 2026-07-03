@@ -54,4 +54,16 @@ grep -q '"role": "user"' "$ctx" || fail "append-message did not persist a messag
 if "$bin" get missing --context-file "$ctx" --quiet 2>/dev/null; then fail "get of a missing key should exit non-zero"; fi
 rm -f "$ctx"
 
+echo "==> nlir --session-file import -> _messages (bd-720cdb/bd-000666)"
+sess="$(mktemp -u "${TMPDIR:-/tmp}/nlir-sess-XXXXXX.jsonl")"
+{
+  printf '%s\n' '{"type":"message","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}'
+  printf '%s\n' '{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall"}]}}'
+  printf '%s\n' '{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}'
+} > "$sess"
+msgs="$("$bin" get _messages --session-file "$sess" --quiet)" || fail "session import exited non-zero"
+echo "$msgs" | grep -q 'hello' || fail "session import missing the user message"
+echo "$msgs" | grep -q 'hi' || fail "session import missing the assistant message"
+rm -f "$sess"
+
 echo "==> integration smoke OK"
