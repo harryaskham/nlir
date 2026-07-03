@@ -65,20 +65,7 @@ impl Stack {
     /// `None` when the index is out of range.
     #[must_use]
     pub fn peek_index(&self, index: i64) -> Option<&Value> {
-        self.resolve_index(index).map(|i| &self.items[i])
-    }
-
-    /// Resolve a possibly-negative stack index into `[0, len)`: `index >= 0`
-    /// from the bottom, `index < 0` from the top (`-1` = top). `None` when out
-    /// of range.
-    fn resolve_index(&self, index: i64) -> Option<usize> {
-        let len = i64::try_from(self.items.len()).ok()?;
-        let resolved = if index < 0 { len + index } else { index };
-        if resolved >= 0 && resolved < len {
-            usize::try_from(resolved).ok()
-        } else {
-            None
-        }
+        crate::index::resolve_index(self.items.len(), index).map(|i| &self.items[i])
     }
 
     /// Pop the single top value (`None` on an empty stack).
