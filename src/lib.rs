@@ -27,6 +27,7 @@ use mcp_cli::{ErrorCategory, StructuredError, ToolRouter};
 pub mod config;
 pub mod context;
 pub mod lexer;
+pub mod llm;
 pub mod parser;
 pub mod value;
 
