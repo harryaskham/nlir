@@ -12,6 +12,7 @@
 //! extraction land in the sibling `llm` beads.
 
 use std::fmt;
+use std::process::Command;
 
 use crate::config::{Config, ModelConfig, ModelFormat};
 
@@ -149,6 +150,104 @@ pub fn extract_result(
             }
         }
     }
+}
+
+/// The shell used to run `type: command` backends. The SPEC command examples use
+/// bash features (`${NLIR_ARGS[0]}` array indexing, `$((…))`), so command
+/// realisations run under bash rather than POSIX `sh`.
+const COMMAND_SHELL: &str = "bash";
+
+/// Why [`run_command_backend`] failed.
+#[derive(Debug)]
+pub enum CommandError {
+    /// The model is a `type: command` backend but carries no `command:`.
+    NoCommand,
+    /// The backend shell subprocess could not be spawned (e.g. no `bash`).
+    Spawn(std::io::Error),
+    /// The subprocess ran but exited non-zero.
+    NonZeroExit {
+        /// Exit status code, when the process exited normally.
+        code: Option<i32>,
+        /// Captured standard error (trimmed), for diagnostics.
+        stderr: String,
+    },
+    /// The subprocess succeeded but its output could not be parsed
+    /// ([`extract_result`]).
+    Extract(ExtractError),
+}
+
+impl fmt::Display for CommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CommandError::NoCommand => f.write_str("command backend has no `command:` to run"),
+            CommandError::Spawn(error) => {
+                write!(f, "failed to spawn command backend shell: {error}")
+            }
+            CommandError::NonZeroExit { code, stderr } => {
+                let code = code.map_or_else(|| "signal".to_owned(), |c| c.to_string());
+                if stderr.is_empty() {
+                    write!(f, "command backend exited with status {code}")
+                } else {
+                    write!(f, "command backend exited with status {code}: {stderr}")
+                }
+            }
+            CommandError::Extract(error) => write!(f, "command backend output: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for CommandError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            CommandError::Spawn(error) => Some(error),
+            CommandError::Extract(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<ExtractError> for CommandError {
+    fn from(error: ExtractError) -> Self {
+        CommandError::Extract(error)
+    }
+}
+
+/// Run a `type: command` model backend.
+///
+/// Executes the model's `command:` template under bash with `env` exported (the
+/// assembled `${NLIR_*}` prompt variables), then extracts the result per the
+/// model's `format` (json `result_field` or raw text). The parent process
+/// environment is inherited so the command can find its tools and credentials,
+/// and `env` is layered on top.
+///
+/// Prompt / `${NLIR_*}` assembly is the caller's job (bd-e9983b); this backend
+/// only runs the assembled command and extracts the result.
+///
+/// # Errors
+/// - [`CommandError::NoCommand`] when the model has no `command:`.
+/// - [`CommandError::Spawn`] when the backend shell cannot be launched.
+/// - [`CommandError::NonZeroExit`] when the command exits non-zero.
+/// - [`CommandError::Extract`] when the output cannot be parsed.
+pub fn run_command_backend(
+    model: &ModelConfig,
+    env: &[(&str, &str)],
+) -> Result<String, CommandError> {
+    let command = model.command.as_deref().ok_or(CommandError::NoCommand)?;
+    let output = Command::new(COMMAND_SHELL)
+        .arg("-c")
+        .arg(command)
+        .envs(env.iter().copied())
+        .output()
+        .map_err(CommandError::Spawn)?;
+    if !output.status.success() {
+        return Err(CommandError::NonZeroExit {
+            code: output.status.code(),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        });
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    extract_result(&stdout, model.format, model.result_field.as_deref())
+        .map_err(CommandError::Extract)
 }
 
 #[cfg(test)]
@@ -330,5 +429,75 @@ mod tests {
                 .to_string()
                 .contains("not valid JSON")
         );
+    }
+
+    // --- command backend (bd-f5e007) ---
+
+    fn command_model(command: &str, format: ModelFormat) -> ModelConfig {
+        ModelConfig {
+            kind: ModelKind::Command,
+            format,
+            command: Some(command.to_owned()),
+            ..ModelConfig::default()
+        }
+    }
+
+    #[test]
+    fn command_text_backend_returns_stdout() {
+        let model = command_model("printf 'hello world'", ModelFormat::Text);
+        assert_eq!(run_command_backend(&model, &[]).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn command_json_backend_extracts_result_field() {
+        let model = command_model(r#"printf '{"result":"hi"}'"#, ModelFormat::Json);
+        assert_eq!(run_command_backend(&model, &[]).unwrap(), "hi");
+
+        let mut custom = command_model(r#"printf '{"answer":"42"}'"#, ModelFormat::Json);
+        custom.result_field = Some("answer".to_owned());
+        assert_eq!(run_command_backend(&custom, &[]).unwrap(), "42");
+    }
+
+    #[test]
+    fn command_backend_exports_env_vars() {
+        // The assembled ${NLIR_*} vars reach the command via the environment.
+        let model = command_model(r#"printf '%s' "$NLIR_PROMPT""#, ModelFormat::Text);
+        assert_eq!(
+            run_command_backend(&model, &[("NLIR_PROMPT", "hey there")]).unwrap(),
+            "hey there"
+        );
+    }
+
+    #[test]
+    fn command_backend_non_zero_exit_is_an_error() {
+        let model = command_model("printf 'boom' >&2; exit 3", ModelFormat::Text);
+        match run_command_backend(&model, &[]) {
+            Err(CommandError::NonZeroExit { code, stderr }) => {
+                assert_eq!(code, Some(3));
+                assert_eq!(stderr, "boom");
+            }
+            other => panic!("expected NonZeroExit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn command_backend_missing_command_is_an_error() {
+        let model = ModelConfig {
+            kind: ModelKind::Command,
+            ..ModelConfig::default()
+        };
+        assert!(matches!(
+            run_command_backend(&model, &[]),
+            Err(CommandError::NoCommand)
+        ));
+    }
+
+    #[test]
+    fn command_backend_unparseable_output_is_an_extract_error() {
+        let model = command_model("printf 'not json'", ModelFormat::Json);
+        assert!(matches!(
+            run_command_backend(&model, &[]),
+            Err(CommandError::Extract(ExtractError::InvalidJson(_)))
+        ));
     }
 }
