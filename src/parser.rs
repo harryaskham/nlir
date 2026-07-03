@@ -108,7 +108,9 @@ impl Expr {
             } => match (fixity, operands.as_slice()) {
                 (Fixity::Prefix, [a]) => format!("({op} {})", a.render()),
                 (Fixity::Postfix, [a]) => format!("({} {op})", a.render()),
-                (Fixity::Mixfix, ops) if ops.len() >= 2 => {
+                (Fixity::Mixfix, []) => format!("({op})"),
+                (Fixity::Mixfix, [a]) => format!("({} {op})", a.render()),
+                (Fixity::Mixfix, ops) => {
                     let parts: Vec<String> = ops.iter().map(Expr::render).collect();
                     format!("({})", parts.join(&format!(" {op} ")))
                 }
@@ -293,6 +295,58 @@ impl Parser<'_> {
         }
     }
 
+    /// Whether the current token can begin an expression (is nud-able). Used by
+    /// mixfix unification to distinguish `[a,b]&x` (infix) from `[a,b]&`
+    /// (postfix-on-list).
+    fn starts_expr(&self) -> bool {
+        match self.tokens.get(self.pos) {
+            Some(
+                Token::Bare(_)
+                | Token::Number(_)
+                | Token::Quoted(_)
+                | Token::ContextRead(_)
+                | Token::StackPeek
+                | Token::StackIndex(_)
+                | Token::Message(_)
+                | Token::LParen
+                | Token::LBracket
+                | Token::Backtick,
+            ) => true,
+            Some(Token::Operator(op)) => matches!(
+                self.table.get(op).map(|i| i.fixity),
+                Some(Fixity::Prefix | Fixity::Mixfix)
+            ),
+            _ => false,
+        }
+    }
+
+    /// Parse the comma-separated items of a list literal, assuming the opening
+    /// `[` has already been consumed; stops after the closing `]`.
+    fn parse_list_items(&mut self) -> Result<Vec<Expr>, ParseError> {
+        let mut items = Vec::new();
+        if matches!(self.tokens.get(self.pos), Some(Token::RBracket)) {
+            self.pos += 1;
+            return Ok(items);
+        }
+        loop {
+            items.push(self.expr(0)?);
+            match self.tokens.get(self.pos) {
+                Some(Token::Comma) => self.pos += 1,
+                Some(Token::RBracket) => {
+                    self.pos += 1;
+                    break;
+                }
+                _ => {
+                    return Err(ParseError {
+                        position: self.pos,
+                        message: "expected ',' or ']' in list literal".to_owned(),
+                    });
+                }
+            }
+        }
+        Ok(items)
+    }
+
     fn expr(&mut self, min_bp: u32) -> Result<Expr, ParseError> {
         let mut lhs = self.nud()?;
         while let Some((op, info)) = self.peek_led() {
@@ -328,11 +382,34 @@ impl Parser<'_> {
                         break;
                     }
                     self.pos += 1;
-                    let rhs = self.expr(l_bp + 1)?;
-                    // Variadic flattening (bd-c65341): fold an adjacent same-op
-                    // mixfix chain into one n-ary node. A Group on the left (or
-                    // right) is a distinct AST node, so parens force nesting.
-                    lhs = flatten_mixfix(op, lhs, rhs);
+                    if self.starts_expr() {
+                        // Infix use: fold same-op mixfix chains into one n-ary
+                        // node (bd-c65341). A Group on either side forces nesting.
+                        let rhs = self.expr(l_bp + 1)?;
+                        lhs = flatten_mixfix(op, lhs, rhs);
+                    } else {
+                        // Postfix-on-list unification (bd-dab497): `[a,b,c]&`
+                        // spreads the list into the operator's operands. A
+                        // dangling mixfix operator with a non-list left operand
+                        // and no right operand is an error.
+                        match lhs {
+                            Expr::List(items) => {
+                                lhs = Expr::Apply {
+                                    op,
+                                    fixity: Fixity::Mixfix,
+                                    operands: items,
+                                };
+                            }
+                            _ => {
+                                return Err(ParseError {
+                                    position: self.pos,
+                                    message: format!(
+                                        "mixfix operator {op:?} needs a right operand or a list to spread"
+                                    ),
+                                });
+                            }
+                        }
+                    }
                 }
                 // A prefix operator cannot appear in led (infix) position.
                 Fixity::Prefix => break,
@@ -380,27 +457,7 @@ impl Parser<'_> {
                 }
             }
             Token::LBracket => {
-                let mut items = Vec::new();
-                if matches!(self.tokens.get(self.pos), Some(Token::RBracket)) {
-                    self.pos += 1;
-                    return Ok(Expr::List(items));
-                }
-                loop {
-                    items.push(self.expr(0)?);
-                    match self.tokens.get(self.pos) {
-                        Some(Token::Comma) => self.pos += 1,
-                        Some(Token::RBracket) => {
-                            self.pos += 1;
-                            break;
-                        }
-                        _ => {
-                            return Err(ParseError {
-                                position: self.pos,
-                                message: "expected ',' or ']' in list literal".to_owned(),
-                            });
-                        }
-                    }
-                }
+                let items = self.parse_list_items()?;
                 Ok(Expr::List(items))
             }
             Token::Backtick => {
@@ -408,14 +465,33 @@ impl Parser<'_> {
                 let inner = self.expr(0)?;
                 Ok(Expr::Serial(Box::new(inner)))
             }
-            Token::Operator(op) => match self.table.get(&op) {
-                Some(info) if info.fixity == Fixity::Prefix => {
-                    let operand = self.expr(bp(info.priority))?;
+            Token::Operator(op) => match self.table.get(&op).copied() {
+                Some(inf) if inf.fixity == Fixity::Prefix => {
+                    let operand = self.expr(bp(inf.priority))?;
                     Ok(Expr::Apply {
                         op,
                         fixity: Fixity::Prefix,
                         operands: vec![operand],
                     })
+                }
+                Some(inf) if inf.fixity == Fixity::Mixfix => {
+                    // Mixfix unification (bd-dab497) in prefix position:
+                    // `&[a,b,c]` spreads the list; a bare `&` is a nullary-pop.
+                    if matches!(self.tokens.get(self.pos), Some(Token::LBracket)) {
+                        self.pos += 1;
+                        let items = self.parse_list_items()?;
+                        Ok(Expr::Apply {
+                            op,
+                            fixity: Fixity::Mixfix,
+                            operands: items,
+                        })
+                    } else {
+                        Ok(Expr::Apply {
+                            op,
+                            fixity: Fixity::Mixfix,
+                            operands: Vec::new(),
+                        })
+                    }
                 }
                 _ => Err(ParseError {
                     position: start,
@@ -609,5 +685,23 @@ mod tests {
         // As an operand, `a + `(a+b)` keeps the two `+` operands parallel while
         // the backtick subtree is serial.
         assert_eq!(render("a+`(a+b)"), "(a + (` (a + b)))");
+    }
+
+    #[test]
+    fn mixfix_unification() {
+        // prefix-on-list and postfix-on-list spread to the same n-ary as a chain.
+        assert_eq!(render("&[a,b,c]"), "(a & b & c)");
+        assert_eq!(render("[a,b,c]&"), "(a & b & c)");
+        assert_eq!(render("a&b&c"), "(a & b & c)");
+        // nullary-pop: a bare mixfix operator has no operands (pops at eval).
+        assert_eq!(render("&"), "(&)");
+        // An infix mixfix with a list operand stays infix (list is not spread).
+        assert_eq!(render("x&[a,b]"), "(x & [a, b])");
+        // Postfix-on-list only fires when there is no following operand.
+        assert_eq!(render("[a,b]&x"), "([a, b] & x)");
+        // A dangling mixfix on a non-list left operand is an error.
+        let ops = ladder();
+        let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
+        assert!(parse_expr(&tokenize("a&", &sigils).unwrap(), &ops).is_err());
     }
 }
