@@ -212,6 +212,27 @@ pub enum TypeName {
     List,
 }
 
+impl TypeName {
+    /// The lowercase config/SPEC spelling of this type (`string` / `number` /
+    /// `bool` / `list`), matching the `#[serde(rename_all = "lowercase")]`
+    /// wire form. Handy for error messages in the value/coercion layers.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TypeName::String => "string",
+            TypeName::Number => "number",
+            TypeName::Bool => "bool",
+            TypeName::List => "list",
+        }
+    }
+}
+
+impl fmt::Display for TypeName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Built-in numeric reduction for `reduce:` operators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
