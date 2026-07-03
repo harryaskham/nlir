@@ -20,7 +20,7 @@
 
 use std::fmt;
 
-/// A lexical token (literal layer). More kinds (operators, builtin sigils,
+/// A lexical token (literal + operator layers). More kinds (builtin sigils,
 /// `^`/`$` sub-forms) are added by later lexer beads.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -31,14 +31,18 @@ pub enum Token {
     /// A quoted literal's resolved content: raw for `'…'`, POSIX-escape-processed
     /// for `"…"`.
     Quoted(String),
+    /// A configured operator sigil (bd-16d8fc), matched longest-first so `**`
+    /// beats `*`. Operators are non-alphanumeric and never collide with reserved
+    /// builtin sigils (enforced by config validation).
+    Operator(String),
 }
 
 impl Token {
-    /// The literal text carried by this token (bare text or quoted content).
+    /// The string carried by this token (bare/quoted text, or the operator sigil).
     #[must_use]
     pub fn text(&self) -> &str {
         match self {
-            Token::Bare(s) | Token::Quoted(s) => s,
+            Token::Bare(s) | Token::Quoted(s) | Token::Operator(s) => s,
         }
     }
 
@@ -77,13 +81,13 @@ impl fmt::Display for LexError {
 
 impl std::error::Error for LexError {}
 
-/// Tokenise a shorthand expression's literal layer.
+/// Tokenise a shorthand expression's literal + operator layers.
 ///
-/// Whitespace between tokens is discarded. Bare and quoted literals are emitted
-/// as [`Token`]s. Any unescaped character that is not part of a bare/quoted
-/// literal (e.g. an operator or builtin sigil) is a [`LexError`] for now; later
-/// lexer beads extend the dispatch to handle those.
-pub fn tokenize(input: &str) -> Result<Vec<Token>, LexError> {
+/// Whitespace between tokens is discarded. Bare/quoted literals and configured
+/// operator sigils (`op_sigils`, matched longest-first) are emitted as [`Token`]s.
+/// Any other unescaped character (e.g. a builtin sigil) is a [`LexError`] for
+/// now; later lexer beads extend the dispatch to handle those.
+pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexError> {
     let chars: Vec<char> = input.chars().collect();
     let mut tokens = Vec::new();
     let mut i = 0;
@@ -111,16 +115,38 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, LexError> {
                 i = next;
             }
             other => {
-                return Err(LexError {
-                    position: i,
-                    message: format!(
-                        "unexpected character {other:?} (operators/sigils are not lexed yet)"
-                    ),
-                });
+                if let Some((op, next)) = match_operator(&chars, i, op_sigils) {
+                    tokens.push(Token::Operator(op));
+                    i = next;
+                } else {
+                    return Err(LexError {
+                        position: i,
+                        message: format!(
+                            "unexpected character {other:?} (not a configured operator; builtin sigils are not lexed yet)"
+                        ),
+                    });
+                }
             }
         }
     }
     Ok(tokens)
+}
+
+/// Match the LONGEST configured operator sigil that is a prefix of `chars[i..]`
+/// (bd-16d8fc: `**` beats `*`). Returns the sigil and the index past it.
+fn match_operator(chars: &[char], i: usize, op_sigils: &[String]) -> Option<(String, usize)> {
+    let mut best: Option<(&str, usize)> = None;
+    for sig in op_sigils {
+        let sig_chars: Vec<char> = sig.chars().collect();
+        if sig_chars.is_empty() || !chars[i..].starts_with(&sig_chars[..]) {
+            continue;
+        }
+        let len = sig_chars.len();
+        if best.is_none_or(|(_, best_len)| len > best_len) {
+            best = Some((sig.as_str(), len));
+        }
+    }
+    best.map(|(sig, len)| (sig.to_owned(), i + len))
 }
 
 /// Lex a bare literal starting at `start`: a run of `[a-zA-Z0-9]` and POSIX
@@ -218,8 +244,14 @@ fn read_escape(chars: &[char], i: usize) -> Result<(char, usize), LexError> {
 mod tests {
     use super::*;
 
+    const NO_OPS: &[String] = &[];
+
+    fn ops(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| (*s).to_owned()).collect()
+    }
+
     fn bares(input: &str) -> Vec<String> {
-        tokenize(input)
+        tokenize(input, NO_OPS)
             .expect("tokenises")
             .into_iter()
             .map(|t| t.text().to_owned())
@@ -231,46 +263,49 @@ mod tests {
         assert_eq!(bares("  foo\t\r\nbar   baz "), vec!["foo", "bar", "baz"]);
         // Multi-line program layout.
         assert_eq!(bares("foo\n  bar\n  baz"), vec!["foo", "bar", "baz"]);
-        assert!(tokenize("").unwrap().is_empty());
-        assert!(tokenize("   \n\t ").unwrap().is_empty());
+        assert!(tokenize("", NO_OPS).unwrap().is_empty());
+        assert!(tokenize("   \n\t ", NO_OPS).unwrap().is_empty());
     }
 
     #[test]
     fn bare_and_numeric_literals() {
         assert_eq!(bares("abc123"), vec!["abc123"]);
-        let toks = tokenize("123").unwrap();
+        let toks = tokenize("123", NO_OPS).unwrap();
         assert_eq!(toks, vec![Token::Bare("123".to_owned())]);
         assert_eq!(toks[0].numeric_value(), Some(123.0));
         // A bare with letters is not numeric.
-        assert_eq!(tokenize("abc").unwrap()[0].numeric_value(), None);
-        assert_eq!(tokenize("007").unwrap()[0].numeric_value(), Some(7.0));
+        assert_eq!(tokenize("abc", NO_OPS).unwrap()[0].numeric_value(), None);
+        assert_eq!(
+            tokenize("007", NO_OPS).unwrap()[0].numeric_value(),
+            Some(7.0)
+        );
         // Text is preserved even when numeric (no leading-zero loss until coerced).
-        assert_eq!(tokenize("007").unwrap()[0].text(), "007");
+        assert_eq!(tokenize("007", NO_OPS).unwrap()[0].text(), "007");
     }
 
     #[test]
     fn escapes_extend_bare_literals() {
         // Escaped space keeps a single token.
         assert_eq!(
-            tokenize("a\\ b").unwrap(),
+            tokenize("a\\ b", NO_OPS).unwrap(),
             vec![Token::Bare("a b".to_owned())]
         );
         // Escaped sigils become literal chars in the token.
         assert_eq!(
-            tokenize("a\\;b").unwrap(),
+            tokenize("a\\;b", NO_OPS).unwrap(),
             vec![Token::Bare("a;b".to_owned())]
         );
         assert_eq!(
-            tokenize("a\\&b").unwrap(),
+            tokenize("a\\&b", NO_OPS).unwrap(),
             vec![Token::Bare("a&b".to_owned())]
         );
         // Control escapes.
         assert_eq!(
-            tokenize("a\\tb").unwrap(),
+            tokenize("a\\tb", NO_OPS).unwrap(),
             vec![Token::Bare("a\tb".to_owned())]
         );
         assert_eq!(
-            tokenize("a\\nb").unwrap(),
+            tokenize("a\\nb", NO_OPS).unwrap(),
             vec![Token::Bare("a\nb".to_owned())]
         );
     }
@@ -280,7 +315,7 @@ mod tests {
         assert_eq!(bares("'one two'"), vec!["one two"]);
         // No escape processing in raw quotes: backslash stays literal.
         assert_eq!(
-            tokenize("'a\\nb'").unwrap(),
+            tokenize("'a\\nb'", NO_OPS).unwrap(),
             vec![Token::Quoted("a\\nb".to_owned())]
         );
         // Multiple tokens around a raw quote.
@@ -290,31 +325,31 @@ mod tests {
     #[test]
     fn double_quotes_process_escapes_but_keep_interpolation_literal() {
         assert_eq!(
-            tokenize("\"a\\tb\"").unwrap(),
+            tokenize("\"a\\tb\"", NO_OPS).unwrap(),
             vec![Token::Quoted("a\tb".to_owned())]
         );
         assert_eq!(
-            tokenize("\"a\\nb\"").unwrap(),
+            tokenize("\"a\\nb\"", NO_OPS).unwrap(),
             vec![Token::Quoted("a\nb".to_owned())]
         );
         // $name interpolation is eval-time; the lexer keeps it literal.
         assert_eq!(
-            tokenize("\"the subject is $k\"").unwrap(),
+            tokenize("\"the subject is $k\"", NO_OPS).unwrap(),
             vec![Token::Quoted("the subject is $k".to_owned())]
         );
         // Escaped quote inside a double quote.
         assert_eq!(
-            tokenize("\"a\\\"b\"").unwrap(),
+            tokenize("\"a\\\"b\"", NO_OPS).unwrap(),
             vec![Token::Quoted("a\"b".to_owned())]
         );
     }
 
     #[test]
     fn unterminated_quotes_error() {
-        assert_eq!(tokenize("'abc").unwrap_err().position, 0);
-        assert_eq!(tokenize("\"abc").unwrap_err().position, 0);
+        assert_eq!(tokenize("'abc", NO_OPS).unwrap_err().position, 0);
+        assert_eq!(tokenize("\"abc", NO_OPS).unwrap_err().position, 0);
         assert!(
-            tokenize("'abc")
+            tokenize("'abc", NO_OPS)
                 .unwrap_err()
                 .message
                 .contains("unterminated")
@@ -322,11 +357,57 @@ mod tests {
     }
 
     #[test]
+    fn operators_longest_match_and_split_bares() {
+        let ops = ops(&["**", "*", "&", "!", "-", "+"]);
+        // `**` beats `*` (longest-match, bd-16d8fc).
+        assert_eq!(
+            tokenize("2**3", &ops).unwrap(),
+            vec![
+                Token::Bare("2".to_owned()),
+                Token::Operator("**".to_owned()),
+                Token::Bare("3".to_owned()),
+            ]
+        );
+        assert_eq!(
+            tokenize("2*3", &ops).unwrap(),
+            vec![
+                Token::Bare("2".to_owned()),
+                Token::Operator("*".to_owned()),
+                Token::Bare("3".to_owned()),
+            ]
+        );
+        // Operators split adjacent bares; prefix operator leads.
+        assert_eq!(
+            tokenize("a&b", &ops).unwrap(),
+            vec![
+                Token::Bare("a".to_owned()),
+                Token::Operator("&".to_owned()),
+                Token::Bare("b".to_owned()),
+            ]
+        );
+        assert_eq!(
+            tokenize("!foo", &ops).unwrap(),
+            vec![
+                Token::Operator("!".to_owned()),
+                Token::Bare("foo".to_owned()),
+            ]
+        );
+        // An escaped operator stays part of the bare literal.
+        assert_eq!(
+            tokenize("a\\&b", &ops).unwrap(),
+            vec![Token::Bare("a&b".to_owned())]
+        );
+    }
+
+    #[test]
     fn unlexed_sigils_error_for_now() {
-        let err = tokenize("a&b").unwrap_err();
+        // With no configured operators, `&` is unknown.
+        let err = tokenize("a&b", NO_OPS).unwrap_err();
         assert_eq!(err.position, 1);
-        assert!(err.message.contains("not lexed yet"));
+        assert!(err.message.contains("not a configured operator"));
+        // A char that is neither operator nor sigil errors even with ops configured.
+        assert!(tokenize("a@b", &ops(&["&"])).is_err());
         // Trailing backslash is a clear error, not a panic.
-        assert!(tokenize("abc\\").is_err());
+        assert!(tokenize("abc\\", NO_OPS).is_err());
     }
 }

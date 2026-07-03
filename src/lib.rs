@@ -237,8 +237,8 @@ pub struct ParseOutput {
 /// (bd-a14b8a/5e6a92/80e0d1) and returns the token stream. `stub` stays true
 /// until the AST/DAG parser lands (parser epic). An unlexable character (e.g. an
 /// operator sigil, not yet in the lexer) is a validation error.
-pub fn parse(input: &ParseInput) -> Result<ParseOutput, AppError> {
-    let tokens = lexer::tokenize(&input.expr)
+pub fn parse(input: &ParseInput, op_sigils: &[String]) -> Result<ParseOutput, AppError> {
+    let tokens = lexer::tokenize(&input.expr, op_sigils)
         .map_err(|error| AppError::validation("lex_error", error.to_string()))?;
     Ok(ParseOutput {
         tokens: tokens.iter().map(|t| t.text().to_owned()).collect(),
@@ -277,8 +277,13 @@ pub fn build_router() -> ToolRouter<AppContext> {
 
     router.add_typed_tool(
         "parse",
-        "Tokenise an nlir shorthand expression (literal layer: whitespace/bare/numeric/quoted). Operator/sigil lexing and the AST/DAG parser land downstream.",
-        |_ctx: &AppContext, input: ParseInput| parse(&input),
+        "Tokenise an nlir shorthand expression (literal + operator layers, using configured operators from ~/.config/nlir/config.yaml). The AST/DAG parser lands downstream.",
+        |_ctx: &AppContext, input: ParseInput| {
+            let sigils = config::load(None)
+                .map(|c| config::operator_sigils(&c))
+                .unwrap_or_default();
+            parse(&input, &sigils)
+        },
     );
 
     // updatable-cli contributes self_update_status / self_update_check /
@@ -396,23 +401,40 @@ mod tests {
 
     #[test]
     fn parse_tokenises_literal_layer() {
-        let out = parse(&ParseInput {
-            expr: "one two three".to_owned(),
-        })
+        let out = parse(
+            &ParseInput {
+                expr: "one two three".to_owned(),
+            },
+            &[],
+        )
         .expect("literals tokenise");
         assert_eq!(out.tokens, vec!["one", "two", "three"]);
         assert!(out.stub);
         // A quoted literal collapses to its content.
-        let out = parse(&ParseInput {
-            expr: "'a b' c".to_owned(),
-        })
+        let out = parse(
+            &ParseInput {
+                expr: "'a b' c".to_owned(),
+            },
+            &[],
+        )
         .expect("quoted tokenises");
         assert_eq!(out.tokens, vec!["a b", "c"]);
-        // An operator sigil is not lexed yet -> validation error.
-        assert!(
-            parse(&ParseInput {
+        // A configured operator splits bares; an unconfigured sigil errors.
+        let out = parse(
+            &ParseInput {
                 expr: "a&b".to_owned(),
-            })
+            },
+            &["&".to_owned()],
+        )
+        .expect("operator tokenises");
+        assert_eq!(out.tokens, vec!["a", "&", "b"]);
+        assert!(
+            parse(
+                &ParseInput {
+                    expr: "a&b".to_owned(),
+                },
+                &[],
+            )
             .is_err()
         );
     }

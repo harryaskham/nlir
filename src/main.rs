@@ -262,9 +262,12 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
 
 fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
     let cfg = resolve_config(cli)?;
-    let out = match parse(&ParseInput {
-        expr: args.expr.clone(),
-    }) {
+    let out = match parse(
+        &ParseInput {
+            expr: args.expr.clone(),
+        },
+        &nlir::config::operator_sigils(&cfg),
+    ) {
         Ok(out) => out,
         Err(error) => {
             eprintln!("nlir parse: {error}");

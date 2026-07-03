@@ -924,6 +924,13 @@ pub fn resolve_defaults(config: &Config, overrides: &DefaultOverrides) -> Resolv
     }
 }
 
+/// The configured operator sigils (SPEC §Config operators), for the lexer's
+/// longest-match tokenising (bd-16d8fc).
+#[must_use]
+pub fn operator_sigils(config: &Config) -> Vec<String> {
+    config.operators.values().map(|op| op.op.clone()).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
