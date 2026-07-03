@@ -28,6 +28,7 @@ pub mod config;
 pub mod context;
 pub mod lexer;
 pub mod llm;
+pub mod messages;
 pub mod parser;
 pub mod value;
 
