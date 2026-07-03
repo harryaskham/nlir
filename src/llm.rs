@@ -250,6 +250,51 @@ pub fn run_command_backend(
         .map_err(CommandError::Extract)
 }
 
+/// Fill an LLM prompt template's `%` placeholder(s) with the operand text(s)
+/// (SPEC §Prompt templating). `%%` is a literal `%`; a lone `%` expands to the
+/// operand block:
+/// - a single operand → `<text>OPERAND</text>`;
+/// - multiple operands → one `<text n=k>OPERAND_k</text>` per operand
+///   (0-indexed), joined with newlines;
+/// - no operands → the empty string.
+///
+/// Operand text is inserted verbatim (the model is instructed to ignore the
+/// `<text>` tags via the `system` prompt fragment). Every lone `%` in the
+/// template expands to the same operand block.
+#[must_use]
+pub fn substitute_operands(template: &str, operands: &[String]) -> String {
+    let block = operand_block(operands);
+    let mut out = String::with_capacity(template.len());
+    let mut chars = template.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            if chars.peek() == Some(&'%') {
+                chars.next();
+                out.push('%');
+            } else {
+                out.push_str(&block);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Render the operand block a lone `%` expands to (see [`substitute_operands`]).
+fn operand_block(operands: &[String]) -> String {
+    match operands {
+        [] => String::new(),
+        [single] => format!("<text>{single}</text>"),
+        many => many
+            .iter()
+            .enumerate()
+            .map(|(k, operand)| format!("<text n={k}>{operand}</text>"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -499,5 +544,54 @@ mod tests {
             run_command_backend(&model, &[]),
             Err(CommandError::Extract(ExtractError::InvalidJson(_)))
         ));
+    }
+
+    // --- % operand substitution (bd-a47a02) ---
+
+    #[test]
+    fn percent_double_is_a_literal_percent() {
+        assert_eq!(
+            substitute_operands("100%% done", &["x".to_owned()]),
+            "100% done"
+        );
+    }
+
+    #[test]
+    fn single_operand_wraps_in_bare_text_tag() {
+        assert_eq!(
+            substitute_operands("do it:\n\n%", &["hello world".to_owned()]),
+            "do it:\n\n<text>hello world</text>"
+        );
+    }
+
+    #[test]
+    fn multiple_operands_use_indexed_text_tags() {
+        assert_eq!(
+            substitute_operands("%", &["a".to_owned(), "b".to_owned(), "c".to_owned()]),
+            "<text n=0>a</text>\n<text n=1>b</text>\n<text n=2>c</text>"
+        );
+    }
+
+    #[test]
+    fn no_operands_expand_to_empty() {
+        assert_eq!(substitute_operands("x%y", &[]), "xy");
+    }
+
+    #[test]
+    fn every_lone_percent_expands_and_double_is_preserved() {
+        // Mixed literal `%%` and two expanding `%`.
+        assert_eq!(
+            substitute_operands("50%% of %|%", &["z".to_owned()]),
+            "50% of <text>z</text>|<text>z</text>"
+        );
+    }
+
+    #[test]
+    fn operand_text_is_inserted_verbatim() {
+        // No XML-escaping: the operand is placed inside the tags as-is.
+        assert_eq!(
+            substitute_operands("%", &["a<b>&c".to_owned()]),
+            "<text>a<b>&c</text>"
+        );
     }
 }
