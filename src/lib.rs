@@ -26,6 +26,7 @@ use mcp_cli::{ErrorCategory, StructuredError, ToolRouter};
 
 pub mod config;
 pub mod lexer;
+pub mod parser;
 
 /// GitHub `owner/repo` the self-updater pulls release assets from.
 pub const UPDATE_REPO_SLUG: &str = "harryaskham/nlir";
