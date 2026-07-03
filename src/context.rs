@@ -275,6 +275,19 @@ impl Context {
         self.file.as_deref()
     }
 
+    /// Interpolate bare `$name` context reads in `text` (SPEC §Interpolation:
+    /// only a bare `$name` interpolates inside `"…"` — not `${…}`, `$N`, `^…`).
+    /// Each `$name` is replaced by the rendered context value (lists joined with
+    /// `_sep`); an unknown name is left literal. This is the greedy eval-time
+    /// resolution the evaluator applies to a `"…"` string node.
+    #[must_use]
+    pub fn interpolate(&self, text: &str) -> String {
+        let sep = self.sep();
+        interpolate(text, |name| {
+            self.data.get(name).map(|value| render_json(value, &sep))
+        })
+    }
+
     // -- writes (write-through) --------------------------------------------
 
     /// Assign `key = value` and write through immediately (SPEC: "context writes
@@ -361,6 +374,77 @@ pub fn default_context_path(cfg: &ContextConfig, home: Option<&OsStr>) -> Option
     cfg.file_default
         .as_deref()
         .map(|raw| expand_tilde(raw, home))
+}
+
+// ---------------------------------------------------------------------------
+// interpolation (bd-22fa7e)
+// ---------------------------------------------------------------------------
+
+/// Interpolate bare `$name` occurrences in `text`, resolving each name through
+/// `lookup` (SPEC §Interpolation & evaluation timing).
+///
+/// Only a bare `$name` — starting with a letter or `_`, continuing with
+/// alphanumerics/`_` — interpolates. `${…}`, `$N` (a stack index, digit-led),
+/// and a bare `$` not starting a name are left verbatim; an unresolved name
+/// (`lookup` returns `None`) is left literal. This is the pure core the
+/// evaluator drives with a context-backed `lookup`; see [`Context::interpolate`]
+/// for the context-store convenience.
+#[must_use]
+pub fn interpolate(text: &str, lookup: impl Fn(&str) -> Option<String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '$' {
+            out.push(c);
+            continue;
+        }
+        match chars.peek().copied() {
+            // `$name` — a context read (name-start letter or `_`).
+            Some(next) if next.is_ascii_alphabetic() || next == '_' => {
+                let mut name = String::new();
+                while let Some(&nc) = chars.peek() {
+                    if nc.is_ascii_alphanumeric() || nc == '_' {
+                        name.push(nc);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                match lookup(&name) {
+                    Some(value) => out.push_str(&value),
+                    None => {
+                        // Unresolved — leave `$name` literal.
+                        out.push('$');
+                        out.push_str(&name);
+                    }
+                }
+            }
+            // `${…}`, `$N` (digits), or a trailing `$` — left verbatim.
+            _ => out.push('$'),
+        }
+    }
+    out
+}
+
+/// Render a context JSON value to its interpolated string form: strings
+/// verbatim, numbers without a trailing `.0` (via [`crate::value::format_number`]),
+/// bools as `true`/`false`, lists joined with `sep` (SPEC list → text), null as
+/// empty, and objects as compact JSON.
+fn render_json(value: &Value, sep: &str) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Number(number) => number
+            .as_f64()
+            .map_or_else(|| number.to_string(), crate::value::format_number),
+        Value::Bool(flag) => if *flag { "true" } else { "false" }.to_owned(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| render_json(item, sep))
+            .collect::<Vec<_>>()
+            .join(sep),
+        Value::Null => String::new(),
+        Value::Object(_) => value.to_string(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -720,6 +804,54 @@ mod tests {
         assert!(path.is_file());
         let _ = fs::remove_file(&path);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // -- interpolation (bd-22fa7e) -----------------------------------------
+
+    #[test]
+    fn interpolate_replaces_bare_names_only() {
+        let lookup = |name: &str| match name {
+            "k" => Some("rust".to_owned()),
+            "_sep" => Some("SEP".to_owned()),
+            _ => None,
+        };
+        // A bare `$name` interpolates (SPEC worked example).
+        assert_eq!(
+            interpolate("the subject is $k", lookup),
+            "the subject is rust"
+        );
+        // System-key name (`_`-led) interpolates too.
+        assert_eq!(interpolate("$_sep here", lookup), "SEP here");
+        // `${k}` is NOT interpolated (only bare `$name`).
+        assert_eq!(interpolate("a ${k} b", lookup), "a ${k} b");
+        // `$N` (a stack index) is left literal.
+        assert_eq!(interpolate("x$5y", lookup), "x$5y");
+        // A trailing bare `$` stays literal.
+        assert_eq!(interpolate("cost $", lookup), "cost $");
+        // An unresolved name is left literal.
+        assert_eq!(interpolate("$missing tail", lookup), "$missing tail");
+        // Adjacent interpolations.
+        assert_eq!(interpolate("$k$k", lookup), "rustrust");
+    }
+
+    #[test]
+    fn context_interpolate_renders_stored_values() {
+        let mut store = Context::empty(&cfg());
+        store.merge(object(&[
+            ("k", Value::from("foo")),
+            ("n", Value::from(3)), // number renders without a trailing .0
+            ("flag", Value::from(true)),
+            (
+                "items",
+                Value::Array(vec![Value::from("a"), Value::from("b")]),
+            ),
+            ("_sep", Value::from("-")), // list join uses _sep
+        ]));
+        assert_eq!(store.interpolate("$k/$n/$flag"), "foo/3/true");
+        // List renders joined with the active `_sep`.
+        assert_eq!(store.interpolate("[$items]"), "[a-b]");
+        // Unknown key left literal.
+        assert_eq!(store.interpolate("$k and $nope"), "foo and $nope");
     }
 
     /// Build a JSON object from `(key, value)` pairs for terse test fixtures.

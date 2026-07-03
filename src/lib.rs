@@ -30,6 +30,7 @@ pub mod lexer;
 pub mod llm;
 pub mod messages;
 pub mod parser;
+pub mod stack;
 pub mod value;
 
 /// GitHub `owner/repo` the self-updater pulls release assets from.
