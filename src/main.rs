@@ -104,7 +104,8 @@ enum Command {
     /// Model Context Protocol surfaces.
     #[command(subcommand)]
     Mcp(McpCommand),
-    /// Self-update from GitHub releases (updatable-cli).
+    /// Self-update from GitHub releases (updatable-cli). Also runs as `nlir update`.
+    #[command(visible_alias = "update")]
     SelfUpdate,
     /// Report a feedback / error / perf event (feedback-cli).
     Feedback(FeedbackArgs),
@@ -513,12 +514,32 @@ fn run_mcp(mcp: &McpCommand) -> Result<(), i32> {
 fn run_self_update() -> Result<(), i32> {
     let updater = updatable_cli::Updater::new(updater_config());
     match updater.run_update() {
-        Ok(o) => {
-            println!("{o:?}");
+        Ok(outcome) => {
+            if outcome.promoted {
+                println!(
+                    "nlir updated {} -> {} ({})",
+                    outcome.current_version, outcome.latest_version, outcome.installed_path
+                );
+            } else if outcome.staged {
+                println!(
+                    "nlir staged {} at {} (promotes on the next run)",
+                    outcome.latest_version, outcome.next_path
+                );
+            } else if let Some(note) = &outcome.note {
+                println!(
+                    "nlir self-update: {note} (current {})",
+                    outcome.current_version
+                );
+            } else {
+                println!(
+                    "nlir self-update: already at the latest version ({})",
+                    outcome.current_version
+                );
+            }
             Ok(())
         }
         Err(error) => {
-            eprintln!("self-update error: {error:#}");
+            eprintln!("nlir self-update error: {error:#}");
             Err(1)
         }
     }

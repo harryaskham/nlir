@@ -504,4 +504,19 @@ mod tests {
         let c = updater_config_with(None);
         assert_eq!(c.tool_name, TOOL_NAME);
     }
+
+    #[test]
+    fn updater_config_targets_release_repo_with_tendril_assets() {
+        // The self-update path must point at the release repo and expect the same
+        // asset layout the release workflow (.github/workflows/release.yml)
+        // publishes: <tool>-<version>-<target>.tar.gz + .sha256, TendrilStyle.
+        let c = updater_config_with(None);
+        assert_eq!(c.tool_name, TOOL_NAME);
+        assert_eq!(c.repo_slug, UPDATE_REPO_SLUG);
+        assert_eq!(c.current_version, env!("CARGO_PKG_VERSION"));
+        assert!(matches!(
+            c.asset_strategy,
+            updatable_cli::AssetStrategy::TendrilStyle
+        ));
+    }
 }
