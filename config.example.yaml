@@ -102,6 +102,8 @@ operators: # `%` = operand under replacement; `%%` = literal %
   or: { op: "|", arity: ">0", fixity: mixfix, join: " or ", model: sonnet, prompt: "Combine the <text> items with an \"or\" connective into one text meaning \"t_0 or t_1 or ...\".\n\n%" }
   question: { op: "?", arity: 1, fixity: postfix, priority: 0, template: "is it the case that %?", model: copilot, prompt: "Convert the text inside <text> into a question, preserving subject and meaning.\n\n%" }
   summary: { op: "~", arity: 1, fixity: prefix, model: sonnet, prompt: "Summarise the text inside <text> in one short sentence. Return only the summary.\n\n%" }
+  formal: { op: "@", arity: 1, fixity: prefix, model: sonnet, prompt: "Rewrite the text inside <text> in a formal, professional tone, preserving meaning. Return only the rewritten text.\n\n%" }
+  simplify: { op: ":", arity: 1, fixity: prefix, model: sonnet, prompt: "Rewrite the text inside <text> in plain, simple language a child could understand. Return only the rewritten text.\n\n%" }
   echo:
     op: "_"
     arity: 2
@@ -120,6 +122,7 @@ tests:
   det-echo: { mode: det, expr: "xxx_2", expected: "xxx xxx" }
   det-not: { mode: det, expr: "!foo", expected: "not foo" }
   det-and: { mode: det, expr: "a&b&c", expected: "a and b and c" }
+  det-or: { mode: det, expr: "a|b", expected: "a or b" }
   det-group: { mode: det, expr: "!(a&b)", expected: "not (a and b)" }
   det-quote: { mode: det, expr: "'one two'", expected: "one two" }
   det-sep: { mode: det, expr: "_sep=\\ ;[a,b]", expected: "a b" }
@@ -127,6 +130,9 @@ tests:
   num-add: { mode: det, expr: "1+2+3", expected: "6" }
   num-prec: { mode: det, expr: "1+2*3", expected: "7" }
   num-prec2: { mode: det, expr: "2+3*4-1", expected: "13" }
+  num-mul: { mode: det, expr: "2*3*4", expected: "24" }
+  num-sub: { mode: det, expr: "10-4", expected: "6" }
+  num-div: { mode: det, expr: "12/3", expected: "4" }
   num-index: { mode: det, expr: "(1+1)**3", expected: "8" }
   msg:
     mode: det
