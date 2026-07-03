@@ -400,6 +400,170 @@ fn shell_single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
+/// Anthropic Messages API version header value.
+pub const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+/// Default `max_tokens` for an anthropic request when `output_config` does not
+/// override it (the Anthropic Messages API requires the field).
+const DEFAULT_MAX_TOKENS: u64 = 4096;
+
+/// Why [`run_anthropic_backend`] failed.
+#[derive(Debug)]
+pub enum AnthropicError {
+    /// The model config has no `base_url`.
+    NoBaseUrl,
+    /// The model config has no provider `model` id.
+    NoModel,
+    /// The HTTP request failed (transport error or non-2xx status).
+    Http(String),
+    /// The response envelope could not be parsed or carried no text content.
+    BadResponse(String),
+    /// The extracted model text could not be parsed ([`extract_result`]).
+    Extract(ExtractError),
+}
+
+impl fmt::Display for AnthropicError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AnthropicError::NoBaseUrl => {
+                f.write_str("anthropic_messages backend has no `base_url`")
+            }
+            AnthropicError::NoModel => {
+                f.write_str("anthropic_messages backend has no provider `model` id")
+            }
+            AnthropicError::Http(detail) => write!(f, "anthropic request failed: {detail}"),
+            AnthropicError::BadResponse(detail) => {
+                write!(f, "anthropic response could not be read: {detail}")
+            }
+            AnthropicError::Extract(error) => write!(f, "anthropic response text: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for AnthropicError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            AnthropicError::Extract(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<ExtractError> for AnthropicError {
+    fn from(error: ExtractError) -> Self {
+        AnthropicError::Extract(error)
+    }
+}
+
+/// Run an `anthropic_messages` model backend.
+///
+/// Builds the Messages API request from the model config and the assembled
+/// `${NLIR_*}` `vars` (substituted into the message templates), POSTs it to
+/// `{base_url}/messages` with the `x-api-key` / `anthropic-version` headers, then
+/// pulls the assistant text out of the response and extracts the result per the
+/// model's `format` (json `result_field` / text).
+///
+/// Provider-specific request fields (structured-output schema, `max_tokens`
+/// overrides, …) are supplied by the model's `output_config`, which is merged
+/// into the request body — so the config author owns the exact API shape while
+/// this backend owns the mechanics.
+///
+/// # Errors
+/// - [`AnthropicError::NoBaseUrl`] / [`AnthropicError::NoModel`] on missing config.
+/// - [`AnthropicError::Http`] on a transport error or non-2xx status.
+/// - [`AnthropicError::BadResponse`] when the response has no readable text.
+/// - [`AnthropicError::Extract`] when the text cannot be parsed.
+pub fn run_anthropic_backend(
+    model: &ModelConfig,
+    vars: &BTreeMap<String, String>,
+) -> Result<String, AnthropicError> {
+    let base_url = model.base_url.as_deref().ok_or(AnthropicError::NoBaseUrl)?;
+    let model_id = model.model.as_deref().ok_or(AnthropicError::NoModel)?;
+    let body = build_anthropic_request(model, model_id, vars);
+    let url = format!("{}/messages", base_url.trim_end_matches('/'));
+
+    let mut request = ureq::post(&url)
+        .set("anthropic-version", ANTHROPIC_VERSION)
+        .set("content-type", "application/json");
+    if let Some(key) = model.api_key.as_deref() {
+        request = request.set("x-api-key", key);
+    }
+
+    let response = match request.send_json(body) {
+        Ok(response) => response,
+        Err(ureq::Error::Status(code, response)) => {
+            let detail = response.into_string().unwrap_or_default();
+            return Err(AnthropicError::Http(format!("status {code}: {detail}")));
+        }
+        Err(error) => return Err(AnthropicError::Http(error.to_string())),
+    };
+
+    let envelope: serde_json::Value = response
+        .into_json()
+        .map_err(|error| AnthropicError::BadResponse(error.to_string()))?;
+    let text = anthropic_text(&envelope).ok_or_else(|| {
+        AnthropicError::BadResponse("response carried no text content".to_owned())
+    })?;
+    extract_result(&text, model.format, model.result_field.as_deref())
+        .map_err(AnthropicError::Extract)
+}
+
+/// Build the Anthropic Messages API request body from the model config.
+///
+/// `role: system` messages are hoisted into the top-level `system` field (as the
+/// Anthropic API expects), the rest form the `messages` array, and each content
+/// string has its `${NLIR_*}` references substituted. `output_config`'s top-level
+/// object keys are merged in last, so config can supply/override any field.
+fn build_anthropic_request(
+    model: &ModelConfig,
+    model_id: &str,
+    vars: &BTreeMap<String, String>,
+) -> serde_json::Value {
+    let mut system = String::new();
+    let mut messages = Vec::new();
+    for message in &model.messages {
+        let content = substitute_nlir_vars(&message.content, vars);
+        if message.role == "system" {
+            if !system.is_empty() {
+                system.push('\n');
+            }
+            system.push_str(&content);
+        } else {
+            messages.push(serde_json::json!({ "role": message.role, "content": content }));
+        }
+    }
+
+    let mut body = serde_json::json!({
+        "model": model_id,
+        "max_tokens": DEFAULT_MAX_TOKENS,
+        "messages": messages,
+    });
+    if !system.is_empty() {
+        body["system"] = serde_json::Value::String(system);
+    }
+    if let (Some(serde_json::Value::Object(extra)), serde_json::Value::Object(target)) =
+        (&model.output_config, &mut body)
+    {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    body
+}
+
+/// Concatenate the `text` of every text block in an Anthropic response's
+/// `content` array. Returns `None` when there is no text content.
+fn anthropic_text(envelope: &serde_json::Value) -> Option<String> {
+    let content = envelope.get("content")?.as_array()?;
+    let mut text = String::new();
+    for block in content {
+        if let Some(part) = block.get("text").and_then(serde_json::Value::as_str) {
+            text.push_str(part);
+        }
+    }
+    (!text.is_empty()).then_some(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -822,5 +986,174 @@ mod tests {
             nlir_args_declaration(&["it's".to_owned()]),
             "NLIR_ARGS=('it'\\''s')"
         );
+    }
+
+    // --- anthropic_messages backend (bd-d1a328) ---
+
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread::JoinHandle;
+
+    fn anthropic_model(base_url: &str, format: ModelFormat) -> ModelConfig {
+        ModelConfig {
+            kind: ModelKind::AnthropicMessages,
+            format,
+            base_url: Some(base_url.to_owned()),
+            api_key: Some("test-key".to_owned()),
+            model: Some("claude-test".to_owned()),
+            result_field: None,
+            messages: vec![
+                crate::config::ModelMessage {
+                    role: "system".to_owned(),
+                    content: "${NLIR_SYSTEM_PROMPT}".to_owned(),
+                },
+                crate::config::ModelMessage {
+                    role: "user".to_owned(),
+                    content: "${NLIR_PROMPT}".to_owned(),
+                },
+            ],
+            ..ModelConfig::default()
+        }
+    }
+
+    /// A one-shot HTTP server that captures the request and returns a canned
+    /// response. Returns the base URL and a handle yielding the raw request.
+    fn spawn_mock(status_line: &'static str, body: &'static str) -> (String, JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock");
+        let addr = listener.local_addr().expect("addr");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 1024];
+            // Read headers, then the body per content-length.
+            let mut header_end = None;
+            while header_end.is_none() {
+                let n = stream.read(&mut tmp).expect("read");
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&tmp[..n]);
+                header_end = find_subslice(&buf, b"\r\n\r\n");
+            }
+            let headers = String::from_utf8_lossy(&buf).to_string();
+            let content_length = parse_content_length(&headers);
+            let body_start = header_end.map_or(buf.len(), |p| p + 4);
+            while buf.len() - body_start < content_length {
+                let n = stream.read(&mut tmp).expect("read body");
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&tmp[..n]);
+            }
+            let response = format!(
+                "HTTP/1.1 {status_line}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write");
+            stream.flush().expect("flush");
+            String::from_utf8_lossy(&buf).to_string()
+        });
+        (format!("http://{addr}"), handle)
+    }
+
+    fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack.windows(needle.len()).position(|w| w == needle)
+    }
+
+    fn parse_content_length(headers: &str) -> usize {
+        headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.trim()
+                    .eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse().ok())
+                    .flatten()
+            })
+            .unwrap_or(0)
+    }
+
+    fn nlir_vars() -> BTreeMap<String, String> {
+        vars_of(&[
+            ("NLIR_SYSTEM_PROMPT", "be terse"),
+            ("NLIR_PROMPT", "transform this"),
+        ])
+    }
+
+    #[test]
+    fn anthropic_text_backend_extracts_text_and_sends_expected_request() {
+        let (base_url, handle) = spawn_mock(
+            "200 OK",
+            r#"{"content":[{"type":"text","text":"hello world"}]}"#,
+        );
+        let model = anthropic_model(&base_url, ModelFormat::Text);
+        let result = run_anthropic_backend(&model, &nlir_vars()).expect("backend succeeds");
+        assert_eq!(result, "hello world");
+
+        let request = handle.join().expect("mock thread");
+        // POST to /messages with the version header and substituted prompt.
+        assert!(
+            request.starts_with("POST /messages "),
+            "request line: {request}"
+        );
+        assert!(request.contains("anthropic-version: 2023-06-01"));
+        assert!(request.contains("x-api-key: test-key"));
+        assert!(request.contains("claude-test"));
+        assert!(
+            request.contains("transform this"),
+            "substituted prompt missing"
+        );
+        assert!(request.contains("be terse"), "system prompt missing");
+    }
+
+    #[test]
+    fn anthropic_json_backend_extracts_result_field() {
+        let (base_url, handle) = spawn_mock(
+            "200 OK",
+            r#"{"content":[{"type":"text","text":"{\"result\":\"hi\"}"}]}"#,
+        );
+        let model = anthropic_model(&base_url, ModelFormat::Json);
+        let result = run_anthropic_backend(&model, &nlir_vars()).expect("backend succeeds");
+        assert_eq!(result, "hi");
+        handle.join().expect("mock thread");
+    }
+
+    #[test]
+    fn anthropic_http_error_status_is_reported() {
+        let (base_url, handle) = spawn_mock("400 Bad Request", r#"{"error":"nope"}"#);
+        let model = anthropic_model(&base_url, ModelFormat::Text);
+        match run_anthropic_backend(&model, &nlir_vars()) {
+            Err(AnthropicError::Http(detail)) => assert!(detail.contains("400"), "{detail}"),
+            other => panic!("expected Http error, got {other:?}"),
+        }
+        handle.join().expect("mock thread");
+    }
+
+    #[test]
+    fn anthropic_response_without_text_is_a_bad_response() {
+        let (base_url, handle) = spawn_mock("200 OK", r#"{"content":[]}"#);
+        let model = anthropic_model(&base_url, ModelFormat::Text);
+        assert!(matches!(
+            run_anthropic_backend(&model, &nlir_vars()),
+            Err(AnthropicError::BadResponse(_))
+        ));
+        handle.join().expect("mock thread");
+    }
+
+    #[test]
+    fn anthropic_missing_config_errors_before_any_request() {
+        let mut model = anthropic_model("http://127.0.0.1:1", ModelFormat::Text);
+        model.base_url = None;
+        assert!(matches!(
+            run_anthropic_backend(&model, &nlir_vars()),
+            Err(AnthropicError::NoBaseUrl)
+        ));
+
+        let mut model = anthropic_model("http://127.0.0.1:1", ModelFormat::Text);
+        model.model = None;
+        assert!(matches!(
+            run_anthropic_backend(&model, &nlir_vars()),
+            Err(AnthropicError::NoModel)
+        ));
     }
 }
