@@ -1,0 +1,171 @@
+name: release
+
+# Triggered ONLY on a pushed version tag (v*.*.*). Runs on the azure-ephemeral
+# (x86) + aarch64-darwin runners using the SYSTEM Rust toolchain (rust-not-nix),
+# NATIVELY per target, so `nlir self-update` (updatable-cli) has per-target
+# assets. This mirrors omni-cli's release.yml. nlir is deliberately rust-not-nix
+# on Linux (bd-aa78ee), so the native-cargo path is used rather than the flake.
+# The ecosystem crate deps (mcp-cli/updatable-cli/feedback-cli) are PUBLIC repos
+# fetched anonymously over https (no key/secret on the runner).
+#
+# Jobs: resolve (derive tag/version), test (full suite), build (native per
+# target -> nlir-<version>-<target>.tar.gz + .sha256, smoke-tested by running the
+# unpacked binary before publish, then uploaded to the Release).
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build/publish assets for"
+        required: false
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+
+jobs:
+  resolve:
+    name: resolve release context
+    runs-on: [self-hosted, azure-ephemeral]
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.ctx.outputs.tag }}
+      version: ${{ steps.ctx.outputs.version }}
+    steps:
+      - id: ctx
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: test suite
+    needs: resolve
+    runs-on: [self-hosted, azure-ephemeral]
+    timeout-minutes: 30
+    steps:
+      - name: Reset leftover git url rewrite (persistent-runner hygiene)
+        shell: bash
+        run: git config --global --unset-all url."ssh://git@github.com/".insteadOf 2>/dev/null || true
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Move cargo home off the SMB build-cache (bd-f35766 rustup hardlink fix)
+        shell: bash
+        run: |
+          if [[ "${CARGO_HOME:-}" == /mnt/build-cache/* ]]; then
+            echo "CARGO_HOME=$RUNNER_TEMP/nlir-cargo-home" >> "$GITHUB_ENV"
+          fi
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install C toolchain (cc linker)
+        shell: bash
+        run: |
+          if ! command -v cc >/dev/null 2>&1; then
+            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends build-essential
+          fi
+      - name: Use anonymous https for public crate deps
+        shell: bash
+        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+      - name: Run the full suite
+        shell: bash
+        run: cargo test --all
+
+  build:
+    name: build ${{ matrix.target }}
+    needs:
+      - resolve
+      - test
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            runner: [self-hosted, azure-ephemeral]
+          - target: aarch64-darwin
+            runner: [self-hosted, aarch64-darwin]
+    steps:
+      - name: Reset leftover git url rewrite (persistent-runner hygiene)
+        shell: bash
+        run: git config --global --unset-all url."ssh://git@github.com/".insteadOf 2>/dev/null || true
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move cargo home off the SMB build-cache (bd-f35766 rustup hardlink fix)
+        shell: bash
+        run: |
+          if [[ "${CARGO_HOME:-}" == /mnt/build-cache/* ]]; then
+            echo "CARGO_HOME=$RUNNER_TEMP/nlir-cargo-home" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install C toolchain (cc linker)
+        shell: bash
+        run: |
+          if ! command -v cc >/dev/null 2>&1; then
+            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends build-essential
+          fi
+
+      - name: Use anonymous https for public crate deps
+        shell: bash
+        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+
+      - name: Build the release binary (native)
+        shell: bash
+        run: cargo build --release --bin nlir
+
+      - name: Package update-compatible asset
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          root="nlir-$VERSION-$TARGET"
+          rm -rf "$root"; mkdir -p "$root"
+          cp "${CARGO_TARGET_DIR:-target}/release/nlir" "$root/nlir"
+          tar -czf "dist/$root.tar.gz" "$root"
+          shasum -a 256 "dist/$root.tar.gz" | awk '{print $1}' > "dist/$root.sha256"
+
+      - name: Smoke the packaged binary (native target)
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          # Unpack exactly the way `nlir self-update` (updatable-cli TendrilStyle)
+          # will — <root>/nlir — and run it, so a broken or mislaid binary fails
+          # the release BEFORE the asset is published (the pre-publish gate).
+          set -euo pipefail
+          root="nlir-$VERSION-$TARGET"
+          rm -rf smoke; mkdir -p smoke
+          tar -xzf "dist/$root.tar.gz" -C smoke
+          "smoke/$root/nlir" --version
+
+      - name: Upload assets to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          name: ${{ needs.resolve.outputs.tag }}
+          files: dist/*
+          fail_on_unmatched_files: true
