@@ -77,6 +77,8 @@ from claude-sonnet-5 / copilot; exact wording varies by model.
 | `'you enjoy hiking on weekends'?` | `Do you enjoy hiking on weekends?` (question, postfix) |
 | `@'hey can u send me that thing asap'` | `Could you please send me that item at your earliest convenience?` (formalize) |
 | `:'Quantum entanglement is a physical phenomenon ...'` | plain-language rewrite (simplify) |
+| `>'cats sleep a lot'` | a detailed multi-sentence elaboration (expand) |
+| `<'In light of the fact that the weather was extremely inclement, we ...'` | `Due to bad weather, we postponed the outdoor event.` (shorten) |
 
 ## Compositions
 
@@ -118,7 +120,7 @@ falls back to `defaults.model`.
   (`the`, `quick`, … are separate tokens). Quote multi-word operands:
   `#'the quick brown fox'`.
 - **Operator position follows fixity.** `?` is postfix, so use
-  `'...'?`, not `?'...'`. Prefix operators (`#`, `!`, `~`, `@`, `:`) lead;
+  `'...'?`, not `?'...'`. Prefix operators (`#`, `!`, `~`, `@`, `:`, `>`, `<`) lead;
   mixfix/infix (`&`, `|`, `+`, `-`, `*`, `/`) sit between operands.
 - **`det` vs `llm`.** `command`/`reduce` realisations and coercion math are
   deterministic in both modes; `template`/`join` realise deterministically in
