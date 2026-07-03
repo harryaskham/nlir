@@ -13,7 +13,7 @@
 
 use std::fmt;
 
-use crate::config::{Config, ModelConfig};
+use crate::config::{Config, ModelConfig, ModelFormat};
 
 /// Why [`resolve_model`] could not select a model backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +74,81 @@ pub fn resolve_model<'c>(
         .get_key_value(alias)
         .map(|(name, model)| (name.as_str(), model))
         .ok_or_else(|| ModelResolveError::UnknownModel(alias.to_owned()))
+}
+
+/// The JSON field a `format: json` backend response carries its result under,
+/// when the model config does not name one.
+pub const DEFAULT_RESULT_FIELD: &str = "result";
+
+/// Why [`extract_result`] could not pull a scalar result out of a backend
+/// response.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtractError {
+    /// A `format: json` response body was not valid JSON.
+    InvalidJson(String),
+    /// The JSON response had no `result_field` (or was not a JSON object).
+    MissingResultField(String),
+    /// The `result_field` held a non-scalar (array / object / null) value that
+    /// cannot be rendered to a single result string.
+    NonScalarResult(String),
+}
+
+impl fmt::Display for ExtractError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExtractError::InvalidJson(detail) => {
+                write!(f, "backend response was not valid JSON: {detail}")
+            }
+            ExtractError::MissingResultField(field) => {
+                write!(f, "backend JSON response had no `{field}` field")
+            }
+            ExtractError::NonScalarResult(field) => write!(
+                f,
+                "backend JSON `{field}` field was not a string, number, or bool"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ExtractError {}
+
+/// Extract the final result string from a backend's raw output.
+///
+/// - [`ModelFormat::Text`]: the whole stdout is the result, with trailing
+///   newlines stripped (the shell `$(…)` command-substitution convention).
+/// - [`ModelFormat::Json`]: parse the output as JSON and read `result_field`
+///   (defaulting to [`DEFAULT_RESULT_FIELD`]). A JSON string is used verbatim; a
+///   number or bool is stringified (so a coercion's `{"result": 5}` yields `"5"`
+///   for the type layer to parse). Arrays / objects / null are an error.
+///
+/// Shared by the `command` and `anthropic_messages` backends (bd-f5e007 /
+/// bd-d1a328), which produce the raw output this parses.
+///
+/// # Errors
+/// Returns [`ExtractError`] when a JSON response is malformed, lacks the result
+/// field, or holds a non-scalar result.
+pub fn extract_result(
+    raw: &str,
+    format: ModelFormat,
+    result_field: Option<&str>,
+) -> Result<String, ExtractError> {
+    match format {
+        ModelFormat::Text => Ok(raw.trim_end_matches(['\n', '\r']).to_owned()),
+        ModelFormat::Json => {
+            let field = result_field.unwrap_or(DEFAULT_RESULT_FIELD);
+            let json: serde_json::Value = serde_json::from_str(raw.trim())
+                .map_err(|error| ExtractError::InvalidJson(error.to_string()))?;
+            let value = json
+                .get(field)
+                .ok_or_else(|| ExtractError::MissingResultField(field.to_owned()))?;
+            match value {
+                serde_json::Value::String(s) => Ok(s.clone()),
+                serde_json::Value::Number(n) => Ok(n.to_string()),
+                serde_json::Value::Bool(b) => Ok(b.to_string()),
+                _ => Err(ExtractError::NonScalarResult(field.to_owned())),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -162,6 +237,98 @@ mod tests {
             ModelResolveError::UnknownModel("x".to_owned())
                 .to_string()
                 .contains("unknown model `x`")
+        );
+    }
+
+    // --- result extraction (bd-275d8b) ---
+
+    #[test]
+    fn text_format_returns_stdout_without_trailing_newlines() {
+        assert_eq!(
+            extract_result("hello\n", ModelFormat::Text, None),
+            Ok("hello".to_owned())
+        );
+        // Multiple trailing newlines are stripped; internal text is preserved.
+        assert_eq!(
+            extract_result("a b\nc\n\n", ModelFormat::Text, None),
+            Ok("a b\nc".to_owned())
+        );
+        // No trailing newline: verbatim.
+        assert_eq!(
+            extract_result("x y z", ModelFormat::Text, None),
+            Ok("x y z".to_owned())
+        );
+    }
+
+    #[test]
+    fn json_format_reads_the_default_result_field() {
+        assert_eq!(
+            extract_result(r#"{"result": "hi there"}"#, ModelFormat::Json, None),
+            Ok("hi there".to_owned())
+        );
+        // Surrounding whitespace around the JSON body is tolerated.
+        assert_eq!(
+            extract_result("  {\"result\":\"ok\"}\n", ModelFormat::Json, None),
+            Ok("ok".to_owned())
+        );
+    }
+
+    #[test]
+    fn json_format_honours_a_custom_result_field() {
+        assert_eq!(
+            extract_result(r#"{"answer": "42"}"#, ModelFormat::Json, Some("answer")),
+            Ok("42".to_owned())
+        );
+    }
+
+    #[test]
+    fn json_number_and_bool_results_stringify() {
+        // A coercion's {result: T} with a number/bool becomes a string for the
+        // type layer to parse.
+        assert_eq!(
+            extract_result(r#"{"result": 5}"#, ModelFormat::Json, None),
+            Ok("5".to_owned())
+        );
+        assert_eq!(
+            extract_result(r#"{"result": true}"#, ModelFormat::Json, None),
+            Ok("true".to_owned())
+        );
+    }
+
+    #[test]
+    fn json_extraction_errors_are_loud() {
+        // Not valid JSON.
+        assert!(matches!(
+            extract_result("not json", ModelFormat::Json, None),
+            Err(ExtractError::InvalidJson(_))
+        ));
+        // Missing the result field.
+        assert_eq!(
+            extract_result(r#"{"other": "x"}"#, ModelFormat::Json, None),
+            Err(ExtractError::MissingResultField("result".to_owned()))
+        );
+        // Non-scalar result value.
+        assert_eq!(
+            extract_result(r#"{"result": [1, 2]}"#, ModelFormat::Json, None),
+            Err(ExtractError::NonScalarResult("result".to_owned()))
+        );
+        assert_eq!(
+            extract_result(r#"{"result": null}"#, ModelFormat::Json, None),
+            Err(ExtractError::NonScalarResult("result".to_owned()))
+        );
+    }
+
+    #[test]
+    fn extract_error_messages_name_the_problem() {
+        assert!(
+            ExtractError::MissingResultField("result".to_owned())
+                .to_string()
+                .contains("no `result` field")
+        );
+        assert!(
+            ExtractError::InvalidJson("eof".to_owned())
+                .to_string()
+                .contains("not valid JSON")
         );
     }
 }
