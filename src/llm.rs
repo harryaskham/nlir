@@ -15,7 +15,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::process::Command;
 
-use crate::config::{Config, ModelConfig, ModelFormat, PromptDef};
+use crate::config::{Config, ModelConfig, ModelFormat, ModelKind, PromptDef, TypeName};
+use crate::value::{CoerceError, Value};
 
 /// Why [`resolve_model`] could not select a model backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -562,6 +563,129 @@ fn anthropic_text(envelope: &serde_json::Value) -> Option<String> {
         }
     }
     (!text.is_empty()).then_some(text)
+}
+
+/// Why [`coerce_with_llm`] failed.
+#[derive(Debug)]
+pub enum LlmCoerceError {
+    /// A deterministic-layer error that the LLM path does not recover, i.e.
+    /// `list → number` (SPEC: always an error).
+    Coerce(CoerceError),
+    /// No `types:` coercion config exists for the target type.
+    NoCoercionConfig(TypeName),
+    /// The coercion model could not be resolved.
+    Model(ModelResolveError),
+    /// The `command` backend failed.
+    Command(CommandError),
+    /// The `anthropic_messages` backend failed.
+    Anthropic(AnthropicError),
+    /// The LLM returned text that is not a valid value of the target type.
+    UnparseableResult {
+        /// The type the value was being coerced to.
+        target: TypeName,
+        /// The raw text the model returned.
+        raw: String,
+    },
+}
+
+impl fmt::Display for LlmCoerceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LlmCoerceError::Coerce(error) => write!(f, "{error}"),
+            LlmCoerceError::NoCoercionConfig(target) => {
+                write!(f, "no `types:` coercion config for {target}")
+            }
+            LlmCoerceError::Model(error) => write!(f, "coercion model: {error}"),
+            LlmCoerceError::Command(error) => write!(f, "coercion via command backend: {error}"),
+            LlmCoerceError::Anthropic(error) => {
+                write!(f, "coercion via anthropic backend: {error}")
+            }
+            LlmCoerceError::UnparseableResult { target, raw } => write!(
+                f,
+                "LLM coercion to {target} returned an invalid value: {raw:?}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LlmCoerceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LlmCoerceError::Coerce(error) => Some(error),
+            LlmCoerceError::Model(error) => Some(error),
+            LlmCoerceError::Command(error) => Some(error),
+            LlmCoerceError::Anthropic(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+/// Coerce a value to `target` using the `llm`-mode fallback (SPEC §Types &
+/// coercion): deterministic parses first, then — when none apply and the
+/// conversion is not the always-invalid `list → number` — the configured per-type
+/// LLM coercion (`types:` model + prompt + `{result: T}` schema), whose textual
+/// result is parsed back into a typed [`Value`].
+///
+/// This is the `llm`-mode coercion entry point; `det` mode uses the
+/// deterministic-only [`Value::coerce`]. `env_lookup` resolves `${NLIR_*}`
+/// prompt-fragment overrides; `cli_model` is the optional `--model` override
+/// applied when resolving the coercion model.
+///
+/// # Errors
+/// See [`LlmCoerceError`].
+pub fn coerce_with_llm(
+    value: &Value,
+    target: TypeName,
+    config: &Config,
+    sep: &str,
+    env_lookup: impl Fn(&str) -> Option<String>,
+    cli_model: Option<&str>,
+) -> Result<Value, LlmCoerceError> {
+    // 1. Deterministic coercion (SPEC steps 1–2).
+    if let Some(coerced) = value.coerce_deterministic(target, sep) {
+        return Ok(coerced);
+    }
+    // 2. `list → number` is always an error and is never routed to the LLM.
+    if matches!((value, target), (Value::List(_), TypeName::Number)) {
+        return Err(LlmCoerceError::Coerce(CoerceError::list_to_number(
+            value, sep,
+        )));
+    }
+    // 3. Per-type LLM coercion from `types:`.
+    let coercion = config
+        .types
+        .get(target.as_str())
+        .ok_or(LlmCoerceError::NoCoercionConfig(target))?;
+    let (_, model) = resolve_model(config, coercion.model.as_deref(), cli_model)
+        .map_err(LlmCoerceError::Model)?;
+    let filled = substitute_operands(
+        coercion.prompt.as_deref().unwrap_or_default(),
+        &[value.render(sep)],
+    );
+    let fragments = resolve_prompt_fragments(&config.prompts, &env_lookup);
+    let vars = assemble_nlir_vars(&filled, &fragments);
+    let raw = call_coercion_backend(model, &vars)?;
+    // 4. Parse the model's textual result into the target type.
+    Value::String(raw.clone())
+        .coerce_deterministic(target, sep)
+        .ok_or(LlmCoerceError::UnparseableResult { target, raw })
+}
+
+/// Dispatch a coercion call to the resolved model's backend.
+fn call_coercion_backend(
+    model: &ModelConfig,
+    vars: &BTreeMap<String, String>,
+) -> Result<String, LlmCoerceError> {
+    match model.kind {
+        ModelKind::Command => {
+            let env: Vec<(&str, &str)> =
+                vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+            run_command_backend(model, &env).map_err(LlmCoerceError::Command)
+        }
+        ModelKind::AnthropicMessages => {
+            run_anthropic_backend(model, vars).map_err(LlmCoerceError::Anthropic)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1154,6 +1278,132 @@ mod tests {
         assert!(matches!(
             run_anthropic_backend(&model, &nlir_vars()),
             Err(AnthropicError::NoModel)
+        ));
+    }
+
+    // --- LLM coercion fallback (bd-ecb930) ---
+
+    fn coercion_config(command: &str, format: ModelFormat) -> Config {
+        let mut config = Config::default();
+        config.models.insert(
+            "cmd".to_owned(),
+            ModelConfig {
+                kind: ModelKind::Command,
+                format,
+                command: Some(command.to_owned()),
+                ..ModelConfig::default()
+            },
+        );
+        for ty in ["number", "bool"] {
+            config.types.insert(
+                ty.to_owned(),
+                crate::config::CoercionType {
+                    model: Some("cmd".to_owned()),
+                    prompt: Some(format!("as {ty}: %")),
+                    schema: None,
+                },
+            );
+        }
+        config
+    }
+
+    #[test]
+    fn deterministic_coercion_short_circuits_without_calling_the_llm() {
+        // The command would yield a non-number, but a deterministic parse of "1"
+        // wins first, so the LLM is never invoked.
+        let config = coercion_config("printf 'nope'", ModelFormat::Text);
+        assert_eq!(
+            coerce_with_llm(
+                &Value::string("1"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None
+            )
+            .expect("deterministic coercion succeeds"),
+            Value::number(1.0)
+        );
+    }
+
+    #[test]
+    fn list_to_number_is_an_error_and_never_calls_the_llm() {
+        let config = coercion_config("printf '5'", ModelFormat::Text);
+        let list = Value::list(vec![Value::number(1.0)]);
+        match coerce_with_llm(&list, TypeName::Number, &config, "\n", |_| None, None) {
+            Err(LlmCoerceError::Coerce(error)) => {
+                assert_eq!(error.kind, crate::value::CoerceErrorKind::ListToNumber);
+            }
+            other => panic!("expected list->number Coerce error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn llm_command_backend_coerces_text_result() {
+        let config = coercion_config("printf '5'", ModelFormat::Text);
+        assert_eq!(
+            coerce_with_llm(
+                &Value::string("five"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None
+            )
+            .expect("llm text coercion succeeds"),
+            Value::number(5.0)
+        );
+    }
+
+    #[test]
+    fn llm_command_backend_coerces_json_result() {
+        let config = coercion_config(r#"printf '{"result":"7"}'"#, ModelFormat::Json);
+        assert_eq!(
+            coerce_with_llm(
+                &Value::string("seven"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None
+            )
+            .expect("llm json coercion succeeds"),
+            Value::number(7.0)
+        );
+    }
+
+    #[test]
+    fn llm_result_that_is_not_the_target_type_is_an_error() {
+        let config = coercion_config("printf 'notnum'", ModelFormat::Text);
+        match coerce_with_llm(
+            &Value::string("x"),
+            TypeName::Number,
+            &config,
+            "\n",
+            |_| None,
+            None,
+        ) {
+            Err(LlmCoerceError::UnparseableResult { target, raw }) => {
+                assert_eq!(target, TypeName::Number);
+                assert_eq!(raw, "notnum");
+            }
+            other => panic!("expected UnparseableResult, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn missing_coercion_config_for_target_is_an_error() {
+        let config = Config::default(); // no `types:` entries
+        assert!(matches!(
+            coerce_with_llm(
+                &Value::string("x"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None
+            ),
+            Err(LlmCoerceError::NoCoercionConfig(TypeName::Number))
         ));
     }
 }
