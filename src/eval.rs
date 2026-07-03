@@ -28,7 +28,7 @@ use std::fmt;
 use serde_json::Value as Json;
 
 use crate::Mode;
-use crate::config::{Config, OperatorConfig, TypeName};
+use crate::config::{Arity, Config, OperatorConfig, TypeName};
 use crate::context::Context;
 use crate::lexer::{self, MessageRole};
 use crate::messages::MessageIndex;
@@ -56,6 +56,10 @@ pub enum EvalError {
     Coerce(CoerceError),
     /// A deterministic realisation failed (e.g. div-by-zero).
     Realise(RealiseError),
+    /// A `command:` realisation subprocess failed to spawn or exited non-zero.
+    Command(String),
+    /// A `key=RHS` assignment failed to write through to the context.
+    ContextWrite(String),
     /// The program had no statements, so there is no result value.
     EmptyProgram,
     /// A realisation / feature that has its own not-yet-landed bead.
@@ -75,6 +79,8 @@ impl fmt::Display for EvalError {
             }
             EvalError::Coerce(e) => write!(f, "{e}"),
             EvalError::Realise(e) => write!(f, "{e}"),
+            EvalError::Command(m) => write!(f, "command realisation failed: {m}"),
+            EvalError::ContextWrite(m) => write!(f, "context write failed: {m}"),
             EvalError::EmptyProgram => write!(f, "empty program has no result"),
             EvalError::Unsupported(m) => write!(f, "unsupported: {m}"),
         }
@@ -103,7 +109,7 @@ impl From<RealiseError> for EvalError {
 pub fn evaluate(
     expr: &str,
     config: &Config,
-    context: &Context,
+    context: &mut Context,
     mode: Mode,
 ) -> Result<Value, EvalError> {
     let sigils = crate::config::operator_sigils(config);
@@ -114,10 +120,12 @@ pub fn evaluate(
     Evaluator::new(config, context, mode).run(&program)
 }
 
-/// The operand-first evaluator: a config + context + a run-scoped stack.
+/// The operand-first evaluator: a config + context + a run-scoped stack. The
+/// context is mutable so `key=RHS` assignment can write through (SPEC: context
+/// writes happen immediately).
 pub struct Evaluator<'a> {
     config: &'a Config,
-    context: &'a Context,
+    context: &'a mut Context,
     mode: Mode,
     stack: Stack,
 }
@@ -126,7 +134,7 @@ impl<'a> Evaluator<'a> {
     /// Build an evaluator over `config` + `context` in `mode`, with a fresh
     /// empty stack.
     #[must_use]
-    pub fn new(config: &'a Config, context: &'a Context, mode: Mode) -> Self {
+    pub fn new(config: &'a Config, context: &'a mut Context, mode: Mode) -> Self {
         Self {
             config,
             context,
@@ -187,12 +195,16 @@ impl<'a> Evaluator<'a> {
             // A serial marker only constrains scheduling; sequential evaluation
             // already satisfies it (parallelism is exec-graph bd-a32894).
             Expr::Serial(inner) => self.eval(inner),
-            // `key=RHS` context write-through is its own bead (bd-c85dee) and needs
-            // a mutable context; the parser node (bd-4c3498) is landed, the eval
-            // side lands next.
-            Expr::Assign { key, .. } => Err(EvalError::Unsupported(format!(
-                "assignment `{key}=…` (bd-c85dee) not yet wired"
-            ))),
+            // `key=RHS` assignment: evaluate the RHS, write it through to the
+            // context immediately (SPEC), and yield the assigned value
+            // (bd-c85dee).
+            Expr::Assign { key, value } => {
+                let assigned = self.eval(value)?;
+                self.context
+                    .set(key.clone(), value_to_json(&assigned))
+                    .map_err(|error| EvalError::ContextWrite(error.to_string()))?;
+                Ok(assigned)
+            }
             Expr::Apply { op, operands, .. } => self.eval_apply(op, operands),
         }
     }
@@ -251,6 +263,15 @@ impl<'a> Evaluator<'a> {
             operands.push(self.eval(expr)?);
         }
 
+        // A list operand spreads into a variadic op — `&[a,b,c]` ≡ `a&b&c`
+        // (SPEC §Structure; bd-02a795). Non-variadic ops keep the list as one
+        // value (it renders via `_sep`).
+        let (operands, grouped) = if op_cfg.arity == Arity::Variadic {
+            spread_lists(operands, grouped)
+        } else {
+            (operands, grouped)
+        };
+
         let sep = self.sep();
         // Coerce each operand to the operator's operand type (bd-dd7b5e).
         let coerced = operands
@@ -272,10 +293,8 @@ impl<'a> Evaluator<'a> {
         grouped: &[bool],
         sep: &str,
     ) -> Result<Value, EvalError> {
-        if op_cfg.command.is_some() {
-            return Err(EvalError::Unsupported(format!(
-                "command realisation for `{op}` (bd-3c1e6d) not yet wired"
-            )));
+        if let Some(command) = &op_cfg.command {
+            return self.realise_command(command, operands, sep);
         }
         if let Some(reduce_op) = op_cfg.reduce {
             // Numeric reduction ignores grouping (it operates on numbers).
@@ -316,6 +335,59 @@ impl<'a> Evaluator<'a> {
             })
             .collect()
     }
+
+    /// Run a `command:` realisation: operands are exposed to a `bash` subprocess
+    /// as the `NLIR_ARGS` array (SPEC `echo` operator), and its stdout is the
+    /// result — deterministic in both modes (bd-3c1e6d).
+    fn realise_command(
+        &self,
+        command: &str,
+        operands: &[Value],
+        sep: &str,
+    ) -> Result<Value, EvalError> {
+        let args: Vec<String> = operands.iter().map(|value| value.render(sep)).collect();
+        let script = format!("{}\n{command}", crate::llm::nlir_args_declaration(&args));
+        let output = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(&script)
+            .output()
+            .map_err(|error| EvalError::Command(format!("failed to spawn bash: {error}")))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(EvalError::Command(format!(
+                "`{command}` exited with {}: {}",
+                output.status,
+                stderr.trim()
+            )));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // SPEC: stdout is the result; drop a single trailing newline.
+        Ok(Value::string(
+            stdout.strip_suffix('\n').unwrap_or(&stdout).to_owned(),
+        ))
+    }
+}
+
+/// Spread list operands of a variadic operator into their elements (SPEC:
+/// `&[a,b,c]` ≡ `a&b&c`); a spread element is never itself a parenthesised group.
+fn spread_lists(operands: Vec<Value>, grouped: Vec<bool>) -> (Vec<Value>, Vec<bool>) {
+    let mut out = Vec::with_capacity(operands.len());
+    let mut out_grouped = Vec::with_capacity(grouped.len());
+    for (value, is_grouped) in operands.into_iter().zip(grouped) {
+        match value {
+            Value::List(items) => {
+                for item in items {
+                    out.push(item);
+                    out_grouped.push(false);
+                }
+            }
+            other => {
+                out.push(other);
+                out_grouped.push(is_grouped);
+            }
+        }
+    }
+    (out, out_grouped)
 }
 
 /// Convert a stored context JSON value to a typed nlir [`Value`].
@@ -330,6 +402,19 @@ fn json_to_value(json: &Json) -> Value {
     }
 }
 
+/// Convert a typed nlir [`Value`] back to a JSON value for context storage
+/// (inverse of [`json_to_value`]).
+fn value_to_json(value: &Value) -> Json {
+    match value {
+        Value::String(text) => Json::String(text.clone()),
+        Value::Number(number) => {
+            serde_json::Number::from_f64(*number).map_or(Json::Null, Json::Number)
+        }
+        Value::Bool(flag) => Json::Bool(*flag),
+        Value::List(items) => Json::Array(items.iter().map(value_to_json).collect()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,7 +422,8 @@ mod tests {
     use serde_json::{Map, json};
     use std::path::Path;
 
-    /// The SPEC canonical operator set (the subset exercised deterministically).
+    /// The SPEC canonical operator set (the subset exercised deterministically),
+    /// including the `_` echo `command:` operator.
     fn config() -> Config {
         let yaml = r##"
 operators:
@@ -350,17 +436,27 @@ operators:
   sub:     { op: "-", arity: 2, fixity: infix, operands: number, result: number, reduce: sub }
   div:     { op: "/", arity: 2, fixity: infix, operands: number, result: number, reduce: div }
   pow:     { op: "**", arity: 2, fixity: infix, operands: number, result: number, reduce: pow }
+  echo:
+    op: "@"
+    arity: 2
+    fixity: infix
+    operands: string
+    command: |
+      t="${NLIR_ARGS[0]}"; n="${NLIR_ARGS[1]}"; out="$t"
+      for i in $(seq 1 $((n-1))); do out="$out $t"; done
+      printf '%s' "$out"
 "##;
         config::parse_str(yaml, Path::new("test-config.yaml")).expect("valid test config")
     }
 
-    /// Evaluate `expr` in det mode over an empty context and render the result.
+    /// Evaluate `expr` in det mode over a fresh empty context and render the
+    /// result (using the possibly-updated `_sep`).
     fn det(expr: &str) -> String {
         let cfg = config();
-        let ctx = Context::empty(&cfg.context);
-        evaluate(expr, &cfg, &ctx, Mode::Det)
-            .unwrap_or_else(|e| panic!("eval `{expr}`: {e}"))
-            .render(&ctx.sep())
+        let mut ctx = Context::empty(&cfg.context);
+        let value = evaluate(expr, &cfg, &mut ctx, Mode::Det)
+            .unwrap_or_else(|e| panic!("eval `{expr}`: {e}"));
+        value.render(&ctx.sep())
     }
 
     #[test]
@@ -399,6 +495,37 @@ operators:
     }
 
     #[test]
+    fn assignment_writes_context_and_yields_value() {
+        // SPEC det-assign: k=foo yields "foo", then $k reads it back.
+        assert_eq!(det("k=foo;$k"), "foo");
+        // The assignment expression itself yields the assigned value.
+        assert_eq!(det("k=foo"), "foo");
+    }
+
+    #[test]
+    fn list_renders_with_sep_and_assignment_can_change_it() {
+        // A bare list renders by joining with the active `_sep` (default "\n").
+        assert_eq!(det("[a,b]"), "a\nb");
+        // SPEC det-sep: set `_sep` to a space, then [a,b] renders "a b".
+        assert_eq!(det("_sep=\\ ;[a,b]"), "a b");
+    }
+
+    #[test]
+    fn list_spreads_into_a_variadic_operator() {
+        // SPEC: `[a,b,c]` spreads into a variadic op (a&b&[c,d] ≡ a&b&c&d).
+        assert_eq!(det("a&b&[c,d]"), "a and b and c and d");
+    }
+
+    #[test]
+    fn command_realisation_runs_under_bash() {
+        // Command realisation runs the `command:` under bash with operands as
+        // NLIR_ARGS; here `@` repeats its left operand right-operand times.
+        // (This mirrors the SPEC `_` echo op; the SPEC `_` sigil itself is
+        // currently lexer-blocked — see the note in this bead's session.)
+        assert_eq!(det("xxx@2"), "xxx xxx");
+    }
+
+    #[test]
     fn message_index_reads_role_view() {
         let cfg = config();
         let mut ctx = Context::empty(&cfg.context);
@@ -412,15 +539,11 @@ operators:
         );
         ctx.merge(seed);
         // SPEC msg test: ^-1 → last assistant message.
-        let out = evaluate("^-1", &cfg, &ctx, Mode::Det)
-            .expect("message eval")
-            .render(&ctx.sep());
-        assert_eq!(out, "in rust");
+        let out = evaluate("^-1", &cfg, &mut ctx, Mode::Det).expect("message eval");
+        assert_eq!(out.render(&ctx.sep()), "in rust");
         // Subject-of over the message (prefix template over a `^` index).
-        let out = evaluate("#^-1", &cfg, &ctx, Mode::Det)
-            .expect("subject eval")
-            .render(&ctx.sep());
-        assert_eq!(out, "subject of in rust");
+        let out = evaluate("#^-1", &cfg, &mut ctx, Mode::Det).expect("subject eval");
+        assert_eq!(out.render(&ctx.sep()), "subject of in rust");
     }
 
     #[test]
@@ -428,14 +551,10 @@ operators:
         let cfg = config();
         let mut ctx = Context::empty(&cfg.context);
         ctx.merge([("k".to_owned(), json!("foo"))].into_iter().collect());
-        assert_eq!(
-            evaluate("$k", &cfg, &ctx, Mode::Det)
-                .unwrap()
-                .render(&ctx.sep()),
-            "foo"
-        );
+        let out = evaluate("$k", &cfg, &mut ctx, Mode::Det).unwrap();
+        assert_eq!(out.render(&ctx.sep()), "foo");
         assert!(matches!(
-            evaluate("$missing", &cfg, &ctx, Mode::Det),
+            evaluate("$missing", &cfg, &mut ctx, Mode::Det),
             Err(EvalError::UnknownContextKey(_))
         ));
     }
@@ -443,35 +562,35 @@ operators:
     #[test]
     fn div_by_zero_is_a_loud_error() {
         let cfg = config();
-        let ctx = Context::empty(&cfg.context);
+        let mut ctx = Context::empty(&cfg.context);
         assert!(matches!(
-            evaluate("1/0", &cfg, &ctx, Mode::Det),
+            evaluate("1/0", &cfg, &mut ctx, Mode::Det),
             Err(EvalError::Realise(_))
         ));
     }
 
     #[test]
-    fn unknown_operator_errors() {
-        // `~` is not configured; the lexer won't even tokenise it, so this is a
-        // lex error — the point is it fails loudly, not silently.
+    fn unknown_or_unlexable_operator_fails_loudly() {
+        // `~` is not configured; the lexer won't tokenise it — the point is it
+        // fails loudly, not silently.
         let cfg = config();
-        let ctx = Context::empty(&cfg.context);
-        assert!(evaluate("a~b", &cfg, &ctx, Mode::Det).is_err());
+        let mut ctx = Context::empty(&cfg.context);
+        assert!(evaluate("a~b", &cfg, &mut ctx, Mode::Det).is_err());
     }
 
     #[test]
     fn llm_realisation_is_reported_unsupported_for_now() {
-        let cfg = config();
-        let ctx = Context::empty(&cfg.context);
-        // `!` has only a det template here; in llm mode with no model it is
-        // reported unsupported rather than silently wrong.
+        let mut ctx = Context::empty(&config().context);
+        // An op with only a model+prompt realisation, evaluated in llm mode, is
+        // reported unsupported rather than silently wrong (the LLM path is a
+        // separate bead).
         let yaml = r##"
 operators:
   ask: { op: "?", arity: 1, fixity: postfix, priority: 0, model: haiku, prompt: "q: %" }
 "##;
         let llm_cfg = config::parse_str(yaml, Path::new("t.yaml")).unwrap();
         assert!(matches!(
-            evaluate("x?", &llm_cfg, &ctx, Mode::Llm),
+            evaluate("x?", &llm_cfg, &mut ctx, Mode::Llm),
             Err(EvalError::Unsupported(_))
         ));
     }
