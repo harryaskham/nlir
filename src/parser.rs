@@ -96,6 +96,10 @@ impl Expr {
             } => match (fixity, operands.as_slice()) {
                 (Fixity::Prefix, [a]) => format!("({op} {})", a.render()),
                 (Fixity::Postfix, [a]) => format!("({} {op})", a.render()),
+                (Fixity::Mixfix, ops) if ops.len() >= 2 => {
+                    let parts: Vec<String> = ops.iter().map(Expr::render).collect();
+                    format!("({})", parts.join(&format!(" {op} ")))
+                }
                 (_, [a, b]) => format!("({} {op} {})", a.render(), b.render()),
                 _ => {
                     let parts: Vec<String> = operands.iter().map(Expr::render).collect();
@@ -179,6 +183,32 @@ pub fn parse_expr(
     Ok(expr)
 }
 
+/// Fold a same-op mixfix chain into one n-ary [`Expr::Apply`] (bd-c65341). If
+/// `lhs` is already a mixfix application of the same `op` (and not wrapped in a
+/// [`Expr::Group`], which is a distinct node), append `rhs` to it; otherwise
+/// build a fresh 2-operand application.
+fn flatten_mixfix(op: String, lhs: Expr, rhs: Expr) -> Expr {
+    match lhs {
+        Expr::Apply {
+            op: lop,
+            fixity: Fixity::Mixfix,
+            mut operands,
+        } if lop == op => {
+            operands.push(rhs);
+            Expr::Apply {
+                op,
+                fixity: Fixity::Mixfix,
+                operands,
+            }
+        }
+        other => Expr::Apply {
+            op,
+            fixity: Fixity::Mixfix,
+            operands: vec![other, rhs],
+        },
+    }
+}
+
 struct Parser<'a> {
     tokens: &'a [Token],
     table: &'a BTreeMap<String, OpInfo>,
@@ -214,7 +244,7 @@ impl Parser<'_> {
                         operands: vec![lhs],
                     };
                 }
-                Fixity::Infix | Fixity::Mixfix => {
+                Fixity::Infix => {
                     let l_bp = bp(info.priority);
                     if l_bp < min_bp {
                         break;
@@ -223,9 +253,21 @@ impl Parser<'_> {
                     let rhs = self.expr(l_bp + 1)?;
                     lhs = Expr::Apply {
                         op,
-                        fixity: info.fixity,
+                        fixity: Fixity::Infix,
                         operands: vec![lhs, rhs],
                     };
+                }
+                Fixity::Mixfix => {
+                    let l_bp = bp(info.priority);
+                    if l_bp < min_bp {
+                        break;
+                    }
+                    self.pos += 1;
+                    let rhs = self.expr(l_bp + 1)?;
+                    // Variadic flattening (bd-c65341): fold an adjacent same-op
+                    // mixfix chain into one n-ary node. A Group on the left (or
+                    // right) is a distinct AST node, so parens force nesting.
+                    lhs = flatten_mixfix(op, lhs, rhs);
                 }
                 // A prefix operator cannot appear in led (infix) position.
                 Fixity::Prefix => break,
@@ -409,5 +451,20 @@ mod tests {
         // A dangling infix operand.
         let tokens = tokenize("a+", &sigils).expect("tokenises");
         assert!(parse_expr(&tokens, &ops).is_err());
+    }
+
+    #[test]
+    fn variadic_mixfix_flattening() {
+        // A same-op mixfix chain flattens into one n-ary node (bd-c65341).
+        assert_eq!(render("a&b&c"), "(a & b & c)");
+        assert_eq!(render("a&b&c&d"), "(a & b & c & d)");
+        assert_eq!(render("1+2+3"), "(1 + 2 + 3)");
+        // Parens force nesting: a Group is a distinct node, so no flatten.
+        assert_eq!(render("(a&b)&c"), "((a & b) & c)");
+        assert_eq!(render("a&(b&c)"), "(a & (b & c))");
+        // Different mixfix ops do not flatten together.
+        assert_eq!(render("a&b|c"), "((a & b) | c)");
+        // Infix operators stay nested binary (only mixfix flattens).
+        assert_eq!(render("a-b-c"), "((a - b) - c)");
     }
 }
