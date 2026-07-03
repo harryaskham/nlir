@@ -450,7 +450,7 @@ operators:
   div:     { op: "/", arity: 2, fixity: infix, operands: number, result: number, reduce: div }
   pow:     { op: "**", arity: 2, fixity: infix, operands: number, result: number, reduce: pow }
   echo:
-    op: "@"
+    op: "_"
     arity: 2
     fixity: infix
     operands: string
@@ -531,11 +531,10 @@ operators:
 
     #[test]
     fn command_realisation_runs_under_bash() {
-        // Command realisation runs the `command:` under bash with operands as
-        // NLIR_ARGS; here `@` repeats its left operand right-operand times.
-        // (This mirrors the SPEC `_` echo op; the SPEC `_` sigil itself is
-        // currently lexer-blocked — see the note in this bead's session.)
-        assert_eq!(det("xxx@2"), "xxx xxx");
+        // SPEC det-echo: `xxx_2` → "xxx xxx" via the `_` echo command operator,
+        // which runs the `command:` under bash with operands as NLIR_ARGS. The
+        // `_` operator lexes again after bd-ebf385.
+        assert_eq!(det("xxx_2"), "xxx xxx");
     }
 
     #[test]
