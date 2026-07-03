@@ -33,7 +33,7 @@ use crate::context::Context;
 use crate::lexer::{self, MessageRole};
 use crate::messages::MessageIndex;
 use crate::parser::{self, Expr, Program};
-use crate::realise::{self, RealiseError};
+use crate::realise::RealiseError;
 use crate::stack::Stack;
 use crate::value::{CoerceError, Value};
 
@@ -140,10 +140,14 @@ pub struct Evaluator<'a> {
     context: &'a mut Context,
     mode: Mode,
     stack: Stack,
+    /// Bounded DAG concurrency for independent operand subtrees (config
+    /// `defaults.parallelism`, default 8) — SPEC §Execution graph (bd-780dbf).
+    parallelism: usize,
     /// Per-run memoisation of operator realisations keyed by
     /// `(op, mode, model, grouping, operand-texts)` — SPEC §parallelism dedupes
-    /// identical subcalls when `_cache` is on (bd-1d078c).
-    realise_cache: std::collections::HashMap<String, Value>,
+    /// identical subcalls when `_cache` is on (bd-1d078c). Behind a `Mutex` so
+    /// concurrently-evaluated operand subtrees share one cache (bd-780dbf).
+    realise_cache: std::sync::Mutex<std::collections::HashMap<String, Value>>,
 }
 
 impl<'a> Evaluator<'a> {
@@ -152,11 +156,12 @@ impl<'a> Evaluator<'a> {
     #[must_use]
     pub fn new(config: &'a Config, context: &'a mut Context, mode: Mode) -> Self {
         Self {
+            parallelism: config.defaults.parallelism.max(1),
             config,
             context,
             mode,
             stack: Stack::new(),
-            realise_cache: std::collections::HashMap::new(),
+            realise_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -294,11 +299,33 @@ impl<'a> Evaluator<'a> {
                 .map(|expr| matches!(expr, Expr::Group(_)))
                 .collect();
 
-            // Operand-first (bd-168ef8): resolve every operand to a value.
-            let mut operands = Vec::with_capacity(operand_exprs.len());
-            for expr in operand_exprs {
-                operands.push(self.eval(expr)?);
-            }
+            // Operand-first (bd-168ef8). Independent side-effect-free operand
+            // subtrees evaluate concurrently, bounded by `parallelism` (SPEC
+            // §Execution graph; bd-780dbf). A subtree that writes context (`=`)
+            // or touches the stack is not parallel-safe → sequential (bd-0d9f66);
+            // a backtick-serial operand parallelises with its siblings but runs
+            // serially inside (bd-f66c32).
+            let operands = if operand_exprs.len() > 1
+                && self.parallelism > 1
+                && operand_exprs.iter().all(is_parallel_safe)
+            {
+                let cache_on = self.context.cache();
+                eval_operands_parallel(
+                    operand_exprs,
+                    self.config,
+                    self.context,
+                    self.mode,
+                    cache_on,
+                    &self.realise_cache,
+                    self.parallelism,
+                )?
+            } else {
+                let mut operands = Vec::with_capacity(operand_exprs.len());
+                for expr in operand_exprs {
+                    operands.push(self.eval(expr)?);
+                }
+                operands
+            };
 
             // A list operand spreads into a variadic op — `&[a,b,c]` ≡ `a&b&c`
             // (SPEC §Structure; bd-02a795). Non-variadic ops keep the list as one
@@ -317,146 +344,326 @@ impl<'a> Evaluator<'a> {
             .map(|value| value.coerce(op_cfg.operands, &sep))
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.realise_cached(op, op_cfg, &coerced, &grouped, &sep)
-    }
-
-    /// [`Evaluator::realise`] with per-run memoisation (bd-1d078c). When `_cache`
-    /// is on (default), identical realisations — same `(op, mode, model,
-    /// grouping, operand-texts)` — are computed once and reused, deduping
-    /// repeated LLM/command subcalls (SPEC §Execution graph: caching). `_cache`
-    /// off bypasses the cache entirely.
-    fn realise_cached(
-        &mut self,
-        op: &str,
-        op_cfg: &OperatorConfig,
-        operands: &[Value],
-        grouped: &[bool],
-        sep: &str,
-    ) -> Result<Value, EvalError> {
-        if !self.context.cache() {
-            return self.realise(op, op_cfg, operands, grouped, sep);
-        }
-        let key = realise_cache_key(
+        let cache_on = self.context.cache();
+        realise_cached(
             op,
+            op_cfg,
+            &coerced,
+            &grouped,
+            &sep,
             self.mode,
-            op_cfg.model.as_deref(),
-            operands,
-            grouped,
-            sep,
-        );
-        if let Some(cached) = self.realise_cache.get(&key) {
-            return Ok(cached.clone());
-        }
-        let result = self.realise(op, op_cfg, operands, grouped, sep)?;
-        self.realise_cache.insert(key, result.clone());
-        Ok(result)
+            self.config,
+            cache_on,
+            &self.realise_cache,
+        )
     }
+}
 
-    /// Resolve + run an operator's realisation (bd-d58371). Order (SPEC §Modes):
-    /// `command:` / `reduce:` (always deterministic) → `det` mode `template:` /
-    /// `join:` → `llm` mode `model:` + `prompt:`.
-    fn realise(
-        &self,
-        op: &str,
-        op_cfg: &OperatorConfig,
-        operands: &[Value],
-        grouped: &[bool],
-        sep: &str,
-    ) -> Result<Value, EvalError> {
-        if let Some(command) = &op_cfg.command {
-            return self.realise_command(command, operands, sep);
-        }
-        if let Some(reduce_op) = op_cfg.reduce {
-            // Numeric reduction ignores grouping (it operates on numbers).
-            return Ok(realise::reduce(reduce_op, operands)?);
-        }
-        match self.mode {
-            Mode::Det => {
-                let rendered = self.parenthesise_grouped(operands, grouped, sep);
-                if let Some(template) = &op_cfg.template {
-                    Ok(realise::template(template, &rendered, sep))
-                } else if let Some(separator) = &op_cfg.join {
-                    Ok(realise::join(&rendered, separator, sep))
-                } else {
-                    Err(EvalError::Unsupported(format!(
-                        "operator `{op}` has no deterministic (template/join/reduce) realisation"
-                    )))
-                }
+/// Resolve + run an operator's realisation (bd-d58371). Order (SPEC §Modes):
+/// `command:` / `reduce:` (always deterministic) → `det` mode `template:` /
+/// `join:` → `llm` mode `model:` + `prompt:`. Free so both the sequential and
+/// the concurrent operand paths (bd-780dbf) share it.
+fn realise(
+    op: &str,
+    op_cfg: &OperatorConfig,
+    operands: &[Value],
+    grouped: &[bool],
+    sep: &str,
+    mode: Mode,
+    config: &Config,
+) -> Result<Value, EvalError> {
+    if let Some(command) = &op_cfg.command {
+        return realise_command(command, operands, sep);
+    }
+    if let Some(reduce_op) = op_cfg.reduce {
+        // Numeric reduction ignores grouping (it operates on numbers).
+        return Ok(crate::realise::reduce(reduce_op, operands)?);
+    }
+    match mode {
+        Mode::Det => {
+            let rendered = parenthesise_grouped(operands, grouped, sep);
+            if let Some(template) = &op_cfg.template {
+                Ok(crate::realise::template(template, &rendered, sep))
+            } else if let Some(separator) = &op_cfg.join {
+                Ok(crate::realise::join(&rendered, separator, sep))
+            } else {
+                Err(EvalError::Unsupported(format!(
+                    "operator `{op}` has no deterministic (template/join/reduce) realisation"
+                )))
             }
-            Mode::Llm => {
-                // llm realisation (bd-3573aa): resolve the model, fill the
-                // prompt from the operands, call the backend via aur-2's
-                // llm::realise_llm seam (bd-dc3c72), and wrap the result.
-                let Some(prompt) = op_cfg.prompt.as_deref() else {
-                    return Err(EvalError::Unsupported(format!(
-                        "operator `{op}` has no llm realisation (needs a `prompt:`)"
-                    )));
-                };
-                // Operand text feeds the model's prompt; grouped operands keep
-                // their parens (SPEC: preserved in output).
-                let rendered = self.parenthesise_grouped(operands, grouped, sep);
-                let args: Vec<String> = rendered.iter().map(|value| value.render(sep)).collect();
-                crate::llm::realise_llm(
-                    op_cfg.model.as_deref(),
-                    prompt,
-                    &args,
-                    self.config,
-                    None,
-                    |name| std::env::var(name).ok(),
-                )
+        }
+        Mode::Llm => {
+            // llm realisation (bd-3573aa): resolve the model, fill the prompt
+            // from the operands, call the backend via aur-2's llm::realise_llm
+            // seam (bd-dc3c72), and wrap the result.
+            let Some(prompt) = op_cfg.prompt.as_deref() else {
+                return Err(EvalError::Unsupported(format!(
+                    "operator `{op}` has no llm realisation (needs a `prompt:`)"
+                )));
+            };
+            // Operand text feeds the model's prompt; grouped operands keep their
+            // parens (SPEC: preserved in output).
+            let rendered = parenthesise_grouped(operands, grouped, sep);
+            let args: Vec<String> = rendered.iter().map(|value| value.render(sep)).collect();
+            crate::llm::realise_llm(
+                op_cfg.model.as_deref(),
+                prompt,
+                &args,
+                config,
+                None,
+                |name| std::env::var(name).ok(),
+            )
+            .map(Value::string)
+            .map_err(|error| EvalError::Llm(error.to_string()))
+        }
+    }
+}
+
+/// [`realise`] with per-run memoisation (bd-1d078c) shared across
+/// concurrently-evaluated operand subtrees via a `Mutex`-guarded cache. When
+/// `cache_on` (`_cache`, default true), identical realisations — same
+/// `(op, mode, model, grouping, operand-texts)` — are computed once and reused,
+/// deduping repeated LLM/command subcalls (SPEC §Execution graph: caching).
+///
+/// Two truly-simultaneous identical subcalls on different threads may both miss
+/// the cache and compute (in-flight dedup is not attempted); sequential repeats
+/// are always deduped.
+#[allow(clippy::too_many_arguments)]
+fn realise_cached(
+    op: &str,
+    op_cfg: &OperatorConfig,
+    operands: &[Value],
+    grouped: &[bool],
+    sep: &str,
+    mode: Mode,
+    config: &Config,
+    cache_on: bool,
+    cache: &std::sync::Mutex<std::collections::HashMap<String, Value>>,
+) -> Result<Value, EvalError> {
+    if !cache_on {
+        return realise(op, op_cfg, operands, grouped, sep, mode, config);
+    }
+    let key = realise_cache_key(op, mode, op_cfg.model.as_deref(), operands, grouped, sep);
+    // Serve a hit without holding the lock across the realisation.
+    if let Some(cached) = cache
+        .lock()
+        .expect("realise cache mutex")
+        .get(&key)
+        .cloned()
+    {
+        return Ok(cached);
+    }
+    let result = realise(op, op_cfg, operands, grouped, sep, mode, config)?;
+    cache
+        .lock()
+        .expect("realise cache mutex")
+        .insert(key, result.clone());
+    Ok(result)
+}
+
+/// Wrap grouped operands' rendered form in parentheses (SPEC: parens are
+/// preserved in output), leaving ungrouped operands as-is for the string
+/// realisations.
+fn parenthesise_grouped(operands: &[Value], grouped: &[bool], sep: &str) -> Vec<Value> {
+    operands
+        .iter()
+        .zip(grouped)
+        .map(|(value, &is_grouped)| {
+            if is_grouped {
+                Value::string(format!("({})", value.render(sep)))
+            } else {
+                value.clone()
+            }
+        })
+        .collect()
+}
+
+/// Run a `command:` realisation: operands are exposed to a `bash` subprocess as
+/// the `NLIR_ARGS` array (SPEC `echo` operator), and its stdout is the result —
+/// deterministic in both modes (bd-3c1e6d).
+fn realise_command(command: &str, operands: &[Value], sep: &str) -> Result<Value, EvalError> {
+    let args: Vec<String> = operands.iter().map(|value| value.render(sep)).collect();
+    let script = format!("{}\n{command}", crate::llm::nlir_args_declaration(&args));
+    let output = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(&script)
+        .output()
+        .map_err(|error| EvalError::Command(format!("failed to spawn bash: {error}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(EvalError::Command(format!(
+            "`{command}` exited with {}: {}",
+            output.status,
+            stderr.trim()
+        )));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // SPEC: stdout is the result; drop a single trailing newline.
+    Ok(Value::string(
+        stdout.strip_suffix('\n').unwrap_or(&stdout).to_owned(),
+    ))
+}
+
+/// Whether an expression subtree can be evaluated concurrently with its
+/// siblings (SPEC §Execution graph safety; bd-780dbf / bd-0d9f66). Safe iff it
+/// only READS context + computes: no context write (`Expr::Assign`), no stack
+/// access (`$` / `$N`), and no nullary operator (an `Apply` with no operands
+/// pops the stack). Reads (`$name`, `^`) are fine because the parallel section
+/// never writes context.
+fn is_parallel_safe(expr: &Expr) -> bool {
+    match expr {
+        Expr::Bare(_) | Expr::Quoted { .. } | Expr::Number(_) | Expr::ContextRead(_) => true,
+        Expr::StackPeek | Expr::StackIndex(_) | Expr::Assign { .. } => false,
+        Expr::Message { index, .. } => is_parallel_safe(index),
+        Expr::Group(inner) | Expr::Serial(inner) => is_parallel_safe(inner),
+        Expr::List(items) => items.iter().all(is_parallel_safe),
+        // A nullary op (empty operands) pops the stack — not parallel-safe.
+        Expr::Apply { operands, .. } => {
+            !operands.is_empty() && operands.iter().all(is_parallel_safe)
+        }
+    }
+}
+
+/// Read-only evaluation of a parallel-safe subtree (see [`is_parallel_safe`]),
+/// sharing only `&Config`, `&Context`, and the `Mutex`-guarded cache, so it runs
+/// on a scoped thread (bd-780dbf). It mirrors [`Evaluator::eval`] for the pure
+/// subset (no stack, no context writes); excluded node kinds are defensively
+/// errored. A nested `Apply`'s operands evaluate sequentially here —
+/// parallelisation happens only at the top level of each `Apply`, which bounds
+/// total concurrency.
+fn eval_parallel_safe(
+    expr: &Expr,
+    config: &Config,
+    context: &Context,
+    mode: Mode,
+    cache_on: bool,
+    cache: &std::sync::Mutex<std::collections::HashMap<String, Value>>,
+) -> Result<Value, EvalError> {
+    match expr {
+        Expr::Bare(text) => Ok(Value::string(text.clone())),
+        Expr::Quoted {
+            content,
+            interpolate,
+        } => Ok(Value::string(if *interpolate {
+            context.interpolate(content)
+        } else {
+            content.clone()
+        })),
+        Expr::Number(n) => Ok(Value::number(*n)),
+        Expr::ContextRead(name) => context
+            .get(name)
+            .map(json_to_value)
+            .ok_or_else(|| EvalError::UnknownContextKey(name.to_owned())),
+        Expr::Message { role, index } => {
+            let sep = context.sep();
+            let number = eval_parallel_safe(index, config, context, mode, cache_on, cache)?
+                .coerce(TypeName::Number, &sep)?
+                .as_number()
+                .ok_or_else(|| {
+                    EvalError::Unsupported("message index is not a number".to_owned())
+                })?;
+            #[allow(clippy::cast_possible_truncation)]
+            let i = number.trunc() as i64;
+            let view = MessageIndex::new(
+                context.messages(),
+                &config.context.messages.views,
+                &config.context.messages.role_field,
+                &config.context.messages.content_field,
+            );
+            view.content_at(*role, i)
                 .map(Value::string)
-                .map_err(|error| EvalError::Llm(error.to_string()))
+                .ok_or(EvalError::NoMessage {
+                    role: *role,
+                    index: i,
+                })
+        }
+        Expr::Group(inner) | Expr::Serial(inner) => {
+            eval_parallel_safe(inner, config, context, mode, cache_on, cache)
+        }
+        Expr::List(items) => {
+            let values = items
+                .iter()
+                .map(|item| eval_parallel_safe(item, config, context, mode, cache_on, cache))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::list(values))
+        }
+        Expr::Apply { op, operands, .. } => {
+            let op_cfg = config
+                .operators
+                .values()
+                .find(|configured| configured.op == *op)
+                .ok_or_else(|| EvalError::UnknownOperator((*op).to_owned()))?;
+            let grouped: Vec<bool> = operands
+                .iter()
+                .map(|expr| matches!(expr, Expr::Group(_)))
+                .collect();
+            let mut values = Vec::with_capacity(operands.len());
+            for operand in operands {
+                values.push(eval_parallel_safe(
+                    operand, config, context, mode, cache_on, cache,
+                )?);
             }
+            let (values, grouped) = if op_cfg.arity == Arity::Variadic {
+                spread_lists(values, grouped)
+            } else {
+                (values, grouped)
+            };
+            let sep = context.sep();
+            let coerced = values
+                .iter()
+                .map(|value| value.coerce(op_cfg.operands, &sep))
+                .collect::<Result<Vec<_>, _>>()?;
+            realise_cached(
+                op, op_cfg, &coerced, &grouped, &sep, mode, config, cache_on, cache,
+            )
+        }
+        // is_parallel_safe excludes these; defensive.
+        Expr::Assign { .. } | Expr::StackPeek | Expr::StackIndex(_) => Err(EvalError::Unsupported(
+            "non-parallel-safe node reached the parallel eval path".to_owned(),
+        )),
+    }
+}
+
+/// Evaluate an operator's operand subtrees concurrently on scoped threads,
+/// bounded by `parallelism` (SPEC §Execution graph; bd-780dbf). Callers must have
+/// verified every operand [`is_parallel_safe`]. Results are returned in operand
+/// order; the first error wins.
+fn eval_operands_parallel(
+    operand_exprs: &[Expr],
+    config: &Config,
+    context: &Context,
+    mode: Mode,
+    cache_on: bool,
+    cache: &std::sync::Mutex<std::collections::HashMap<String, Value>>,
+    parallelism: usize,
+) -> Result<Vec<Value>, EvalError> {
+    let mut results = Vec::with_capacity(operand_exprs.len());
+    for chunk in operand_exprs.chunks(parallelism.max(1)) {
+        let chunk_results: Vec<Result<Value, EvalError>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|expr| {
+                    scope.spawn(move || {
+                        eval_parallel_safe(expr, config, context, mode, cache_on, cache)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle.join().unwrap_or_else(|_| {
+                        Err(EvalError::Unsupported(
+                            "evaluation thread panicked".to_owned(),
+                        ))
+                    })
+                })
+                .collect()
+        });
+        for result in chunk_results {
+            results.push(result?);
         }
     }
-
-    /// Wrap grouped operands' rendered form in parentheses (SPEC: parens are
-    /// preserved in output), leaving ungrouped operands as-is for the string
-    /// realisations.
-    fn parenthesise_grouped(&self, operands: &[Value], grouped: &[bool], sep: &str) -> Vec<Value> {
-        operands
-            .iter()
-            .zip(grouped)
-            .map(|(value, &is_grouped)| {
-                if is_grouped {
-                    Value::string(format!("({})", value.render(sep)))
-                } else {
-                    value.clone()
-                }
-            })
-            .collect()
-    }
-
-    /// Run a `command:` realisation: operands are exposed to a `bash` subprocess
-    /// as the `NLIR_ARGS` array (SPEC `echo` operator), and its stdout is the
-    /// result — deterministic in both modes (bd-3c1e6d).
-    fn realise_command(
-        &self,
-        command: &str,
-        operands: &[Value],
-        sep: &str,
-    ) -> Result<Value, EvalError> {
-        let args: Vec<String> = operands.iter().map(|value| value.render(sep)).collect();
-        let script = format!("{}\n{command}", crate::llm::nlir_args_declaration(&args));
-        let output = std::process::Command::new("bash")
-            .arg("-c")
-            .arg(&script)
-            .output()
-            .map_err(|error| EvalError::Command(format!("failed to spawn bash: {error}")))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(EvalError::Command(format!(
-                "`{command}` exited with {}: {}",
-                output.status,
-                stderr.trim()
-            )));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        // SPEC: stdout is the result; drop a single trailing newline.
-        Ok(Value::string(
-            stdout.strip_suffix('\n').unwrap_or(&stdout).to_owned(),
-        ))
-    }
+    Ok(results)
 }
 
 /// Spread list operands of a variadic operator into their elements (SPEC:
@@ -576,6 +783,18 @@ operators:
         value.render(&ctx.sep())
     }
 
+    /// Like [`det`] but forces sequential evaluation (`parallelism = 1`), so the
+    /// per-run cache deduplicates identical subcalls (two truly-concurrent
+    /// identical subcalls may both miss the cache and compute).
+    fn det_seq(expr: &str) -> String {
+        let mut cfg = config();
+        cfg.defaults.parallelism = 1;
+        let mut ctx = Context::empty(&cfg.context);
+        let value = evaluate(expr, &cfg, &mut ctx, Mode::Det)
+            .unwrap_or_else(|e| panic!("eval `{expr}`: {e}"));
+        value.render(&ctx.sep())
+    }
+
     #[test]
     fn lex_error_reports_position_with_a_source_caret() {
         // Legible lex diagnostics: no doubled prefix + a source pointer (bd-1027d5).
@@ -681,10 +900,10 @@ operators:
 
     #[test]
     fn subcall_cache_dedupes_identical_realisations() {
-        // bd-1d078c: with `_cache` on (default), two identical realisations (`~x`
-        // via a random command) are computed once and reused, so both halves of
-        // the join match.
-        let out = det("~x&~x");
+        // bd-1d078c: with `_cache` on (default) and SEQUENTIAL eval, two
+        // identical realisations (`~x` via a random command) are computed once
+        // and reused, so both halves of the join match.
+        let out = det_seq("~x&~x");
         let parts: Vec<&str> = out.split(" and ").collect();
         assert_eq!(parts.len(), 2, "expected a two-part join, got {out:?}");
         assert_eq!(
@@ -695,10 +914,11 @@ operators:
 
     #[test]
     fn cache_disabled_reruns_each_subcall() {
-        // bd-1d078c: with `_cache=false`, identical subcalls are NOT deduped, so
-        // two random commands differ. Retry to avoid a rare 6-byte nonce clash.
+        // bd-1d078c: with `_cache=false` (and sequential eval), identical
+        // subcalls are NOT deduped, so two random commands differ. Retry to
+        // avoid a rare 6-byte nonce clash.
         let differ = (0..8).any(|_| {
-            let out = det("_cache=false;~x&~x");
+            let out = det_seq("_cache=false;~x&~x");
             matches!(
                 out.split(" and ").collect::<Vec<_>>().as_slice(),
                 [a, b] if a != b
@@ -708,6 +928,21 @@ operators:
             differ,
             "with _cache=false, uncached random subcalls should differ across retries"
         );
+    }
+
+    #[test]
+    fn independent_operands_evaluate_concurrently_and_correctly() {
+        // bd-780dbf: with parallelism > 1 (default 8), a variadic op's independent
+        // operands evaluate on scoped threads; the result is identical to
+        // sequential eval (concurrency is transparent).
+        assert_eq!(
+            det("#a&#b&#c"),
+            "subject of a and subject of b and subject of c"
+        );
+        // Concurrent `command:` operands (two bash subprocesses) also compose
+        // correctly and in order. Grouping pins each `_` echo as a `&` operand;
+        // grouped operands keep their parens in the output.
+        assert_eq!(det("(xxx_2)&(yyy_3)"), "(xxx xxx) and (yyy yyy yyy)");
     }
 
     #[test]
