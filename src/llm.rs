@@ -325,6 +325,81 @@ pub fn resolve_prompt_fragments(
     vars
 }
 
+/// The env var carrying the `%`-filled operator/coercion prompt.
+pub const NLIR_PROMPT_VAR: &str = "NLIR_PROMPT";
+
+/// The bash array variable carrying the raw operands for `command` backends.
+pub const NLIR_ARGS_VAR: &str = "NLIR_ARGS";
+
+/// Assemble the scalar `${NLIR_*}` variable set for a realisation: the resolved
+/// prompt `fragments` (bd-b9a977) plus [`NLIR_PROMPT_VAR`] set to the
+/// `%`-filled prompt (bd-a47a02).
+///
+/// This is the variable environment the model's message / command templates
+/// reference as `${NLIR_SYSTEM_PROMPT}`, `${NLIR_PROMPT}`, etc.
+#[must_use]
+pub fn assemble_nlir_vars(
+    filled_prompt: &str,
+    fragments: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut vars = fragments.clone();
+    vars.insert(NLIR_PROMPT_VAR.to_owned(), filled_prompt.to_owned());
+    vars
+}
+
+/// Substitute `${NAME}` references in a template with values from `vars`.
+///
+/// Used for the `anthropic_messages` backend, whose message templates are sent
+/// over HTTP (not run through a shell), so `${NLIR_*}` must be expanded here. A
+/// reference to a name not in `vars` is left literal (rather than emptied), and a
+/// `${` with no closing `}` is emitted verbatim.
+///
+/// `command` backends do not use this: they run under bash, which expands
+/// `${NLIR_*}` (including the `${NLIR_ARGS[k]}` array form) itself.
+#[must_use]
+pub fn substitute_nlir_vars(template: &str, vars: &BTreeMap<String, String>) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(idx) = rest.find("${") {
+        out.push_str(&rest[..idx]);
+        let after = &rest[idx + 2..];
+        if let Some(end) = after.find('}') {
+            let name = &after[..end];
+            if let Some(value) = vars.get(name) {
+                out.push_str(value);
+            } else {
+                // Unknown variable: leave the reference literal.
+                out.push_str("${");
+                out.push_str(name);
+                out.push('}');
+            }
+            rest = &after[end + 1..];
+        } else {
+            // No closing brace: emit the remainder verbatim.
+            out.push_str("${");
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Build the bash `NLIR_ARGS=(…)` array declaration for a `command` backend, so
+/// its command can index operands as `${NLIR_ARGS[0]}` etc. (SPEC `echo`
+/// operator). Operands are single-quoted for the shell; the declaration is meant
+/// to be prepended to the command before it runs under bash.
+#[must_use]
+pub fn nlir_args_declaration(operands: &[String]) -> String {
+    let quoted: Vec<String> = operands.iter().map(|o| shell_single_quote(o)).collect();
+    format!("{NLIR_ARGS_VAR}=({})", quoted.join(" "))
+}
+
+/// Single-quote a string for safe use inside a bash command, escaping embedded
+/// single quotes via the `'\''` idiom.
+fn shell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -686,5 +761,66 @@ mod tests {
         prompts.insert("nameless".to_owned(), prompt_def(None, Some("text")));
         let vars = resolve_prompt_fragments(&prompts, |_| None);
         assert!(vars.is_empty());
+    }
+
+    // --- ${NLIR_*} assembly (bd-e9983b) ---
+
+    fn vars_of(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn assemble_nlir_vars_adds_filled_prompt_to_fragments() {
+        let fragments = vars_of(&[("NLIR_SYSTEM_PROMPT", "be terse")]);
+        let vars = assemble_nlir_vars("do the thing", &fragments);
+        assert_eq!(
+            vars.get("NLIR_PROMPT").map(String::as_str),
+            Some("do the thing")
+        );
+        assert_eq!(
+            vars.get("NLIR_SYSTEM_PROMPT").map(String::as_str),
+            Some("be terse")
+        );
+    }
+
+    #[test]
+    fn substitute_nlir_vars_expands_known_references() {
+        let vars = vars_of(&[("NLIR_SYSTEM_PROMPT", "SYS"), ("NLIR_PROMPT", "PROMPT")]);
+        assert_eq!(
+            substitute_nlir_vars("sys=${NLIR_SYSTEM_PROMPT}; body=${NLIR_PROMPT}!", &vars),
+            "sys=SYS; body=PROMPT!"
+        );
+    }
+
+    #[test]
+    fn substitute_nlir_vars_leaves_unknown_and_unterminated_literal() {
+        let vars = vars_of(&[("NLIR_PROMPT", "P")]);
+        // Unknown variable stays literal (not emptied).
+        assert_eq!(
+            substitute_nlir_vars("${NLIR_MISSING}-${NLIR_PROMPT}", &vars),
+            "${NLIR_MISSING}-P"
+        );
+        // Unterminated ${ is emitted verbatim.
+        assert_eq!(
+            substitute_nlir_vars("tail ${NLIR_PROMPT", &vars),
+            "tail ${NLIR_PROMPT"
+        );
+    }
+
+    #[test]
+    fn nlir_args_declaration_quotes_operands_for_bash() {
+        assert_eq!(
+            nlir_args_declaration(&["a".to_owned(), "b c".to_owned()]),
+            "NLIR_ARGS=('a' 'b c')"
+        );
+        assert_eq!(nlir_args_declaration(&[]), "NLIR_ARGS=()");
+        // Embedded single quote is escaped via the '\'' idiom.
+        assert_eq!(
+            nlir_args_declaration(&["it's".to_owned()]),
+            "NLIR_ARGS=('it'\\''s')"
+        );
     }
 }
