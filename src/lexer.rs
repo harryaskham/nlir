@@ -410,6 +410,22 @@ fn lex_bare(chars: &[char], start: usize) -> Result<(Token, usize), LexError> {
             break;
         }
     }
+    // Float literal: a digit-run followed by `.` + fractional digits lexes as one
+    // bare number token (bd-f551f9) — e.g. `3.14`, `0.5`. Only when the token so
+    // far is all ASCII digits, so an identifier like `abc` never absorbs a `.`,
+    // and only with a fractional digit present, so a trailing `3.` is rejected.
+    if chars.get(i) == Some(&'.')
+        && !out.is_empty()
+        && out.bytes().all(|b| b.is_ascii_digit())
+        && chars.get(i + 1).is_some_and(char::is_ascii_digit)
+    {
+        out.push('.');
+        i += 1;
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
     Ok((Token::Bare(out), i))
 }
 
@@ -513,6 +529,25 @@ mod tests {
             .into_iter()
             .map(|t| t.render())
             .collect()
+    }
+
+    #[test]
+    fn float_literals_lex_as_bare_numbers() {
+        // Digit-run + `.` + fractional digits lexes as one bare number (bd-f551f9).
+        assert_eq!(
+            tokenize("3.14", NO_OPS).unwrap(),
+            vec![Token::Bare("3.14".to_owned())]
+        );
+        assert_eq!(
+            tokenize("0.5", NO_OPS).unwrap(),
+            vec![Token::Bare("0.5".to_owned())]
+        );
+        // Integers + mixed alphanumerics are unaffected.
+        assert_eq!(bares("42"), vec!["42"]);
+        assert_eq!(bares("a1b2"), vec!["a1b2"]);
+        // An identifier never absorbs a following `.`; a trailing `3.` is rejected.
+        assert!(tokenize("abc.def", NO_OPS).is_err());
+        assert!(tokenize("3.", NO_OPS).is_err());
     }
 
     #[test]
