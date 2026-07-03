@@ -1,0 +1,31 @@
+{
+  "name": "nlir",
+  "version": "0.1.0",
+  "description": "nlir — transpile a terse stack-machine shorthand into fluent English. Pi package: `|expr` input expansion + a `/nlir` command.",
+  "keywords": [
+    "pi-package",
+    "nlir"
+  ],
+  "author": {
+    "name": "Harry Askham"
+  },
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harryaskham/nlir.git"
+  },
+  "files": [
+    "extensions",
+    "config.example.yaml",
+    "SPEC.md",
+    "README.md",
+    "examples",
+    "scripts/pi-dropin.sh"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/nlir.js"
+    ]
+  }
+}

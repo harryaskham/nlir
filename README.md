@@ -186,6 +186,27 @@ printf '%s\n' 'the answer is 42' '|^-1' \
 # → the answer is 42        (the `|^-1` expression read the appended turn)
 ```
 
+## Pi package
+
+nlir ships a [pi](https://github.com/earendil-works/pi) package so you can expand
+nlir shorthand inline while chatting. Install it into pi:
+
+```json
+{ "packages": ["git:github.com/harryaskham/nlir"] }
+```
+
+(in `~/.pi/agent/settings.json`) or `pi install git:github.com/harryaskham/nlir`.
+It requires the `nlir` binary on your PATH (build/install separately; set `$NLIR`
+to override the path).
+
+- **`|EXPR`** — prefix a message with `|` and the rest is expanded as an nlir
+  expression before it reaches the model: `|1+2*3` → `7`, `|a&b&c` → `a and b and
+  c`, `|@'the meeting is at 3'` → a formal rewrite (llm mode).
+- **`/nlir EXPR`** — preview an expansion inline without sending it.
+
+The expression evaluates against your `~/.config/nlir/config.yaml` (det or llm
+mode per your defaults). The extension is `extensions/nlir.js`.
+
 ## Development
 
 ```sh

@@ -1,0 +1,76 @@
+// nlir pi extension (bd-* / pi-package): a leading `|` in your input expands the
+// rest as an nlir shorthand expression via the `nlir` binary, turning terse
+// stack-machine shorthand into fluent English before it reaches the model. Also
+// registers `/nlir EXPR` to preview an expansion inline without sending it.
+//
+// Requires the `nlir` binary on PATH (install via nix/cargo). The expression is
+// evaluated against your ~/.config/nlir/config.yaml (det or llm mode per your
+// defaults).
+//
+// Examples:
+//   |1+2*3            -> 7
+//   |a&b&c            -> a and b and c
+//   |@'the meeting is at 3'   -> (formal rewrite, llm mode)
+//   /nlir 2**0.5      -> previews 1.4142135623730951
+
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+
+/** The nlir binary: `$NLIR` override, else `nlir` on PATH. */
+const NLIR_BIN = process.env.NLIR || "nlir";
+
+/** Expand an nlir shorthand expression via the `nlir` binary. */
+async function expand(expr, extraArgs = []) {
+  const args = ["-e", expr, "--quiet", ...extraArgs];
+  const { stdout } = await run(NLIR_BIN, args, {
+    timeout: 180_000,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return stdout.replace(/\n+$/, "");
+}
+
+function errText(err) {
+  const msg = (err && (err.stderr || err.message)) || "unknown error";
+  return String(msg).trim();
+}
+
+export default function (pi) {
+  // `|expr` -> expand via nlir, then continue with the English (transform), so a
+  // terse nlir line becomes the fluent message the model sees.
+  pi.on("input", async (event, ctx) => {
+    const text = event.text ?? "";
+    // Don't recurse on extension-injected messages.
+    if (event.source === "extension") return { action: "continue" };
+    if (!text.startsWith("|")) return { action: "continue" };
+    const expr = text.slice(1).trim();
+    if (!expr) return { action: "continue" };
+    try {
+      const out = await expand(expr);
+      if (!out) return { action: "continue" };
+      return { action: "transform", text: out };
+    } catch (err) {
+      ctx.ui.notify(`nlir: ${errText(err)}`, "error");
+      return { action: "handled" };
+    }
+  });
+
+  // `/nlir EXPR` -> preview the expansion inline without sending it to the model.
+  pi.registerCommand("nlir", {
+    description: "Expand an nlir shorthand expression (or prefix your input with `|`)",
+    handler: async (args, ctx) => {
+      const expr = (args ?? "").trim();
+      if (!expr) {
+        ctx.ui.notify("usage: /nlir EXPR   (e.g. /nlir 1+2*3, /nlir a&b&c)", "info");
+        return;
+      }
+      try {
+        const out = await expand(expr);
+        ctx.ui.notify(out || "(empty result)", "info");
+      } catch (err) {
+        ctx.ui.notify(`nlir: ${errText(err)}`, "error");
+      }
+    },
+  });
+}
