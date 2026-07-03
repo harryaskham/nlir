@@ -212,6 +212,7 @@ impl<'a> Evaluator<'a> {
                 .cloned()
                 .ok_or_else(|| EvalError::Stack(format!("`${index}` is out of range"))),
             Expr::Message { role, index } => self.eval_message(*role, index),
+            Expr::MessageRange { role, start, end } => self.eval_message_range(*role, start, end),
             // Grouping overrides precedence; its value is the inner value (parens
             // are preserved at the string-realisation boundary, not in the value).
             Expr::Group(inner) => self.eval(inner),
@@ -252,13 +253,7 @@ impl<'a> Evaluator<'a> {
     /// then read the role-filtered view's message content.
     fn eval_message(&mut self, role: MessageRole, index: &Expr) -> Result<Value, EvalError> {
         let sep = self.sep();
-        let index_value = self.eval(index)?;
-        let number = index_value
-            .coerce(TypeName::Number, &sep)?
-            .as_number()
-            .ok_or_else(|| EvalError::Unsupported("message index is not a number".to_owned()))?;
-        #[allow(clippy::cast_possible_truncation)]
-        let i = number.trunc() as i64;
+        let i = self.eval_index(index, &sep)?;
         let view = MessageIndex::new(
             self.context.messages(),
             &self.config.context.messages.views,
@@ -268,6 +263,39 @@ impl<'a> Evaluator<'a> {
         view.content_at(role, i)
             .map(Value::string)
             .ok_or(EvalError::NoMessage { role, index: i })
+    }
+
+    /// Evaluate a `M^N` message range: resolve `start`/`end` to indices, then
+    /// join the messages of `role` in that (inclusive, clamped) range with
+    /// `_sep` (SPEC §Messages, bd-c3fc30; calls [`MessageIndex::range`]).
+    fn eval_message_range(
+        &mut self,
+        role: MessageRole,
+        start: &Expr,
+        end: &Expr,
+    ) -> Result<Value, EvalError> {
+        let sep = self.sep();
+        let start_i = self.eval_index(start, &sep)?;
+        let end_i = self.eval_index(end, &sep)?;
+        let view = MessageIndex::new(
+            self.context.messages(),
+            &self.config.context.messages.views,
+            &self.config.context.messages.role_field,
+            &self.config.context.messages.content_field,
+        );
+        Ok(Value::string(view.range(role, start_i, end_i, &sep)))
+    }
+
+    /// Evaluate an expression to a truncated `i64` message index (coerces to
+    /// number first). Shared by the prefix `^N` read and the `M^N` range.
+    fn eval_index(&mut self, index: &Expr, sep: &str) -> Result<i64, EvalError> {
+        let number = self
+            .eval(index)?
+            .coerce(TypeName::Number, sep)?
+            .as_number()
+            .ok_or_else(|| EvalError::Unsupported("message index is not a number".to_owned()))?;
+        #[allow(clippy::cast_possible_truncation)]
+        Ok(number.trunc() as i64)
     }
 
     /// Evaluate an operator application: operand-first eval, operand coercion,
@@ -551,6 +579,7 @@ fn is_parallel_safe(expr: &Expr) -> bool {
         Expr::Bare(_) | Expr::Quoted { .. } | Expr::Number(_) | Expr::ContextRead(_) => true,
         Expr::StackPeek | Expr::StackIndex(_) | Expr::Assign { .. } => false,
         Expr::Message { index, .. } => is_parallel_safe(index),
+        Expr::MessageRange { start, end, .. } => is_parallel_safe(start) && is_parallel_safe(end),
         Expr::Group(inner) | Expr::Serial(inner) => is_parallel_safe(inner),
         Expr::List(items) => items.iter().all(is_parallel_safe),
         // A nullary op (empty operands) pops the stack — not parallel-safe.
@@ -612,6 +641,30 @@ fn eval_parallel_safe(
                     role: *role,
                     index: i,
                 })
+        }
+        Expr::MessageRange { role, start, end } => {
+            let sep = context.sep();
+            let start_n = eval_parallel_safe(start, config, context, mode, cache_on, cache)?
+                .coerce(TypeName::Number, &sep)?
+                .as_number()
+                .ok_or_else(|| {
+                    EvalError::Unsupported("message index is not a number".to_owned())
+                })?;
+            let end_n = eval_parallel_safe(end, config, context, mode, cache_on, cache)?
+                .coerce(TypeName::Number, &sep)?
+                .as_number()
+                .ok_or_else(|| {
+                    EvalError::Unsupported("message index is not a number".to_owned())
+                })?;
+            #[allow(clippy::cast_possible_truncation)]
+            let (start_i, end_i) = (start_n.trunc() as i64, end_n.trunc() as i64);
+            let view = MessageIndex::new(
+                context.messages(),
+                &config.context.messages.views,
+                &config.context.messages.role_field,
+                &config.context.messages.content_field,
+            );
+            Ok(Value::string(view.range(*role, start_i, end_i, &sep)))
         }
         Expr::Group(inner) | Expr::Serial(inner) => {
             eval_parallel_safe(inner, config, context, mode, cache_on, cache)
@@ -1027,6 +1080,31 @@ operators:
         // Subject-of over the message (prefix template over a `^` index).
         let out = evaluate("#^-1", &cfg, &mut ctx, Mode::Det).expect("subject eval");
         assert_eq!(out.render(&ctx.sep()), "subject of in rust");
+    }
+
+    #[test]
+    fn message_range_joins_indexed_messages() {
+        // M^N joins the role's messages start..end with _sep; prefix ^N still
+        // reads a single message (bd-c3fc30).
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        let mut seed = Map::new();
+        seed.insert(
+            "_messages".to_owned(),
+            json!([
+                {"role": "assistant", "content": "one"},
+                {"role": "assistant", "content": "two"},
+                {"role": "assistant", "content": "three"}
+            ]),
+        );
+        ctx.merge(seed);
+        let out = evaluate("0^2", &cfg, &mut ctx, Mode::Det).expect("range eval");
+        assert_eq!(out.render(&ctx.sep()), "one\ntwo\nthree");
+        let out = evaluate("1^2", &cfg, &mut ctx, Mode::Det).expect("range eval");
+        assert_eq!(out.render(&ctx.sep()), "two\nthree");
+        // Prefix ^-1 still disambiguates as a single-message read.
+        let out = evaluate("^-1", &cfg, &mut ctx, Mode::Det).expect("prefix eval");
+        assert_eq!(out.render(&ctx.sep()), "three");
     }
 
     #[test]

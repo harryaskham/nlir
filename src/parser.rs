@@ -62,6 +62,14 @@ pub enum Expr {
     StackIndex(i64),
     /// `^`/`^_`/`^*`/`^/` message index over the given index expression.
     Message { role: MessageRole, index: Box<Expr> },
+    /// `M^N` message-range: the messages of `role` from index `start` to `end`,
+    /// joined with `_sep` (SPEC §Messages, bd-c3fc30). Infix `^` between two
+    /// index expressions; prefix `^N` is [`Expr::Message`].
+    MessageRange {
+        role: MessageRole,
+        start: Box<Expr>,
+        end: Box<Expr>,
+    },
     /// A parenthesised sub-expression (parens are preserved in output).
     Group(Box<Expr>),
     /// A list literal `[a,b,c]` (SPEC: spreads into a variadic op, or renders to
@@ -103,6 +111,9 @@ impl Expr {
             Expr::StackPeek => "$".to_owned(),
             Expr::StackIndex(n) => format!("${n}"),
             Expr::Message { role, index } => format!("^{}{}", role.suffix(), index.render()),
+            Expr::MessageRange { role, start, end } => {
+                format!("{}^{}{}", start.render(), role.suffix(), end.render())
+            }
             Expr::Group(inner) => inner.render(),
             Expr::List(items) => {
                 let parts: Vec<String> = items.iter().map(Expr::render).collect();
@@ -408,6 +419,24 @@ impl Parser<'_> {
                 };
                 continue;
             }
+            // Infix `M^N` message-range (bd-c3fc30): a `^` marker after a value is
+            // the range form; prefix `^N` is handled in nud. Binds tightest
+            // (CARET_PRIORITY), matching the prefix read.
+            if let Some(Token::Message(role)) = self.peek() {
+                let role = *role;
+                let l_bp = bp(CARET_PRIORITY);
+                if l_bp < min_bp {
+                    break;
+                }
+                self.pos += 1;
+                let end = self.expr(l_bp + 1)?;
+                lhs = Expr::MessageRange {
+                    role,
+                    start: Box::new(lhs),
+                    end: Box::new(end),
+                };
+                continue;
+            }
             let Some((op, info)) = self.peek_led() else {
                 break;
             };
@@ -683,6 +712,15 @@ mod tests {
         assert_eq!(render("123"), "123");
         assert_eq!(render("$k"), "$k");
         assert_eq!(render("$-1"), "$-1");
+    }
+
+    #[test]
+    fn message_range_infix_disambiguates_from_prefix() {
+        // Infix `M^N` after a value is the range; prefix `^N` at expr start (or
+        // under a prefix op) is a single read (bd-c3fc30).
+        assert_eq!(render("0^2"), "0^2"); // range
+        assert_eq!(render("^3"), "^3"); // prefix read
+        assert_eq!(render("(1+2)^(3+4)"), "(1 + 2)^(3 + 4)"); // computed endpoints
     }
 
     #[test]
