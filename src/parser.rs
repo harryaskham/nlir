@@ -65,6 +65,10 @@ pub enum Expr {
     /// A list literal `[a,b,c]` (SPEC: spreads into a variadic op, or renders to
     /// text by joining with `_sep`).
     List(Vec<Expr>),
+    /// A backtick-marked forced-serial subtree (SPEC: `` ` `` is a low-precedence
+    /// prefix over its whole RHS; the marked subtree evaluates serially inside
+    /// while still running in parallel with respect to its siblings).
+    Serial(Box<Expr>),
     /// An operator application; `operands.len()` is 1 for prefix/postfix, 2 for
     /// infix/mixfix (until variadic flattening makes mixfix n-ary).
     Apply {
@@ -96,6 +100,7 @@ impl Expr {
                 let parts: Vec<String> = items.iter().map(Expr::render).collect();
                 format!("[{}]", parts.join(", "))
             }
+            Expr::Serial(inner) => format!("(` {})", inner.render()),
             Expr::Apply {
                 op,
                 fixity,
@@ -398,6 +403,11 @@ impl Parser<'_> {
                 }
                 Ok(Expr::List(items))
             }
+            Token::Backtick => {
+                // Low-precedence prefix: capture the whole RHS as a serial subtree.
+                let inner = self.expr(0)?;
+                Ok(Expr::Serial(Box::new(inner)))
+            }
             Token::Operator(op) => match self.table.get(&op) {
                 Some(info) if info.fixity == Fixity::Prefix => {
                     let operand = self.expr(bp(info.priority))?;
@@ -587,5 +597,17 @@ mod tests {
         // An empty middle statement errors.
         let toks = tokenize("a;;b", &sigils).unwrap();
         assert!(parse_program(&toks, &ops).is_err());
+    }
+
+    #[test]
+    fn backtick_serial_marker() {
+        // `` ` `` marks its RHS as a forced-serial subtree (bd-be5a84).
+        assert_eq!(render("`a"), "(` a)");
+        assert_eq!(render("`(a&b)"), "(` (a & b))");
+        // Low precedence: it captures the whole RHS.
+        assert_eq!(render("`a&b"), "(` (a & b))");
+        // As an operand, `a + `(a+b)` keeps the two `+` operands parallel while
+        // the backtick subtree is serial.
+        assert_eq!(render("a+`(a+b)"), "(a + (` (a + b)))");
     }
 }
