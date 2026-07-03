@@ -60,6 +60,8 @@ pub enum EvalError {
     Command(String),
     /// A `key=RHS` assignment failed to write through to the context.
     ContextWrite(String),
+    /// An `llm`-mode realisation failed (model resolution or backend).
+    Llm(String),
     /// The program had no statements, so there is no result value.
     EmptyProgram,
     /// A realisation / feature that has its own not-yet-landed bead.
@@ -81,6 +83,7 @@ impl fmt::Display for EvalError {
             EvalError::Realise(e) => write!(f, "{e}"),
             EvalError::Command(m) => write!(f, "command realisation failed: {m}"),
             EvalError::ContextWrite(m) => write!(f, "context write failed: {m}"),
+            EvalError::Llm(m) => write!(f, "llm realisation failed: {m}"),
             EvalError::EmptyProgram => write!(f, "empty program has no result"),
             EvalError::Unsupported(m) => write!(f, "unsupported: {m}"),
         }
@@ -334,9 +337,30 @@ impl<'a> Evaluator<'a> {
                     )))
                 }
             }
-            Mode::Llm => Err(EvalError::Unsupported(format!(
-                "llm realisation for `{op}` (model+prompt) not yet wired"
-            ))),
+            Mode::Llm => {
+                // llm realisation (bd-3573aa): resolve the model, fill the
+                // prompt from the operands, call the backend via aur-2's
+                // llm::realise_llm seam (bd-dc3c72), and wrap the result.
+                let Some(prompt) = op_cfg.prompt.as_deref() else {
+                    return Err(EvalError::Unsupported(format!(
+                        "operator `{op}` has no llm realisation (needs a `prompt:`)"
+                    )));
+                };
+                // Operand text feeds the model's prompt; grouped operands keep
+                // their parens (SPEC: preserved in output).
+                let rendered = self.parenthesise_grouped(operands, grouped, sep);
+                let args: Vec<String> = rendered.iter().map(|value| value.render(sep)).collect();
+                crate::llm::realise_llm(
+                    op_cfg.model.as_deref(),
+                    prompt,
+                    &args,
+                    self.config,
+                    None,
+                    |name| std::env::var(name).ok(),
+                )
+                .map(Value::string)
+                .map_err(|error| EvalError::Llm(error.to_string()))
+            }
         }
     }
 
@@ -617,19 +641,56 @@ operators:
     }
 
     #[test]
-    fn llm_realisation_is_reported_unsupported_for_now() {
-        let mut ctx = Context::empty(&config().context);
-        // An op with only a model+prompt realisation, evaluated in llm mode, is
-        // reported unsupported rather than silently wrong (the LLM path is a
-        // separate bead).
+    fn llm_realisation_via_command_model_reaches_the_backend() {
+        // llm mode dispatches to the operator's model backend (bd-3573aa). A
+        // command-type model keeps it deterministic / offline.
+        let yaml = r##"
+models:
+  cmd: { type: command, format: text, command: "printf 'llm-said-hi'" }
+operators:
+  ask: { op: "?", arity: 1, fixity: postfix, priority: 0, model: cmd, prompt: "q: %" }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("llm.yaml")).unwrap();
+        let mut ctx = Context::empty(&cfg.context);
+        let out = evaluate("x?", &cfg, &mut ctx, Mode::Llm).expect("llm realisation");
+        assert_eq!(out.render(&ctx.sep()), "llm-said-hi");
+    }
+
+    #[test]
+    fn llm_realisation_fills_the_prompt_from_operands() {
+        // The operator prompt's `%` is filled with the operand text and reaches
+        // the backend via $NLIR_PROMPT.
+        let yaml = r##"
+models:
+  echo: { type: command, format: text, command: "printf '%s' \"$NLIR_PROMPT\"" }
+operators:
+  neg: { op: "!", arity: 1, fixity: prefix, model: echo, prompt: "negate: %" }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("llm.yaml")).unwrap();
+        let mut ctx = Context::empty(&cfg.context);
+        let out = evaluate("!foo", &cfg, &mut ctx, Mode::Llm).expect("llm realisation");
+        // aur-2's substitute_operands wraps the single operand in a <text> tag.
+        assert_eq!(out.render(&ctx.sep()), "negate: <text>foo</text>");
+    }
+
+    #[test]
+    fn llm_op_without_prompt_is_unsupported_and_unknown_model_errors() {
+        // An op with no `prompt:` has no llm realisation.
         let yaml = r##"
 operators:
-  ask: { op: "?", arity: 1, fixity: postfix, priority: 0, model: haiku, prompt: "q: %" }
+  bare: { op: "!", arity: 1, fixity: prefix }
+  ask:  { op: "?", arity: 1, fixity: postfix, priority: 0, model: nope, prompt: "q: %" }
 "##;
-        let llm_cfg = config::parse_str(yaml, Path::new("t.yaml")).unwrap();
+        let cfg = config::parse_str(yaml, Path::new("llm.yaml")).unwrap();
+        let mut ctx = Context::empty(&cfg.context);
         assert!(matches!(
-            evaluate("x?", &llm_cfg, &mut ctx, Mode::Llm),
+            evaluate("!x", &cfg, &mut ctx, Mode::Llm),
             Err(EvalError::Unsupported(_))
+        ));
+        // A prompt with an unknown model is a loud llm error (not silently wrong).
+        assert!(matches!(
+            evaluate("x?", &cfg, &mut ctx, Mode::Llm),
+            Err(EvalError::Llm(_))
         ));
     }
 }
