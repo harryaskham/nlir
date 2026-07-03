@@ -62,6 +62,9 @@ pub enum Expr {
     Message { role: MessageRole, index: Box<Expr> },
     /// A parenthesised sub-expression (parens are preserved in output).
     Group(Box<Expr>),
+    /// A list literal `[a,b,c]` (SPEC: spreads into a variadic op, or renders to
+    /// text by joining with `_sep`).
+    List(Vec<Expr>),
     /// An operator application; `operands.len()` is 1 for prefix/postfix, 2 for
     /// infix/mixfix (until variadic flattening makes mixfix n-ary).
     Apply {
@@ -89,6 +92,10 @@ impl Expr {
             Expr::StackIndex(n) => format!("${n}"),
             Expr::Message { role, index } => format!("^{}{}", role.suffix(), index.render()),
             Expr::Group(inner) => inner.render(),
+            Expr::List(items) => {
+                let parts: Vec<String> = items.iter().map(Expr::render).collect();
+                format!("[{}]", parts.join(", "))
+            }
             Expr::Apply {
                 op,
                 fixity,
@@ -314,6 +321,30 @@ impl Parser<'_> {
                     }),
                 }
             }
+            Token::LBracket => {
+                let mut items = Vec::new();
+                if matches!(self.tokens.get(self.pos), Some(Token::RBracket)) {
+                    self.pos += 1;
+                    return Ok(Expr::List(items));
+                }
+                loop {
+                    items.push(self.expr(0)?);
+                    match self.tokens.get(self.pos) {
+                        Some(Token::Comma) => self.pos += 1,
+                        Some(Token::RBracket) => {
+                            self.pos += 1;
+                            break;
+                        }
+                        _ => {
+                            return Err(ParseError {
+                                position: self.pos,
+                                message: "expected ',' or ']' in list literal".to_owned(),
+                            });
+                        }
+                    }
+                }
+                Ok(Expr::List(items))
+            }
             Token::Operator(op) => match self.table.get(&op) {
                 Some(info) if info.fixity == Fixity::Prefix => {
                     let operand = self.expr(bp(info.priority))?;
@@ -444,9 +475,9 @@ mod tests {
     #[test]
     fn errors_are_located() {
         let ops = ladder();
-        // Trailing unsupported token (list literal not parsed by the core yet).
         let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
-        let tokens = tokenize("[a,b]", &sigils).expect("tokenises");
+        // Statement separator ';' is not parsed by the core yet (trailing token).
+        let tokens = tokenize("a;b", &sigils).expect("tokenises");
         assert!(parse_expr(&tokens, &ops).is_err());
         // A dangling infix operand.
         let tokens = tokenize("a+", &sigils).expect("tokenises");
@@ -466,5 +497,21 @@ mod tests {
         assert_eq!(render("a&b|c"), "((a & b) | c)");
         // Infix operators stay nested binary (only mixfix flattens).
         assert_eq!(render("a-b-c"), "((a - b) - c)");
+    }
+
+    #[test]
+    fn list_literals() {
+        assert_eq!(render("[a,b,c]"), "[a, b, c]");
+        assert_eq!(render("[]"), "[]");
+        assert_eq!(render("[a]"), "[a]");
+        // Expression and nested-list elements.
+        assert_eq!(render("[a&b,c]"), "[(a & b), c]");
+        assert_eq!(render("[[a,b],c]"), "[[a, b], c]");
+        // A list as an operator operand.
+        assert_eq!(render("x&[a,b]"), "(x & [a, b])");
+        // A malformed / unclosed list errors.
+        let ops = ladder();
+        let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
+        assert!(parse_expr(&tokenize("[a,b", &sigils).unwrap(), &ops).is_err());
     }
 }
