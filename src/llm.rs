@@ -11,7 +11,7 @@
 //! to a concrete [`ModelConfig`]. The backend calls, prompt assembly, and result
 //! extraction land in the sibling `llm` beads.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::process::Command;
 
@@ -686,6 +686,86 @@ fn call_coercion_backend(
             run_anthropic_backend(model, vars).map_err(LlmCoerceError::Anthropic)
         }
     }
+}
+
+/// A memoization cache for `llm`-mode coercions (SPEC §Caching): identical
+/// coercions are deduped keyed on `(text, target-type, model)` when `_cache` is
+/// enabled (default). A deterministic coercion is cheap but still served from a
+/// cache hit (its result is stable), so a caller can route every `llm`-mode
+/// coercion through one path.
+#[derive(Debug, Default)]
+pub struct CoercionCache {
+    enabled: bool,
+    entries: HashMap<(String, String, String), Value>,
+}
+
+impl CoercionCache {
+    /// Create a cache. `enabled` mirrors the `_cache` context key (default true);
+    /// when false, [`CoercionCache::coerce`] neither stores nor serves cached
+    /// results and simply delegates to [`coerce_with_llm`].
+    #[must_use]
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            entries: HashMap::new(),
+        }
+    }
+
+    /// Number of cached coercion results.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether the cache holds no entries.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Coerce `value` to `target`, serving or storing the result in the cache
+    /// when enabled. See [`coerce_with_llm`] for the coercion semantics; a hit
+    /// returns the previously computed value without re-invoking the model.
+    ///
+    /// # Errors
+    /// Propagates [`LlmCoerceError`]; failures are never cached.
+    pub fn coerce(
+        &mut self,
+        value: &Value,
+        target: TypeName,
+        config: &Config,
+        sep: &str,
+        env_lookup: impl Fn(&str) -> Option<String>,
+        cli_model: Option<&str>,
+    ) -> Result<Value, LlmCoerceError> {
+        if !self.enabled {
+            return coerce_with_llm(value, target, config, sep, env_lookup, cli_model);
+        }
+        let key = (
+            value.render(sep),
+            target.as_str().to_owned(),
+            coercion_model_key(config, target, cli_model),
+        );
+        if let Some(cached) = self.entries.get(&key) {
+            return Ok(cached.clone());
+        }
+        let result = coerce_with_llm(value, target, config, sep, env_lookup, cli_model)?;
+        self.entries.insert(key, result.clone());
+        Ok(result)
+    }
+}
+
+/// The model alias identifying a coercion in the cache key, matching
+/// [`resolve_model`]'s precedence for a coercion: the per-type `types:` model,
+/// else the `--model` override, else `defaults.model`.
+fn coercion_model_key(config: &Config, target: TypeName, cli_model: Option<&str>) -> String {
+    config
+        .types
+        .get(target.as_str())
+        .and_then(|coercion| coercion.model.clone())
+        .or_else(|| cli_model.map(str::to_owned))
+        .or_else(|| config.defaults.model.clone())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1405,5 +1485,105 @@ mod tests {
             ),
             Err(LlmCoerceError::NoCoercionConfig(TypeName::Number))
         ));
+    }
+
+    // --- coercion caching under _cache (bd-876367) ---
+
+    #[test]
+    fn cache_serves_repeated_coercions_without_recomputing() {
+        let mut config = coercion_config("printf '5'", ModelFormat::Text);
+        let mut cache = CoercionCache::new(true);
+        let first = cache
+            .coerce(
+                &Value::string("five"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None,
+            )
+            .expect("first coercion");
+        assert_eq!(first, Value::number(5.0));
+        assert_eq!(cache.len(), 1);
+
+        // Change the backend so a recompute would differ; the cache must ignore it.
+        config.models.get_mut("cmd").unwrap().command = Some("printf '9'".to_owned());
+        let second = cache
+            .coerce(
+                &Value::string("five"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None,
+            )
+            .expect("second coercion");
+        assert_eq!(
+            second,
+            Value::number(5.0),
+            "cache hit returns the first result"
+        );
+    }
+
+    #[test]
+    fn disabled_cache_always_recomputes() {
+        let mut config = coercion_config("printf '5'", ModelFormat::Text);
+        let mut cache = CoercionCache::new(false);
+        let first = cache
+            .coerce(
+                &Value::string("five"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None,
+            )
+            .expect("first coercion");
+        assert_eq!(first, Value::number(5.0));
+        assert!(cache.is_empty());
+
+        config.models.get_mut("cmd").unwrap().command = Some("printf '9'".to_owned());
+        let second = cache
+            .coerce(
+                &Value::string("five"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None,
+            )
+            .expect("second coercion");
+        assert_eq!(second, Value::number(9.0), "disabled cache recomputes");
+    }
+
+    #[test]
+    fn different_inputs_use_separate_cache_entries() {
+        let mut config = coercion_config("printf '5'", ModelFormat::Text);
+        let mut cache = CoercionCache::new(true);
+        cache
+            .coerce(
+                &Value::string("five"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None,
+            )
+            .expect("first coercion");
+        // A different source text is a different key, so it recomputes with the
+        // new backend output.
+        config.models.get_mut("cmd").unwrap().command = Some("printf '9'".to_owned());
+        let other = cache
+            .coerce(
+                &Value::string("nine"),
+                TypeName::Number,
+                &config,
+                "\n",
+                |_| None,
+                None,
+            )
+            .expect("second coercion");
+        assert_eq!(other, Value::number(9.0));
+        assert_eq!(cache.len(), 2);
     }
 }
