@@ -258,8 +258,8 @@ pub fn parse(
     let tokens = lexer::tokenize(&input.expr, &op_sigils)
         .map_err(|error| AppError::validation("lex_error", error.to_string()))?;
     let token_strs = tokens.iter().map(|t| t.render()).collect();
-    let (ast, parse_error) = match parser::parse_expr(&tokens, operators) {
-        Ok(expr) => (Some(expr.render()), None),
+    let (ast, parse_error) = match parser::parse_program(&tokens, operators) {
+        Ok(program) => (Some(program.render()), None),
         Err(err) => (None, Some(err.to_string())),
     };
     Ok(ParseOutput {

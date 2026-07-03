@@ -190,6 +190,59 @@ pub fn parse_expr(
     Ok(expr)
 }
 
+/// A parsed program: a sequence of statements separated by `;` (SPEC §Mental
+/// model). Each statement is an [`Expr`] tree; its operand subtrees are the
+/// independent units the scheduler evaluates concurrently (execution-graph epic
+/// bd-a32894), so the statement list + per-statement AST is the DAG skeleton.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Program {
+    /// The program's statements, in source order.
+    pub statements: Vec<Expr>,
+}
+
+impl Program {
+    /// Render the program as `stmt1; stmt2; …` (used by the `nlir parse` dump).
+    #[must_use]
+    pub fn render(&self) -> String {
+        self.statements
+            .iter()
+            .map(Expr::render)
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+}
+
+/// Parse a full program: split the token stream on top-level `;` into statements
+/// and parse each as an expression (bd-acff69). An empty token stream is an empty
+/// program; a trailing `;` is allowed; an empty middle statement (`a;;b`) errors.
+pub fn parse_program(
+    tokens: &[Token],
+    operators: &BTreeMap<String, OperatorConfig>,
+) -> Result<Program, ParseError> {
+    let table = op_table(operators);
+    let mut parser = Parser {
+        tokens,
+        table: &table,
+        pos: 0,
+    };
+    let mut statements = Vec::new();
+    while parser.pos < tokens.len() {
+        let expr = parser.expr(0)?;
+        statements.push(expr);
+        match tokens.get(parser.pos) {
+            Some(Token::Semicolon) => parser.pos += 1,
+            None => break,
+            Some(other) => {
+                return Err(ParseError {
+                    position: parser.pos,
+                    message: format!("unexpected token {other:?} after statement"),
+                });
+            }
+        }
+    }
+    Ok(Program { statements })
+}
+
 /// Fold a same-op mixfix chain into one n-ary [`Expr::Apply`] (bd-c65341). If
 /// `lhs` is already a mixfix application of the same `op` (and not wrapped in a
 /// [`Expr::Group`], which is a distinct node), append `rhs` to it; otherwise
@@ -513,5 +566,26 @@ mod tests {
         let ops = ladder();
         let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
         assert!(parse_expr(&tokenize("[a,b", &sigils).unwrap(), &ops).is_err());
+    }
+
+    #[test]
+    fn statement_split() {
+        let ops = ladder();
+        let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
+        let prog = |input: &str| {
+            let toks = tokenize(input, &sigils).expect("tokenises");
+            parse_program(&toks, &ops).expect("parses").render()
+        };
+        assert_eq!(prog("a;b;c"), "a; b; c");
+        assert_eq!(prog("a&b;c-d"), "(a & b); (c - d)");
+        assert_eq!(prog("a"), "a");
+        assert_eq!(prog("a;b;"), "a; b"); // trailing ; is allowed
+        assert_eq!(prog(""), ""); // empty program
+        // Statement count.
+        let toks = tokenize("a;b;c", &sigils).unwrap();
+        assert_eq!(parse_program(&toks, &ops).unwrap().statements.len(), 3);
+        // An empty middle statement errors.
+        let toks = tokenize("a;;b", &sigils).unwrap();
+        assert!(parse_program(&toks, &ops).is_err());
     }
 }
