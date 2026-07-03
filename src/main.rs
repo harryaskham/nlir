@@ -20,8 +20,7 @@ use clap::{Args, Parser, Subcommand};
 use feedback_cli::{FeedbackEvent, FeedbackKind, Reporter, Severity};
 use mcp_cli::{McpServer, StdioServerConfig};
 use nlir::{
-    AppContext, EvalInput, ParseInput, TOOL_NAME, build_router, eval, feedback_config, parse,
-    updater_config,
+    AppContext, ParseInput, TOOL_NAME, build_router, feedback_config, parse, updater_config,
 };
 
 #[derive(Debug, Parser)]
@@ -239,24 +238,28 @@ fn cli_overrides(cli: &Cli) -> nlir::config::DefaultOverrides {
 /// `nlir -e 'EXPR'` — SKELETON identity passthrough (bd-57ad92).
 fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     let cfg = resolve_config(cli)?;
+    let mut ctx = open_context(cli)?;
     let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
-    let input = EvalInput {
-        expr: expr.to_owned(),
-        mode: Some(settings.mode),
-        model: settings.model.clone(),
-        dry_run: cli.dry_run,
-    };
-    match eval(&input) {
-        Ok(out) => {
-            if out.stub && !cli.quiet {
-                eprintln!(
-                    "nlir: evaluation is a skeleton stub (bd-57ad92); mode={}, parallelism={}, {} configured operator(s); returning the input unchanged.",
-                    settings.mode.as_str(),
-                    settings.parallelism,
-                    cfg.operators.len()
-                );
+    // Evaluate against a MUTABLE context (assignments write through).
+    let result = nlir::eval::evaluate(expr, &cfg, &mut ctx, settings.mode);
+    // Read `_sep` AFTER eval so a `_sep=` assignment affects rendering.
+    let sep = ctx.sep();
+    match result {
+        Ok(value) => {
+            let rendered = value.render(&sep);
+            // Persist context writes from this run (SPEC: writes are
+            // write-through; a transient store saves as a no-op).
+            if let Err(error) = ctx.save() {
+                eprintln!("nlir: context write-through: {error}");
+                return Err(1);
             }
-            println!("{}", out.result);
+            // Pretty expansion trace -> stderr, default on; suppressed by --quiet
+            // (bd-1d63dc). Mode is selected by --mode / defaults.mode (bd-28dbd4).
+            if !cli.quiet {
+                eprintln!("nlir [{}]: {expr} -> {rendered}", settings.mode.as_str());
+            }
+            // Result -> stdout.
+            println!("{rendered}");
             Ok(())
         }
         Err(error) => {
@@ -293,14 +296,48 @@ fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
 }
 
 fn run_test(cli: &Cli) -> Result<(), i32> {
-    // Loads config and reports the config-defined `tests:` suite size (SPEC
-    // §Example config). The runner itself lands with the evaluator.
     let cfg = resolve_config(cli)?;
+    if cfg.tests.is_empty() {
+        eprintln!("nlir test: no config-defined tests found");
+        return Ok(());
+    }
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+    for (name, tc) in &cfg.tests {
+        // Seed a fresh transient context with the test's optional context object.
+        let mut ctx = nlir::context::Context::empty(&cfg.context);
+        if let Some(serde_json::Value::Object(seed)) = &tc.context {
+            ctx.merge(seed.clone());
+        }
+        let result = nlir::eval::evaluate(&tc.expr, &cfg, &mut ctx, tc.mode);
+        let sep = ctx.sep();
+        match result {
+            Ok(value) => {
+                let got = value.render(&sep);
+                if got == tc.expected {
+                    passed += 1;
+                    if !cli.quiet {
+                        eprintln!("  ok    {name}: {:?} -> {got:?}", tc.expr);
+                    }
+                } else {
+                    failed += 1;
+                    eprintln!(
+                        "  FAIL  {name}: {:?} -> {got:?} (expected {:?})",
+                        tc.expr, tc.expected
+                    );
+                }
+            }
+            Err(error) => {
+                failed += 1;
+                eprintln!("  FAIL  {name}: {:?} -> error: {error}", tc.expr);
+            }
+        }
+    }
     eprintln!(
-        "nlir test: {} config-defined test(s) found; the runner lands with the evaluator (bd-57ad92 skeleton).",
+        "nlir test: {passed} passed, {failed} failed ({} total)",
         cfg.tests.len()
     );
-    Ok(())
+    if failed > 0 { Err(1) } else { Ok(()) }
 }
 
 fn run_repl(cli: &Cli, _args: &ReplArgs) -> Result<(), i32> {
