@@ -502,22 +502,13 @@ fn parse_object(text: &str, path: Option<PathBuf>) -> Result<Map<String, Value>,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     /// A config whose context section carries the SPEC defaults.
     fn cfg() -> ContextConfig {
         ContextConfig::default()
     }
 
     fn temp_path(tag: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "nlir-ctx-{tag}-{}-{nanos}.json",
-            std::process::id()
-        ))
+        crate::test_support::unique_temp_path(&format!("nlir-ctx-{tag}"), "json")
     }
 
     // -- tilde expansion ---------------------------------------------------

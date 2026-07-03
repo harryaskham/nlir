@@ -1194,20 +1194,13 @@ tests:
 
     #[test]
     fn load_file_round_trips_a_real_file() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("nlir-cfg-{}-{nanos}.yaml", std::process::id()));
-        fs::write(&path, "defaults:\n  mode: det\n  parallelism: 4\n").expect("write temp config");
+        let tmp = crate::test_support::TempPath::new("nlir-cfg", "yaml");
+        let path = tmp.path();
+        fs::write(path, "defaults:\n  mode: det\n  parallelism: 4\n").expect("write temp config");
 
-        let cfg = load(Some(&path)).expect("load temp config");
+        let cfg = load(Some(path)).expect("load temp config");
         assert_eq!(cfg.defaults.mode, Mode::Det);
         assert_eq!(cfg.defaults.parallelism, 4);
-
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
@@ -1442,23 +1435,17 @@ models:
 
     #[test]
     fn load_file_rejects_invalid_config() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("nlir-invalid-{}-{nanos}.yaml", std::process::id()));
+        let tmp = crate::test_support::TempPath::new("nlir-invalid", "yaml");
+        let path = tmp.path();
         fs::write(
-            &path,
+            path,
             "operators:\n  bad: { op: \";\", arity: 1, fixity: prefix, template: x }\n",
         )
         .expect("write temp config");
-        match load(Some(&path)) {
+        match load(Some(path)) {
             Err(ConfigError::Invalid { issues, .. }) => assert!(!issues.is_empty()),
             other => panic!("expected Invalid, got {other:?}"),
         }
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
@@ -1519,8 +1506,8 @@ context:
 
     #[test]
     fn scaffold_writes_when_missing_and_preserves_existing() {
-        let dir = std::env::temp_dir().join(format!("nlir-scaffold-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        let tmp = crate::test_support::TempPath::new("nlir-scaffold", "");
+        let dir = tmp.path();
         let path = dir.join("nlir").join("config.yaml");
 
         // First run: writes the example config and creates parent dirs.
@@ -1532,7 +1519,5 @@ context:
         fs::write(&path, "user: edits").unwrap();
         assert!(!scaffold_config_at(&path).expect("scaffold noop"));
         assert_eq!(fs::read_to_string(&path).unwrap(), "user: edits");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

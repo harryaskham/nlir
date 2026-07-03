@@ -36,6 +36,9 @@ pub mod session;
 pub mod stack;
 pub mod value;
 
+#[cfg(test)]
+mod test_support;
+
 /// GitHub `owner/repo` the self-updater pulls release assets from.
 pub const UPDATE_REPO_SLUG: &str = "harryaskham/nlir";
 
