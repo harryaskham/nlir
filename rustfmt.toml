@@ -1,0 +1,4 @@
+# House style: stock rustfmt defaults, pinned to the crate edition so
+# `cargo fmt` formats identically in and out of the cargo context (e.g. CI's
+# `nix develop --command cargo fmt --all --check` gate).
+edition = "2024"

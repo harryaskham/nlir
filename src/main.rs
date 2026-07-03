@@ -1,0 +1,374 @@
+//! nlir — clap CLI entrypoint for the natural-language IR transpiler.
+//!
+//! `nlir -e 'EXPR'` transpiles a terse shorthand IR into fluent English. The CLI
+//! and the MCP server share the same typed command contracts from the library
+//! crate (`nlir` lib). See `SPEC.md` for the normative language contract.
+//!
+//! This is the SKELETON established by bd-57ad92. The command tree and global
+//! flags from SPEC §CLI surface are all present; the template-stack surfaces
+//! (`mcp` / `self-update` / `feedback`) are fully wired via mcp-cli /
+//! updatable-cli / feedback-cli; the domain surfaces (`-e` / `parse` / `test` /
+//! `repl` / `set` / `get` / `append-message`) are thin stubs that downstream
+//! beads fill in with the tokeniser, parser, stack machine, and realisation
+//! layers.
+
+use std::io::{self, Write};
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+
+use feedback_cli::{FeedbackEvent, FeedbackKind, Reporter, Severity};
+use mcp_cli::{McpServer, StdioServerConfig};
+use nlir::{
+    AppContext, EvalInput, ParseInput, TOOL_NAME, build_router, eval, feedback_config, parse,
+    updater_config,
+};
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "nlir",
+    version,
+    about = "nlir — transpile a terse shorthand IR into fluent English (nlir -e 'EXPR').",
+    arg_required_else_help = true
+)]
+struct Cli {
+    /// Evaluate a shorthand expression and print the English result.
+    #[arg(short = 'e', long = "expr", value_name = "EXPR")]
+    expr: Option<String>,
+
+    /// Path to the nlir config file (default: ~/.config/nlir/config.yaml).
+    #[arg(long, global = true, value_name = "PATH")]
+    config: Option<PathBuf>,
+
+    /// Context file overriding NLIR_CONTEXT / the default context.json.
+    #[arg(long, global = true, value_name = "PATH")]
+    context_file: Option<PathBuf>,
+
+    /// Session file to hydrate context from (e.g. a Pi session; roles kept).
+    #[arg(long, global = true, value_name = "PATH")]
+    session_file: Option<PathBuf>,
+
+    /// Evaluation mode: `det` (no network) or `llm` (default from config).
+    #[arg(long, global = true, value_enum, value_name = "MODE")]
+    mode: Option<CliMode>,
+
+    /// Model name override for LLM realisation.
+    #[arg(long, global = true, value_name = "MODEL")]
+    model: Option<String>,
+
+    /// Max concurrent LLM/subprocess calls in the DAG scheduler (default 8).
+    #[arg(long, global = true, value_name = "N")]
+    parallelism: Option<usize>,
+
+    /// Print only the stdout result (suppress the stderr expansion trace).
+    #[arg(long, global = true)]
+    quiet: bool,
+
+    /// Show the DAG + assembled prompts, make no calls.
+    #[arg(long, global = true)]
+    dry_run: bool,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+/// CLI-facing mirror of [`nlir::Mode`] so the library stays clap-agnostic.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliMode {
+    Det,
+    Llm,
+}
+
+impl From<CliMode> for nlir::Mode {
+    fn from(m: CliMode) -> Self {
+        match m {
+            CliMode::Det => nlir::Mode::Det,
+            CliMode::Llm => nlir::Mode::Llm,
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Tokenise/parse a shorthand expression and print the parse (no eval).
+    Parse(ParseArgs),
+    /// Run the config-defined test suite.
+    Test,
+    /// Interactive REPL: one expression per submission (`:cmd` == `nlir cmd`).
+    Repl(ReplArgs),
+    /// Replace context keys: `set KEY VALUE` or `set '{"k":"v",...}'`.
+    Set(SetArgs),
+    /// Read a context key: `get KEY`.
+    Get(GetArgs),
+    /// Append a message to `_messages` (`--role`, default user).
+    AppendMessage(AppendMessageArgs),
+    /// Model Context Protocol surfaces.
+    #[command(subcommand)]
+    Mcp(McpCommand),
+    /// Self-update from GitHub releases (updatable-cli).
+    SelfUpdate,
+    /// Report a feedback / error / perf event (feedback-cli).
+    Feedback(FeedbackArgs),
+}
+
+#[derive(Debug, Args)]
+struct ParseArgs {
+    /// The shorthand expression to parse.
+    #[arg(value_name = "EXPR")]
+    expr: String,
+}
+
+#[derive(Debug, Args)]
+struct ReplArgs {
+    /// Raw mode: pipe shorthand straight in without the pretty prompt.
+    #[arg(long)]
+    raw: bool,
+}
+
+#[derive(Debug, Args)]
+struct SetArgs {
+    /// Either `KEY VALUE` or a single `{...}` JSON object whose keys replace.
+    #[arg(value_name = "ARG", num_args = 1..=2, required = true)]
+    args: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct GetArgs {
+    /// The context key to read.
+    #[arg(value_name = "KEY")]
+    key: String,
+}
+
+#[derive(Debug, Args)]
+struct AppendMessageArgs {
+    /// Message role (default: user).
+    #[arg(long, default_value = "user", value_name = "ROLE")]
+    role: String,
+    /// Message content.
+    #[arg(value_name = "TEXT")]
+    text: String,
+}
+
+#[derive(Debug, Subcommand)]
+enum McpCommand {
+    /// Serve the MCP tool surface over stdio.
+    Stdio,
+    /// Print the MCP tool metadata as JSON (no server loop).
+    Tools,
+}
+
+#[derive(Debug, Args)]
+struct FeedbackArgs {
+    /// Event kind: error | exception | perf | info.
+    #[arg(long, default_value = "info", value_name = "KIND")]
+    kind: String,
+    /// Component / subsystem (defaults to the CLI name).
+    #[arg(long, value_name = "COMPONENT")]
+    component: Option<String>,
+    /// Short summary of the event.
+    #[arg(long, value_name = "SUMMARY")]
+    summary: String,
+    /// Optional detail body.
+    #[arg(long, value_name = "DETAIL")]
+    detail: Option<String>,
+    /// Optional severity: info | warning | error | critical.
+    #[arg(long, value_name = "SEVERITY")]
+    severity: Option<String>,
+}
+
+fn main() {
+    // Mirror caco's startup hook: if a staged `nlir_next` exists, promote and
+    // re-exec it before doing anything else. No-op when nothing is staged.
+    if let Err(error) = updatable_cli::maybe_apply_staged_update(TOOL_NAME) {
+        eprintln!("warning: staged-update check failed: {error}");
+    }
+
+    let cli = Cli::parse();
+    if let Err(code) = run(cli) {
+        std::process::exit(code);
+    }
+}
+
+fn run(cli: Cli) -> Result<(), i32> {
+    match cli.command {
+        Some(Command::Parse(ref args)) => run_parse(args),
+        Some(Command::Test) => run_test(),
+        Some(Command::Repl(ref args)) => run_repl(&cli, args),
+        Some(Command::Set(ref args)) => run_set(args),
+        Some(Command::Get(ref args)) => run_get(args),
+        Some(Command::AppendMessage(ref args)) => run_append_message(args),
+        Some(Command::Mcp(ref mcp)) => run_mcp(mcp),
+        Some(Command::SelfUpdate) => run_self_update(),
+        Some(Command::Feedback(ref args)) => run_feedback(args),
+        None => match cli.expr {
+            Some(ref expr) => run_eval(&cli, expr),
+            None => {
+                eprintln!(
+                    "nlir: pass -e 'EXPR' to evaluate, or a subcommand (parse|test|repl|set|get|append-message|mcp|self-update|feedback). See --help."
+                );
+                Err(2)
+            }
+        },
+    }
+}
+
+/// `nlir -e 'EXPR'` — SKELETON identity passthrough (bd-57ad92).
+fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
+    let input = EvalInput {
+        expr: expr.to_owned(),
+        mode: cli.mode.map(Into::into),
+        model: cli.model.clone(),
+        dry_run: cli.dry_run,
+    };
+    match eval(&input) {
+        Ok(out) => {
+            if out.stub && !cli.quiet {
+                eprintln!(
+                    "nlir: evaluation is a skeleton stub (bd-57ad92); returning the input unchanged."
+                );
+            }
+            println!("{}", out.result);
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("nlir: {error}");
+            Err(1)
+        }
+    }
+}
+
+fn run_parse(args: &ParseArgs) -> Result<(), i32> {
+    let out = match parse(&ParseInput {
+        expr: args.expr.clone(),
+    }) {
+        Ok(out) => out,
+        Err(error) => {
+            eprintln!("nlir parse: {error}");
+            return Err(1);
+        }
+    };
+    let stdout = io::stdout();
+    serde_json::to_writer_pretty(stdout.lock(), &out).map_err(|_| 1)?;
+    println!();
+    Ok(())
+}
+
+fn run_test() -> Result<(), i32> {
+    // SKELETON (bd-57ad92): the config-defined `tests:` suite (SPEC §Example
+    // config) is executed by a downstream bead once the engine lands.
+    eprintln!(
+        "nlir test: no engine yet — the config-defined test runner lands in a downstream bead (bd-57ad92 skeleton)."
+    );
+    Ok(())
+}
+
+fn run_repl(_cli: &Cli, _args: &ReplArgs) -> Result<(), i32> {
+    // SKELETON (bd-57ad92): interactive REPL wiring lands downstream.
+    eprintln!("nlir repl: not yet implemented (bd-57ad92 skeleton).");
+    Ok(())
+}
+
+fn run_set(_args: &SetArgs) -> Result<(), i32> {
+    // SKELETON (bd-57ad92): context write-through lands downstream.
+    eprintln!("nlir set: context write is not yet implemented (bd-57ad92 skeleton).");
+    Ok(())
+}
+
+fn run_get(_args: &GetArgs) -> Result<(), i32> {
+    // SKELETON (bd-57ad92): context read lands downstream.
+    eprintln!("nlir get: context read is not yet implemented (bd-57ad92 skeleton).");
+    Ok(())
+}
+
+fn run_append_message(_args: &AppendMessageArgs) -> Result<(), i32> {
+    // SKELETON (bd-57ad92): `_messages` append lands downstream.
+    eprintln!("nlir append-message: not yet implemented (bd-57ad92 skeleton).");
+    Ok(())
+}
+
+fn run_mcp(mcp: &McpCommand) -> Result<(), i32> {
+    let router = build_router();
+    let server = McpServer::new(
+        StdioServerConfig {
+            server_name: TOOL_NAME.to_owned(),
+            server_version: env!("CARGO_PKG_VERSION").to_owned(),
+        },
+        router,
+    );
+    match mcp {
+        McpCommand::Tools => {
+            let stdout = io::stdout();
+            serde_json::to_writer_pretty(stdout.lock(), &server.tool_metadata()).map_err(|_| 1)?;
+            println!();
+            Ok(())
+        }
+        McpCommand::Stdio => server.serve_stdio(&AppContext).map_err(|error| {
+            eprintln!("mcp error: {error}");
+            1
+        }),
+    }
+}
+
+fn run_self_update() -> Result<(), i32> {
+    let updater = updatable_cli::Updater::new(updater_config());
+    match updater.run_update() {
+        Ok(o) => {
+            println!("{o:?}");
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("self-update error: {error:#}");
+            Err(1)
+        }
+    }
+}
+
+fn run_feedback(args: &FeedbackArgs) -> Result<(), i32> {
+    let kind = match args.kind.to_ascii_lowercase().as_str() {
+        "error" => FeedbackKind::Error,
+        "exception" => FeedbackKind::Exception,
+        "perf" => FeedbackKind::Perf,
+        "info" => FeedbackKind::Info,
+        other => {
+            eprintln!("nlir feedback: unknown --kind '{other}' (want error|exception|perf|info)");
+            return Err(2);
+        }
+    };
+    let component = args
+        .component
+        .clone()
+        .unwrap_or_else(|| TOOL_NAME.to_owned());
+    let mut event = FeedbackEvent::new(kind, component, args.summary.clone());
+    event.detail = args.detail.clone();
+    if let Some(sev) = &args.severity {
+        event.severity = Some(match sev.to_ascii_lowercase().as_str() {
+            "info" => Severity::Info,
+            "warning" => Severity::Warning,
+            "error" => Severity::Error,
+            "critical" => Severity::Critical,
+            other => {
+                eprintln!(
+                    "nlir feedback: unknown --severity '{other}' (want info|warning|error|critical)"
+                );
+                return Err(2);
+            }
+        });
+    }
+
+    let reporter = Reporter::from_config(&feedback_config());
+    match reporter.report(&event) {
+        Ok(()) => {
+            let mut stderr = io::stderr();
+            let _ = writeln!(
+                stderr,
+                "nlir feedback: reported to {}",
+                reporter.destination()
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("nlir feedback: {error}");
+            Err(1)
+        }
+    }
+}
