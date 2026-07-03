@@ -195,6 +195,7 @@ pub fn parse_expr(
         tokens,
         table: &table,
         pos: 0,
+        depth: 0,
     };
     let expr = parser.expr(0)?;
     if parser.pos != tokens.len() {
@@ -240,6 +241,7 @@ pub fn parse_program(
         tokens,
         table: &table,
         pos: 0,
+        depth: 0,
     };
     let mut statements = Vec::new();
     while parser.pos < tokens.len() {
@@ -285,10 +287,16 @@ fn flatten_mixfix(op: String, lhs: Expr, rhs: Expr) -> Expr {
     }
 }
 
+/// Maximum parser recursion depth; deeper nesting returns a clean parse error
+/// instead of overflowing the stack on adversarial input (fuzz-found).
+const MAX_PARSE_DEPTH: usize = 256;
+
 struct Parser<'a> {
     tokens: &'a [Token],
     table: &'a BTreeMap<String, OpInfo>,
     pos: usize,
+    /// Current recursion depth of `expr`, bounded by [`MAX_PARSE_DEPTH`].
+    depth: usize,
 }
 
 impl Parser<'_> {
@@ -356,7 +364,24 @@ impl Parser<'_> {
         Ok(items)
     }
 
+    /// Pratt expression parse with a recursion-depth guard so deeply nested
+    /// input (e.g. `((((…`) returns a clean error instead of overflowing the
+    /// stack (fuzz-found). Delegates to [`Self::expr_inner`].
     fn expr(&mut self, min_bp: u32) -> Result<Expr, ParseError> {
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.depth -= 1;
+            return Err(ParseError {
+                position: self.pos,
+                message: "expression nesting too deep".to_owned(),
+            });
+        }
+        let result = self.expr_inner(min_bp);
+        self.depth -= 1;
+        result
+    }
+
+    fn expr_inner(&mut self, min_bp: u32) -> Result<Expr, ParseError> {
         let mut lhs = self.nud()?;
         loop {
             // Assignment `key = RHS`: the builtin `=` is the loosest-binding,
@@ -582,6 +607,74 @@ mod tests {
         let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
         let tokens = tokenize(input, &sigils).expect("tokenises");
         parse_expr(&tokens, &ops).expect("parses").render()
+    }
+
+    #[test]
+    fn fuzz_tokenize_and_parse_never_panic() {
+        // Adversarial + deterministic pseudo-random inputs must never panic the
+        // lexer or parser — they return Ok/Err, and a panic here fails the test.
+        // A fixed-seed xorshift corpus keeps it reproducible without a proptest
+        // dependency (bd-8f). Guards against index/slice/overflow panics on
+        // malformed input reaching the CLI.
+        let ops = ladder();
+        let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
+
+        let mut corpus: Vec<String> = vec![
+            String::new(),
+            " ".to_owned(),
+            "\t\n\r".to_owned(),
+            "((((((((((".to_owned(),
+            "))))))".to_owned(),
+            "[[[[[[".to_owned(),
+            "]],],]".to_owned(),
+            "a&&&b".to_owned(),
+            "1e999999".to_owned(),
+            "999999999999999999999999999999".to_owned(),
+            "-----1".to_owned(),
+            "$".to_owned(),
+            "$$$$".to_owned(),
+            "$-".to_owned(),
+            "$-99999999999999999999".to_owned(),
+            "^".to_owned(),
+            "^^^".to_owned(),
+            "^-".to_owned(),
+            "``````".to_owned(),
+            "a;;;;b".to_owned(),
+            "\"unterminated".to_owned(),
+            "'unterminated".to_owned(),
+            "= = =".to_owned(),
+            "=".to_owned(),
+            "%%%%".to_owned(),
+            "\u{1f680}&\u{1f389}?".to_owned(),
+            "a".repeat(5000),
+            "(".repeat(500),
+            "&".repeat(500),
+            "1+".repeat(500),
+            "[a,".repeat(500),
+        ];
+
+        let alphabet: &[u8] = b"abc()[]&|+-*!?;=$^`_#% \t\"'.,0123456789";
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for _ in 0..3000 {
+            let len = (next() % 24) as usize;
+            let s: String = (0..len)
+                .map(|_| alphabet[(next() as usize) % alphabet.len()] as char)
+                .collect();
+            corpus.push(s);
+        }
+
+        for input in &corpus {
+            // tokenize must not panic; on Ok, parse_program must not panic.
+            if let Ok(tokens) = tokenize(input, &sigils) {
+                let _ = parse_program(&tokens, &ops);
+            }
+        }
     }
 
     #[test]
