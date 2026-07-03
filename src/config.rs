@@ -13,6 +13,9 @@
 //! validation/defaults beads decide which fields are ultimately required.
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+use std::{fmt, fs, io};
 
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -412,6 +415,138 @@ pub struct TestCase {
     pub context: Option<serde_json::Value>,
 }
 
+// ---------------------------------------------------------------------------
+// discovery & load (bd-a1501f)
+// ---------------------------------------------------------------------------
+
+/// The config directory name under the user config root (`~/.config/<dir>`).
+pub const CONFIG_DIR_NAME: &str = "nlir";
+/// The config file name (`~/.config/nlir/<file>`).
+pub const CONFIG_FILE_NAME: &str = "config.yaml";
+
+/// The default config path: `$XDG_CONFIG_HOME/nlir/config.yaml`, else
+/// `~/.config/nlir/config.yaml` (SPEC §CLI surface). `None` when neither
+/// `XDG_CONFIG_HOME` nor `HOME` is set.
+#[must_use]
+pub fn default_config_path() -> Option<PathBuf> {
+    config_path_from_env(
+        std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    )
+}
+
+/// Pure core of [`default_config_path`], taking the env values explicitly so it
+/// is testable without env mutation (which is `unsafe` under
+/// `unsafe_code = "forbid"`).
+#[must_use]
+fn config_path_from_env(xdg_config_home: Option<&OsStr>, home: Option<&OsStr>) -> Option<PathBuf> {
+    if let Some(xdg) = xdg_config_home {
+        if !xdg.is_empty() {
+            return Some(
+                PathBuf::from(xdg)
+                    .join(CONFIG_DIR_NAME)
+                    .join(CONFIG_FILE_NAME),
+            );
+        }
+    }
+    let home = home.filter(|h| !h.is_empty())?;
+    Some(
+        PathBuf::from(home)
+            .join(".config")
+            .join(CONFIG_DIR_NAME)
+            .join(CONFIG_FILE_NAME),
+    )
+}
+
+/// Resolve the config path: an explicit `--config PATH` wins; otherwise the
+/// default path (which may be `None` if no home is discoverable).
+#[must_use]
+pub fn resolve_config_path(explicit: Option<&Path>) -> Option<PathBuf> {
+    match explicit {
+        Some(p) => Some(p.to_path_buf()),
+        None => default_config_path(),
+    }
+}
+
+/// A config discovery / load error, carrying the offending path for clear
+/// operator-facing diagnostics.
+#[derive(Debug)]
+pub enum ConfigError {
+    /// An explicitly requested config file does not exist.
+    NotFound(PathBuf),
+    /// The config file could not be read (permissions, I/O, …).
+    Read { path: PathBuf, source: io::Error },
+    /// The config file is malformed YAML / fails the schema.
+    Parse {
+        path: PathBuf,
+        source: serde_yaml::Error,
+    },
+}
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConfigError::NotFound(path) => {
+                write!(f, "config file not found: {}", path.display())
+            }
+            ConfigError::Read { path, source } => {
+                write!(f, "failed to read config {}: {source}", path.display())
+            }
+            ConfigError::Parse { path, source } => {
+                write!(f, "failed to parse config {}: {source}", path.display())
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ConfigError::NotFound(_) => None,
+            ConfigError::Read { source, .. } => Some(source),
+            ConfigError::Parse { source, .. } => Some(source),
+        }
+    }
+}
+
+/// Load the config: an explicit `--config PATH` is required-to-exist; the
+/// default path is optional (a missing default yields [`Config::default`], i.e.
+/// builtins-only, since the whole language otherwise lives in config). Missing
+/// explicit paths and malformed configs are loud errors with the path attached.
+pub fn load(explicit: Option<&Path>) -> Result<Config, ConfigError> {
+    match explicit {
+        Some(path) => load_file(path),
+        None => match default_config_path() {
+            Some(path) if path.is_file() => load_file(&path),
+            _ => Ok(Config::default()),
+        },
+    }
+}
+
+/// Read and parse a config file, mapping I/O and parse failures to
+/// [`ConfigError`] with the path attached.
+pub fn load_file(path: &Path) -> Result<Config, ConfigError> {
+    let text = fs::read_to_string(path).map_err(|source| {
+        if source.kind() == io::ErrorKind::NotFound {
+            ConfigError::NotFound(path.to_path_buf())
+        } else {
+            ConfigError::Read {
+                path: path.to_path_buf(),
+                source,
+            }
+        }
+    })?;
+    parse_str(&text, path)
+}
+
+/// Parse config from a YAML string. `path` is only used for error context.
+pub fn parse_str(yaml: &str, path: &Path) -> Result<Config, ConfigError> {
+    serde_yaml::from_str(yaml).map_err(|source| ConfigError::Parse {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,5 +698,73 @@ tests:
             err.to_string().contains("bogus") || err.to_string().contains("unknown"),
             "expected unknown-field rejection, got: {err}"
         );
+    }
+
+    #[test]
+    fn config_path_prefers_xdg_then_home() {
+        // XDG_CONFIG_HOME wins when set.
+        let p = config_path_from_env(Some(OsStr::new("/x/cfg")), Some(OsStr::new("/home/u")))
+            .expect("xdg path");
+        assert!(p.ends_with("nlir/config.yaml"));
+        assert!(p.starts_with("/x/cfg"));
+
+        // Falls back to ~/.config when XDG unset/empty.
+        let p = config_path_from_env(None, Some(OsStr::new("/home/u"))).expect("home path");
+        assert_eq!(p, PathBuf::from("/home/u/.config/nlir/config.yaml"));
+        let p = config_path_from_env(Some(OsStr::new("")), Some(OsStr::new("/home/u")))
+            .expect("empty xdg falls back to home");
+        assert_eq!(p, PathBuf::from("/home/u/.config/nlir/config.yaml"));
+
+        // No home discoverable → None.
+        assert!(config_path_from_env(None, None).is_none());
+        assert!(config_path_from_env(Some(OsStr::new("")), Some(OsStr::new(""))).is_none());
+    }
+
+    #[test]
+    fn resolve_config_path_prefers_explicit() {
+        let explicit = Path::new("/tmp/explicit-nlir.yaml");
+        assert_eq!(
+            resolve_config_path(Some(explicit)),
+            Some(explicit.to_path_buf())
+        );
+    }
+
+    #[test]
+    fn explicit_missing_config_is_not_found() {
+        let missing = Path::new("/nonexistent/nlir-does-not-exist-xyz.yaml");
+        match load(Some(missing)) {
+            Err(ConfigError::NotFound(p)) => assert_eq!(p, missing.to_path_buf()),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn malformed_config_is_a_parse_error_with_path() {
+        let path = Path::new("/some/where/config.yaml");
+        let err = parse_str("operators: [not, a, map]", path).unwrap_err();
+        match &err {
+            ConfigError::Parse { path: p, .. } => assert_eq!(p, path),
+            other => panic!("expected Parse, got {other:?}"),
+        }
+        // Diagnostic carries the path for the operator.
+        assert!(err.to_string().contains("config.yaml"));
+    }
+
+    #[test]
+    fn load_file_round_trips_a_real_file() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("nlir-cfg-{}-{nanos}.yaml", std::process::id()));
+        fs::write(&path, "defaults:\n  mode: det\n  parallelism: 4\n").expect("write temp config");
+
+        let cfg = load(Some(&path)).expect("load temp config");
+        assert_eq!(cfg.defaults.mode, Mode::Det);
+        assert_eq!(cfg.defaults.parallelism, 4);
+
+        let _ = fs::remove_file(&path);
     }
 }

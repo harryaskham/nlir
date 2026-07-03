@@ -191,8 +191,8 @@ fn main() {
 
 fn run(cli: Cli) -> Result<(), i32> {
     match cli.command {
-        Some(Command::Parse(ref args)) => run_parse(args),
-        Some(Command::Test) => run_test(),
+        Some(Command::Parse(ref args)) => run_parse(&cli, args),
+        Some(Command::Test) => run_test(&cli),
         Some(Command::Repl(ref args)) => run_repl(&cli, args),
         Some(Command::Set(ref args)) => run_set(args),
         Some(Command::Get(ref args)) => run_get(args),
@@ -212,8 +212,18 @@ fn run(cli: Cli) -> Result<(), i32> {
     }
 }
 
+/// Load the nlir config (SPEC §CLI: `--config PATH` else the default path),
+/// mapping a discovery/parse failure to a clear diagnostic + exit code 2.
+fn resolve_config(cli: &Cli) -> Result<nlir::config::Config, i32> {
+    nlir::config::load(cli.config.as_deref()).map_err(|error| {
+        eprintln!("nlir: {error}");
+        2
+    })
+}
+
 /// `nlir -e 'EXPR'` — SKELETON identity passthrough (bd-57ad92).
 fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
+    let cfg = resolve_config(cli)?;
     let input = EvalInput {
         expr: expr.to_owned(),
         mode: cli.mode.map(Into::into),
@@ -224,7 +234,8 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
         Ok(out) => {
             if out.stub && !cli.quiet {
                 eprintln!(
-                    "nlir: evaluation is a skeleton stub (bd-57ad92); returning the input unchanged."
+                    "nlir: evaluation is a skeleton stub (bd-57ad92); loaded {} configured operator(s), returning the input unchanged.",
+                    cfg.operators.len()
                 );
             }
             println!("{}", out.result);
@@ -237,7 +248,8 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     }
 }
 
-fn run_parse(args: &ParseArgs) -> Result<(), i32> {
+fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
+    let cfg = resolve_config(cli)?;
     let out = match parse(&ParseInput {
         expr: args.expr.clone(),
     }) {
@@ -250,20 +262,29 @@ fn run_parse(args: &ParseArgs) -> Result<(), i32> {
     let stdout = io::stdout();
     serde_json::to_writer_pretty(stdout.lock(), &out).map_err(|_| 1)?;
     println!();
+    if !cli.quiet {
+        eprintln!(
+            "nlir parse: skeleton tokeniser ({} configured operator(s)); the grammar-driven tokeniser/DAG parser land downstream.",
+            cfg.operators.len()
+        );
+    }
     Ok(())
 }
 
-fn run_test() -> Result<(), i32> {
-    // SKELETON (bd-57ad92): the config-defined `tests:` suite (SPEC §Example
-    // config) is executed by a downstream bead once the engine lands.
+fn run_test(cli: &Cli) -> Result<(), i32> {
+    // Loads config and reports the config-defined `tests:` suite size (SPEC
+    // §Example config). The runner itself lands with the evaluator.
+    let cfg = resolve_config(cli)?;
     eprintln!(
-        "nlir test: no engine yet — the config-defined test runner lands in a downstream bead (bd-57ad92 skeleton)."
+        "nlir test: {} config-defined test(s) found; the runner lands with the evaluator (bd-57ad92 skeleton).",
+        cfg.tests.len()
     );
     Ok(())
 }
 
-fn run_repl(_cli: &Cli, _args: &ReplArgs) -> Result<(), i32> {
-    // SKELETON (bd-57ad92): interactive REPL wiring lands downstream.
+fn run_repl(cli: &Cli, _args: &ReplArgs) -> Result<(), i32> {
+    // Validate config up front so a bad --config fails fast; REPL loop lands downstream.
+    resolve_config(cli)?;
     eprintln!("nlir repl: not yet implemented (bd-57ad92 skeleton).");
     Ok(())
 }
