@@ -195,24 +195,35 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          # The nix self-hosted darwin runner gives steps a minimal PATH without
-          # /usr/bin (so cc/id/uname are all missing) and only an ambient nix cargo
-          # whose rustc-wrapper linker is absent -> `error: linker cc not found`.
-          # UNCONDITIONALLY surface /usr/bin first (Apple clang cc; a literal, needs no
-          # command; harmless on Linux where /usr/bin is already present), THEN, when
-          # the login user's rustup toolchain is present on disk, prepend it so it wins
-          # over the nix cargo. HOME is overridden by the runner service, so resolve the
-          # login home explicitly. dtolnay's toolchain on Linux is unaffected. The
-          # earlier `uname`/`$TARGET` GATES silently no-op'd on this runner, so this
-          # version gates only on the login cargo binary EXISTING (bd-7e465a).
-          export PATH="/usr/bin:/bin:$PATH"
-          lh="$(eval echo "~$(id -un)")"
-          if [ -x "$lh/.cargo/bin/cargo" ] && [ -d "$lh/.rustup" ]; then
-            export PATH="$lh/.cargo/bin:$PATH"
-            export RUSTUP_HOME="${RUSTUP_HOME:-$lh/.rustup}"
+          if [ "${TARGET:-}" = "aarch64-darwin" ]; then
+            # The self-hosted nix darwin runner executes job steps in a RESTRICTED env
+            # (service user, HOME=/var/empty) where neither the system Apple cc
+            # (/usr/bin/cc) NOR the login user's rustup toolchain is reachable, and the
+            # ambient nix cargo's rustc-wrapper has no linker ("cc not found"). Only the
+            # nix store is accessible, so build inside the flake devShell (nix clang +
+            # cargo + libiconv). That links libiconv transitively from the NIX STORE,
+            # which is not portable to a user's Mac, so rewrite that one dylib id to the
+            # ABI-compatible system /usr/lib/libiconv.2.dylib and FAIL if any /nix/store
+            # dep remains -- so the shipped asset links only /usr/lib. Verified locally:
+            # otool then shows only /usr/lib and the rewritten binary runs (bd-7e465a).
+            nix develop --command bash -c '
+              set -euo pipefail
+              cargo build --release --bin nlir
+              bin="${CARGO_TARGET_DIR:-target}/release/nlir"
+              for ref in $(otool -L "$bin" | grep -oE "/nix/store/[^ ]*libiconv[^ ]*\.dylib" || true); do
+                install_name_tool -change "$ref" /usr/lib/libiconv.2.dylib "$bin"
+              done
+              remaining="$(otool -L "$bin" | grep /nix/store || true)"
+              if [ -n "$remaining" ]; then
+                echo "ERROR: darwin binary still references /nix/store (non-portable):" >&2
+                echo "$remaining" >&2
+                exit 1
+              fi
+              echo "portable darwin binary linkage:"; otool -L "$bin"
+            '
+          else
+            cargo build --release --bin nlir
           fi
-          echo "build toolchain: TARGET=${TARGET:-unset} lh=$lh cargo=$(command -v cargo || echo none) cc=$(command -v cc || echo none) rustc=$(command -v rustc || echo none)"
-          cargo build --release --bin nlir
 
       - name: Package update-compatible asset
         shell: bash
