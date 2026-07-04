@@ -195,23 +195,23 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          # aarch64-darwin: dtolnay is skipped, so drive the build with the login
-          # user's already-installed stable rustup toolchain + the system clang linker.
-          # Gate on $TARGET (matrix env), NOT `uname`: the nix runner's minimal step
-          # PATH can lack /usr/bin entirely, so `uname`/`id`/`cc` are themselves missing
-          # (an earlier `[ "$(uname -s)" = Darwin ]` gate silently no-op'd, leaving the
-          # ambient nix cargo-1.95 whose rustc-wrapper linker is absent -> "cc not
-          # found"). Prepend /usr/bin FIRST (a literal, needs no command) so id/cc
-          # resolve, then prepend the login ~/.cargo/bin so the login cargo wins over
-          # the nix cargo. HOME is overridden by the runner service, so resolve the
-          # login home explicitly. No-op on Linux where dtolnay provides cargo (bd-7e465a).
-          if [ "${TARGET:-}" = "aarch64-darwin" ]; then
-            export PATH="/usr/bin:/bin:$PATH"
-            lh="$(eval echo "~$(id -un)")"
+          # The nix self-hosted darwin runner gives steps a minimal PATH without
+          # /usr/bin (so cc/id/uname are all missing) and only an ambient nix cargo
+          # whose rustc-wrapper linker is absent -> `error: linker cc not found`.
+          # UNCONDITIONALLY surface /usr/bin first (Apple clang cc; a literal, needs no
+          # command; harmless on Linux where /usr/bin is already present), THEN, when
+          # the login user's rustup toolchain is present on disk, prepend it so it wins
+          # over the nix cargo. HOME is overridden by the runner service, so resolve the
+          # login home explicitly. dtolnay's toolchain on Linux is unaffected. The
+          # earlier `uname`/`$TARGET` GATES silently no-op'd on this runner, so this
+          # version gates only on the login cargo binary EXISTING (bd-7e465a).
+          export PATH="/usr/bin:/bin:$PATH"
+          lh="$(eval echo "~$(id -un)")"
+          if [ -x "$lh/.cargo/bin/cargo" ] && [ -d "$lh/.rustup" ]; then
             export PATH="$lh/.cargo/bin:$PATH"
             export RUSTUP_HOME="${RUSTUP_HOME:-$lh/.rustup}"
           fi
-          echo "build toolchain: cargo=$(command -v cargo || echo none) cc=$(command -v cc || echo none) rustc=$(command -v rustc || echo none)"
+          echo "build toolchain: TARGET=${TARGET:-unset} lh=$lh cargo=$(command -v cargo || echo none) cc=$(command -v cc || echo none) rustc=$(command -v rustc || echo none)"
           cargo build --release --bin nlir
 
       - name: Package update-compatible asset
