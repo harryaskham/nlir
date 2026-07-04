@@ -136,7 +136,7 @@ pub fn extract_result(
     result_field: Option<&str>,
 ) -> Result<String, ExtractError> {
     match format {
-        ModelFormat::Text => Ok(raw.trim_end_matches(['\n', '\r']).to_owned()),
+        ModelFormat::Text => Ok(strip_text_tags(raw).trim().to_owned()),
         ModelFormat::Json => {
             let field = result_field.unwrap_or(DEFAULT_RESULT_FIELD);
             let json: serde_json::Value = serde_json::from_str(raw.trim())
@@ -145,13 +145,53 @@ pub fn extract_result(
                 .get(field)
                 .ok_or_else(|| ExtractError::MissingResultField(field.to_owned()))?;
             match value {
-                serde_json::Value::String(s) => Ok(s.clone()),
+                serde_json::Value::String(s) => Ok(strip_text_tags(s)),
                 serde_json::Value::Number(n) => Ok(n.to_string()),
                 serde_json::Value::Bool(b) => Ok(b.to_string()),
                 _ => Err(ExtractError::NonScalarResult(field.to_owned())),
             }
         }
     }
+}
+
+/// Strip an outer `<text>…</text>` / `<text n=k>…</text>` delimiter wrapper a model echoed.
+///
+/// nlir wraps each operand in `<text>…</text>` as the *input* delimiter (see
+/// [`substitute_operands`]), and the `system` prompt instructs the model to omit them from
+/// its output — but models intermittently echo them anyway (bd-b1d501): e.g. `!'love'` comes
+/// back as `<text>hate</text>`, which then leaks through an `&`/list join as
+/// `"love and <text>hate</text>"`.
+///
+/// This runs at the per-call output seam (before any join), where a leaked wrapper is always
+/// the WHOLE response, so it strips only an OUTER wrapper: a trimmed value that both opens with
+/// a `<text>`/`<text n=DIGITS>` tag and ends with `</text>`. Mid-string `<text>` (e.g. a model
+/// that echoes a prompt fragment) and look-alikes such as `<textarea>` are deliberately left
+/// untouched — no false positives.
+fn strip_text_tags(s: &str) -> String {
+    let trimmed = s.trim();
+    if let Some(open_len) = text_open_tag_len(trimmed) {
+        if let Some(inner) = trimmed[open_len..].strip_suffix("</text>") {
+            return inner.trim().to_owned();
+        }
+    }
+    s.to_owned()
+}
+
+/// If `s` begins with a `<text>` or `<text n=DIGITS>` open tag, return its byte length.
+fn text_open_tag_len(s: &str) -> Option<usize> {
+    let body = s.strip_prefix("<text")?;
+    if body.starts_with('>') {
+        return Some("<text>".len());
+    }
+    let after_marker = body.strip_prefix(" n=")?;
+    let digits = after_marker
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .count();
+    if digits == 0 || !after_marker[digits..].starts_with('>') {
+        return None;
+    }
+    Some("<text n=".len() + digits + ">".len())
 }
 
 /// The shell used to run `type: command` backends. The SPEC command examples use
@@ -1042,6 +1082,48 @@ mod tests {
         assert_eq!(
             extract_result("x y z", ModelFormat::Text, None),
             Ok("x y z".to_owned())
+        );
+    }
+
+    #[test]
+    fn text_format_strips_echoed_text_delimiter_tags() {
+        // bd-b1d501: the model intermittently echoes the <text> input-delimiter as an OUTER
+        // wrapper around its whole answer; strip it at the per-call seam so it never leaks
+        // through a later &/list join.
+        assert_eq!(
+            extract_result("<text>hate</text>", ModelFormat::Text, None),
+            Ok("hate".to_owned())
+        );
+        // The numbered multi-operand form `<text n=k>`.
+        assert_eq!(
+            extract_result("<text n=0>a</text>", ModelFormat::Text, None),
+            Ok("a".to_owned())
+        );
+        // Whitespace from a newline-wrapped echo is trimmed away.
+        assert_eq!(
+            extract_result("<text>\nok\n</text>", ModelFormat::Text, None),
+            Ok("ok".to_owned())
+        );
+        // Only an OUTER wrapper is stripped: a mid-string tag (e.g. a prompt-echo fixture)
+        // is left intact, so we never mangle genuine content around a stray tag.
+        assert_eq!(
+            extract_result("negate: <text>foo</text>", ModelFormat::Text, None),
+            Ok("negate: <text>foo</text>".to_owned())
+        );
+        // Look-alikes in legitimate output are NOT stripped (no false positives).
+        assert_eq!(
+            extract_result("use a <textarea> element", ModelFormat::Text, None),
+            Ok("use a <textarea> element".to_owned())
+        );
+        // Clean output is unchanged.
+        assert_eq!(
+            extract_result("just fine", ModelFormat::Text, None),
+            Ok("just fine".to_owned())
+        );
+        // JSON string results are defended too.
+        assert_eq!(
+            extract_result(r#"{"result":"<text>done</text>"}"#, ModelFormat::Json, None),
+            Ok("done".to_owned())
         );
     }
 
