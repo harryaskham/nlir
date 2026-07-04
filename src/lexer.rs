@@ -426,6 +426,58 @@ fn lex_bare(chars: &[char], start: usize) -> Result<(Token, usize), LexError> {
             i += 1;
         }
     }
+    // Scientific-notation exponent: absorb `[eE][+-]?<digits>` onto a numeric
+    // mantissa so `1.5e3`, `6.022e23`, and `1e-9` lex as ONE bare number token,
+    // flowing through the existing Value string->number coercion (sibling of the
+    // `.` float support above; `parse::<f64>` already accepts the exponent form).
+    //
+    // Two shapes reach here, because the alphanumeric run treats `e`/`E` as a
+    // normal identifier char but stops at the sign:
+    //   * `1.5e3` — the `.`-extension above left us AT the `e`; `out` is a
+    //               `<digits>.<digits>` mantissa.
+    //   * `1e-9`  — the run already pulled `e`/`E` into `out` and stopped at the
+    //               `-`/`+`; `out` is `<digits>e`.
+    // In both shapes the mantissa is unambiguously a number (`1.5e` / `1e` is not
+    // a valid identifier), so this never steals a subtraction `-`/`+`. Unsigned
+    // int-mantissa forms (`1e5`) are fully absorbed by the run and never reach
+    // here; spaced forms (`1e - 9`) and non-numeric mantissas (`abce-3`) are left
+    // untouched.
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let mantissa_numeric = digits(&out)
+        || out
+            .split_once('.')
+            .is_some_and(|(int_part, frac)| digits(int_part) && digits(frac));
+    if matches!(chars.get(i), Some('e' | 'E')) && mantissa_numeric {
+        // `1.5e3`: absorb `e`, then an optional sign, then the exponent digits —
+        // but only when a digit actually follows, so `1.5e` / `1.5ex` are left
+        // to lex the trailing `e`/`ex` as a separate bare token.
+        let sign = usize::from(matches!(chars.get(i + 1), Some('+' | '-')));
+        if chars.get(i + 1 + sign).is_some_and(char::is_ascii_digit) {
+            out.push(chars[i]); // e/E
+            i += 1;
+            if sign == 1 {
+                out.push(chars[i]);
+                i += 1;
+            }
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                out.push(chars[i]);
+                i += 1;
+            }
+        }
+    } else if (out.ends_with('e') || out.ends_with('E')) && digits(&out[..out.len() - 1]) {
+        // `1e-9`: the `e`/`E` is already in `out`; require a signed exponent (an
+        // unsigned `1e5` was fully absorbed by the run and never reaches here).
+        if matches!(chars.get(i), Some('+' | '-'))
+            && chars.get(i + 1).is_some_and(char::is_ascii_digit)
+        {
+            out.push(chars[i]); // sign
+            i += 1;
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                out.push(chars[i]);
+                i += 1;
+            }
+        }
+    }
     Ok((Token::Bare(out), i))
 }
 
@@ -558,6 +610,49 @@ mod tests {
         // An identifier never absorbs a following `.`; a trailing `3.` is rejected.
         assert!(tokenize("abc.def", NO_OPS).is_err());
         assert!(tokenize("3.", NO_OPS).is_err());
+    }
+
+    #[test]
+    fn scientific_notation_lexes_as_bare_numbers() {
+        // A numeric mantissa (int or float) plus `[eE][+-]?<digits>` lexes as ONE
+        // bare number token that flows through the existing `parse::<f64>`
+        // coercion (bd-461209, sibling of bd-f551f9's `.` float support).
+        let one = |src: &str| tokenize(src, NO_OPS).unwrap();
+        // Float mantissa + exponent (the `.`-extension leaves us at `e`).
+        assert_eq!(one("1.5e3"), vec![Token::Bare("1.5e3".to_owned())]);
+        assert_eq!(one("6.022e23"), vec![Token::Bare("6.022e23".to_owned())]);
+        assert_eq!(one("1.0e0"), vec![Token::Bare("1.0e0".to_owned())]);
+        // Uppercase E and explicit signs.
+        assert_eq!(one("1.5E3"), vec![Token::Bare("1.5E3".to_owned())]);
+        assert_eq!(one("2.5e+2"), vec![Token::Bare("2.5e+2".to_owned())]);
+        assert_eq!(one("1.5e-3"), vec![Token::Bare("1.5e-3".to_owned())]);
+        // Int mantissa + SIGNED exponent (the run pulled `e` in, stopped at sign).
+        assert_eq!(one("1e-9"), vec![Token::Bare("1e-9".to_owned())]);
+        assert_eq!(one("2e-3"), vec![Token::Bare("2e-3".to_owned())]);
+        assert_eq!(one("1E+9"), vec![Token::Bare("1E+9".to_owned())]);
+        // Int mantissa + UNSIGNED exponent is already one token via the alnum run.
+        assert_eq!(one("1e5"), vec![Token::Bare("1e5".to_owned())]);
+
+        // Non-regression: absorbing the exponent must not steal a `-`/`+`
+        // subtraction operator or corrupt identifiers ending in `e`.
+        // An identifier mantissa (`abc`) never becomes an exponent.
+        assert_eq!(bares("abce"), vec!["abce"]);
+        // `<digits>-<digits>` subtraction (no `e`) is untouched: `10`, `-`, `3`.
+        assert_eq!(
+            tokenize("10-3", &ops(&["-"])).unwrap(),
+            vec![
+                Token::Bare("10".to_owned()),
+                Token::Operator("-".to_owned()),
+                Token::Bare("3".to_owned()),
+            ]
+        );
+        // A bare `e`/trailing `e` with no valid exponent is left to lex normally:
+        // `1.5e` -> `1.5` then `e`; a lone trailing `1e` stays one (uncoercible) token.
+        assert_eq!(
+            tokenize("1.5e", NO_OPS).unwrap(),
+            vec![Token::Bare("1.5".to_owned()), Token::Bare("e".to_owned())]
+        );
+        assert_eq!(one("1e"), vec![Token::Bare("1e".to_owned())]);
     }
 
     #[test]
