@@ -1,0 +1,51 @@
+# msm0 gallery catalog
+
+A curated index of the **msm0** nlir-golf contributions — 46 forward concepts + 45
+reverse targets — grouped by theme. (The workspace-wide sample lives in
+`examples/README.md`; this file is a per-agent deep-dive. Run any entry with
+`NLIR=./target/release/nlir bash examples/<name>.sh`, or set `NLIR_CONFIG`.)
+
+The organising idea, arrived at over the night: **nlir = SELECT × TRANSFORM** — a
+message range *addresses* a conversation, and the operator basis *transforms* what you
+address (see `golf-msm0-40-selection.sh`).
+
+## Forward (max-concept) — `golf-msm0-*`
+
+### Conversation ranges (the SELECT half — my signature)
+- `01-history`  crux `#~0^*-1` — auto-title a whole chat
+- `03-arc`  `~(^_0&^-1)` — first user ask + last assistant answer = the takeaway
+- `04-twosides`  `[~0^_-1,~0^-1]` — role-scoped ranges: their side | our side
+- `06-topics`  `#0^*1&#2^*-1` — sub-range slices name each half's topic
+- `16-catchup`  `p=~0^*-2;n=^*-1;…` — exclude-last background + latest verbatim
+- `35-timeline`  `[~0^*1,~2^*3,~4^*-1]` — sequential windows = a narrative arc
+- `40-selection`  `[~0^*-1,~0^_-1,~^*-1]` — one transform, three addresses (the capstone)
+
+### Assignment / DAG-reuse
+- `02-debate`  `c=~0^*-1;[@$c,:!$c]` — one summary, case for/against
+- `05-digest` · `12-status` · `13-postmortem` · `15-fanout` (`s=~0^*-1;[#$s,$s,!$s]`) · `23-identity` (what assignment guarantees)
+
+### Interpolation (output-side templates + input-side prompt construction)
+- `07-subject` · `08-flcard` · `09-email` · `11-toc` — templated cards
+- `17-followup` · `18-announce` · `19-drafted` — a computed value spliced INTO the prompt
+
+### Document formats (one toolkit, many moulds)
+- `21-faq` · `22-adr` · `33-commit` · `46-changelog`
+
+### The algebra of nlir (operator laws — with aur-1 & aur-2)
+- `30-basis` ops = orthogonal axes (register/information/polarity) · `31-commutativity` commute ⟺ orthogonal · `32-matrix` span the plane
+- `24-associativity` `~(whole)≈~(~half&~half)` · `25-demorgan` half-holds · `26-and-algebra` `&` is a join, not `∧`
+- `27-invariance`/`28-orthogonality`/`37-collapse`/`38-regcollapse`/`39-boundary` — `#`/`~` charted on {register,information}; where laws break
+- `20-phrasing` · `29-joinblind`
+
+### Deterministic substrate + robustness (dogfooding)
+- `34-powertower` (the fleet pow right-assoc fix) · `36-calculator` nlir with the LLM off · `45-numedges` arithmetic boundaries
+- `41-graceful` never panics · `42-session` nlir as memory · `43-grouping` load-bearing parens · `44-quotes` raw vs cooked (+ filed bd-65b737)
+
+## Reverse (target) — `target-msm0-*`
+All use `@` as a **formalise-decompressor** (terse seed → the full sentence).
+- **Compression records:** `01-formalize`(15c) → `02-microcompress`(@'omw',5c) → `04-brb`(3c) → `05-onechar`(@'k',1c — the floor).
+- **Realistic pi turns:** reviews (`09`,`22`,`43`), standup/status (`07`,`08`,`16`), escalation/blocker (`21`,`28`), decisions (`13`,`19`,`31`,`44`), personal notes (`20`,`32`,`38`,`39`,`40`,`45`), and more — each reconstructs a full professional message from a dashed-off seed, preserving the facts, the structure, and the *stance* (the "however", the hedge, the warmth).
+
+## Two real bugs found dogfooding
+- **pow right-associativity** (`2**3**2` was 64, should be 512) — caught, fixed three-lane, landed; celebrated in `34-powertower`.
+- **`\$` escape defeated** in double-quote interpolation (bd-65b737) — root-caused, filed with a proposed patch; workaround documented in `44-quotes`.
