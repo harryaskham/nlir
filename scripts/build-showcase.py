@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+"""Render nlir "expression -> rich language" showcase cards as shareable PNGs.
+
+Crisp, accurate code-cards (not LLM image-gen): each card shows a terse nlir
+expression and the fluent English it expands to. HTML/CSS -> PNG via headless
+chromium, so the exact expressions/outputs stay razor-sharp. Deterministic
+outputs are exact; LLM outputs are real captures (claude-sonnet-5) documented in
+examples/*.sh headers and contributed by the swarm (aur-1's expr->language set).
+
+Two card kinds:
+  - simple  (1200x630, social/OG): expr -> one English output (+ optional source).
+  - grid    (1200xN):  one claim + expr -> a labelled grid of lens outputs.
+
+Usage:  python3 scripts/build-showcase.py [--out showcase] [--only NAME]
+Requires: chromium (headless); ImageMagick montage (optional) for a contact sheet.
+"""
+from __future__ import annotations
+import argparse
+import html
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# --- simple cards: expr -> output (det exact; llm = real claude-sonnet-5) ------
+SIMPLE = [
+    dict(name="formalize", expr="@'lmk if any Qs'", pill="llm · claude-sonnet-5",
+         out="Please let me know if you have any questions.",
+         cap="@ formalise — texting shorthand becomes professional"),
+    dict(name="simplify", expr=":'idempotent'", pill="llm · claude-sonnet-5",
+         out="Doing it again doesn't change anything after the first time.",
+         cap=": simplify — 13 characters become a plain-English definition"),
+    dict(name="expand", expr="~>'the main benefits of regular exercise'", pill="llm · claude-sonnet-5",
+         out="Regular physical activity delivers lasting benefits to physical health, "
+             "mental wellbeing, and overall quality of life.",
+         cap="~> expand then distil — a few keywords become one rich line"),
+    dict(name="tip", expr="'sixty'+'sixty'*'a fifth'", pill="llm coercion · exact", out="72",
+         cap="words become math — a $60 bill plus a 20% tip, with precedence"),
+    dict(name="collective", expr="'half a dozen'+'a pair'+'a trio'", pill="llm coercion · exact", out="11",
+         cap="collective-noun calculator — 6 + 2 + 3, read from words"),
+    dict(name="pow", expr="2**3**2", pill="det · exact", out="512",
+         cap="right-associative exponentiation — 2^(3^2), matching normal math"),
+    dict(name="negate", expr="!(a&b)", pill="det · exact", out="not (a and b)",
+         cap="! negate over & and — grouping parentheses preserved"),
+    dict(name="subject", expr="#^-1", pill="llm · reads your chat",
+         out="the primary subject of the last assistant message",
+         cap="# subject · ^-1 last message — one glance at the conversation"),
+    # aur-1 contributions (real captures)
+    dict(name="exec-summary", expr="@~x", pill="llm · claude-sonnet-5",
+         src="hey so the mobile team is blocked on us, the api change we promised for "
+             "tuesday slipped because the migration was gnarlier than expected, realistically it's thursday now",
+         out="The API change originally scheduled for Tuesday has been postponed to Thursday "
+             "due to a more complex migration process, which is currently blocking the mobile team's progress.",
+         cap="@~ the executive summary — a rambling update becomes one crisp line"),
+    dict(name="escalation", expr="@~^_-1", pill="llm · reads your chat",
+         src="this is the THIRD time the deploy has broken prod this week and honestly "
+             "i'm losing my mind … someone needs to actually own this",
+         out="Recurring deployment failures have caused three production outages this week, "
+             "and no resolution has yet been implemented. This ongoing issue has affected team morale "
+             "and is now impacting customers. It is essential that an owner be assigned to address this "
+             "pipeline issue promptly.",
+         cap="@~^_-1 — a heated rant becomes a clean, forwardable escalation"),
+    dict(name="opposition", expr=">@!x", pill="llm · claude-sonnet-5",
+         src="we should adopt a four-day work week",
+         out="We should not adopt a four-day workweek. While the concept may seem appealing—"
+             "promising better work-life balance and higher morale—the practical drawbacks make it "
+             "an unwise change. Compressing the same work into fewer days could increase daily pressure, "
+             "risk gaps in client availability, and require costly restructuring, with no guarantee that "
+             "productivity or satisfaction improve. …",
+         cap=">@! the opposition brief — the strongest developed case against your own claim"),
+    dict(name="target-reverse", expr="'is it too late to switch frameworks'?", pill="llm · reverse golf",
+         out="Is it too late to switch frameworks?",
+         cap="the reverse: 37 characters in, a polished question out"),
+    # aur-2 contributions (real captures)
+    dict(name="gettysburg", expr="'eighteen sixty three'-'four score and seven'", pill="llm coercion · exact",
+         out="1776",
+         cap="words become history — 1863 minus 'four score and seven' lands on 1776"),
+    dict(name="answer", expr="'six'*'seven'", pill="llm coercion · exact", out="42",
+         cap="the answer to life, the universe, and everything — from two words"),
+    dict(name="reverse-dictionary", expr="#'a program that translates source code into machine code'",
+         pill="llm · names the thing", out="Compiler",
+         cap="# on a description names the thing — describe what it does, get what it's called"),
+    dict(name="mvp", expr=":'MVP'", pill="llm · claude-sonnet-5",
+         out="The simplest version of something you build first, just to see if it works, "
+             "before you add all the fancy extra parts.",
+         cap=": expands an acronym into the whole concept — six characters in"),
+    dict(name="opposite", expr="!'hot'", pill="llm · antonym", out="cold",
+         cap="! on a lone concept-word gives its opposite, not just 'not hot'"),
+    dict(name="three-bases", expr="'0o17'+'0xF'+'0b1'", pill="llm coercion · exact", out="31",
+         cap="octal + hex + binary, added as numbers — every base a source file uses"),
+]
+
+# --- grid cards: one claim + expr -> labelled lens outputs ---------------------
+GRID = [
+    dict(name="perspective-wheel", expr="[#x, ~x, >x, !x, @x, x?]", pill="llm · 6 lenses",
+         claim="we should sunset the legacy API",
+         cap="one claim, refracted along every axis of meaning — topic · length · polarity · register · mode",
+         cols=2, cells=[
+             ("#x  topic", "Sunsetting the legacy API"),
+             ("~x  gist", "We should retire the legacy API."),
+             ("!x  negate", "We should not sunset the legacy API."),
+             ("@x  formal", "It is recommended that the legacy API be decommissioned."),
+             ("x?  question", "Should we sunset the legacy API?"),
+             (">x  expand", "We should formally deprecate and eventually decommission the legacy API, "
+                            "with a clear timeline for phasing it out of production."),
+         ]),
+    dict(name="deliberation", expr="[>@x, >@!x, ~(>@x & >@!x)]", pill="llm · for / against / verdict",
+         claim="should we migrate our REST API to GraphQL",
+         cap="the case for, the case against, and an impartial synthesis — reasoning in one line",
+         cols=1, cells=[
+             (">@x  FOR", "A serious case that migrating REST to GraphQL is worthwhile: it can reduce "
+                          "over- and under-fetching, add strong typing, and give clients precise queries."),
+             (">@!x  AGAINST", "The developed counter-case: migration effort, a learning curve, and added "
+                               "caching complexity may outweigh the benefits for the team right now."),
+             ("~(…&…)  VERDICT", "Weighs migrating from REST to GraphQL — reduced over/under-fetching and "
+                                 "strong typing against migration effort, learning curve, and caching complexity."),
+         ]),
+]
+
+# --- lightweight nlir syntax highlighter --------------------------------------
+STRING_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+NUM_RE = re.compile(r"\b\d+\b")
+OPS = ["**", "^-", "^*", "^_", "^/", "#", "!", "&", "|", "?", "@", ":", "~",
+       ">", "<", "+", "-", "*", "/", "^", ";", "=", "$", "[", "]", "(", ")", ",", "%"]
+
+
+def highlight(expr: str) -> str:
+    out, i, n = [], 0, len(expr)
+    while i < n:
+        m = STRING_RE.match(expr, i)
+        if m:
+            out.append(f'<span class="s">{html.escape(m.group())}</span>'); i = m.end(); continue
+        m = NUM_RE.match(expr, i)
+        if m:
+            out.append(f'<span class="n">{html.escape(m.group())}</span>'); i = m.end(); continue
+        for op in OPS:
+            if expr.startswith(op, i):
+                out.append(f'<span class="o">{html.escape(op)}</span>'); i += len(op); break
+        else:
+            out.append(html.escape(expr[i])); i += 1
+    return "".join(out)
+
+
+CSS = """
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family:'Fira Sans','DejaVu Sans',sans-serif;
+  background:
+    radial-gradient(900px 520px at 14% 6%, rgba(168,85,247,.30), transparent 60%),
+    radial-gradient(760px 520px at 96% 104%, rgba(34,211,238,.16), transparent 55%),
+    linear-gradient(140deg,#160e2e 0%,#1d1140 46%,#241056 100%);
+  color:#efeaff; overflow:hidden; padding:56px 66px; display:flex; flex-direction:column;
+}
+.head { display:flex; align-items:baseline; justify-content:space-between; }
+.brand { font-family:'Fira Code',monospace; font-weight:700; font-size:32px; color:#fff; }
+.brand .dot { color:#c084fc; }
+.brand .sub { font-family:'Fira Sans',sans-serif; font-weight:400; font-size:18px; color:#b9a8e6; margin-left:13px; }
+.pill { font-family:'Fira Code',monospace; font-size:15px; color:#a7f3d0;
+  border:1px solid rgba(52,211,153,.4); background:rgba(16,185,129,.10);
+  padding:7px 15px; border-radius:999px; white-space:nowrap; }
+.expr { font-family:'Fira Code',monospace; font-weight:500; color:#efeaff; background:#100a24;
+  border:1px solid rgba(168,85,247,.32); border-radius:16px; box-shadow:0 16px 46px rgba(0,0,0,.40);
+  word-break:break-word; }
+.expr .o { color:#e879f9; } .expr .s { color:#7dd3fc; } .expr .n { color:#fca5a5; }
+.src { font-size:19px; color:#b9a8e6; font-style:italic; }
+.src b { color:#8778ad; font-style:normal; font-family:'Fira Code',monospace; font-size:14px; }
+.foot { display:flex; align-items:center; justify-content:space-between; margin-top:8px; }
+.cap { font-size:17px; color:#c3b6ea; max-width:900px; }
+.gh { font-family:'Fira Code',monospace; font-size:15px; color:#8778ad; }
+"""
+
+SIMPLE_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
+html,body {{ width:1200px; height:630px; }} {css}
+.body {{ flex:1; display:flex; flex-direction:column; justify-content:center; gap:20px; }}
+.expr {{ font-size:{esz}px; padding:24px 32px; line-height:1.3; }}
+.arrow {{ display:flex; align-items:center; gap:16px; color:#8b7bbf; font-size:16px;
+  font-family:'Fira Code',monospace; letter-spacing:3px; text-transform:uppercase; }}
+.arrow .line {{ height:1px; background:linear-gradient(90deg,#a855f7,transparent); flex:1; }}
+.out {{ font-size:{osz}px; line-height:1.32; color:#fff; border-left:4px solid #c084fc; padding:2px 0 2px 24px; }}
+</style></head><body>
+  <div class="head"><div class="brand">nlir<span class="dot">·</span><span class="sub">natural-language IR</span></div><div class="pill">{pill}</div></div>
+  <div class="body">
+    {src}
+    <div class="expr">{expr}</div>
+    <div class="arrow"><span>becomes</span><span class="line"></span></div>
+    <div class="out">{out}</div>
+  </div>
+  <div class="foot"><div class="cap">{cap}</div><div class="gh">github.com/harryaskham/nlir</div></div>
+</body></html>"""
+
+GRID_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
+html,body {{ width:1200px; height:{h}px; }} {css}
+.claim {{ font-size:21px; color:#e9e2ff; margin:2px 0 2px 0; }}
+.claim b {{ color:#8778ad; font-style:normal; font-family:'Fira Code',monospace; font-size:14px; font-weight:500; }}
+.expr {{ font-size:34px; padding:16px 26px; line-height:1.25; margin:14px 0 20px 0; display:inline-block; }}
+.grid {{ display:grid; grid-template-columns:repeat({cols},1fr); gap:16px; flex:1; }}
+.cell {{ background:rgba(255,255,255,.035); border:1px solid rgba(168,85,247,.20); border-radius:14px; padding:16px 20px; }}
+.cell .lbl {{ font-family:'Fira Code',monospace; font-size:16px; color:#e879f9; margin-bottom:7px; }}
+.cell .txt {{ font-size:{tsz}px; line-height:1.34; color:#f3efff; }}
+</style></head><body>
+  <div class="head"><div class="brand">nlir<span class="dot">·</span><span class="sub">natural-language IR</span></div><div class="pill">{pill}</div></div>
+  <div class="claim"><b>one claim ·</b> &ldquo;{claim}&rdquo;</div>
+  <div class="expr">{expr}</div>
+  <div class="grid">{cells}</div>
+  <div class="foot"><div class="cap">{cap}</div><div class="gh">github.com/harryaskham/nlir</div></div>
+</body></html>"""
+
+
+def esz(expr):
+    n = len(expr)
+    return 62 if n <= 12 else 52 if n <= 20 else 42 if n <= 32 else 34 if n <= 46 else 28
+
+
+def osz(out):
+    n = len(out)
+    return 92 if n <= 3 else 38 if n <= 40 else 31 if n <= 110 else 25 if n <= 240 else 21
+
+
+def chromium():
+    for c in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+        if shutil.which(c):
+            return shutil.which(c)
+    sys.exit("no chromium found")
+
+
+SCALE = 1.0
+
+
+def shot(chrome, htmlp, pngp, w, h):
+    url = f"file://{Path(htmlp).resolve()}"
+    subprocess.run([chrome, "--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
+                    f"--force-device-scale-factor={SCALE}", f"--window-size={w},{h}",
+                    f"--screenshot={pngp}", url], check=True, capture_output=True)
+
+
+def render_simple(card, outdir, chrome):
+    src = ""
+    if card.get("src"):
+        src = f'<div class="src"><b>from &nbsp;</b>&ldquo;{html.escape(card["src"])}&rdquo;</div>'
+    doc = SIMPLE_HTML.format(css=CSS, expr=highlight(card["expr"]), out=html.escape(card["out"]),
+                             pill=html.escape(card["pill"]), cap=html.escape(card["cap"]),
+                             esz=esz(card["expr"]), osz=osz(card["out"]), src=src)
+    return _emit(card["name"], doc, outdir, chrome, 1200, 630)
+
+
+def render_grid(card, outdir, chrome):
+    cells = card["cells"]
+    rows = (len(cells) + card["cols"] - 1) // card["cols"]
+    h = 300 + rows * 150
+    tsz = 22 if max(len(t) for _, t in cells) <= 130 else 19
+    cellhtml = "".join(
+        f'<div class="cell"><div class="lbl">{html.escape(lbl)}</div>'
+        f'<div class="txt">{html.escape(txt)}</div></div>' for lbl, txt in cells)
+    doc = GRID_HTML.format(css=CSS, h=h, cols=card["cols"], expr=highlight(card["expr"]),
+                           claim=html.escape(card["claim"]), pill=html.escape(card["pill"]),
+                           cap=html.escape(card["cap"]), cells=cellhtml, tsz=tsz)
+    return _emit(card["name"], doc, outdir, chrome, 1200, h)
+
+
+def _emit(name, doc, outdir, chrome, w, h):
+    htmlp = outdir / f"{name}.html"
+    pngp = outdir / f"nlir-{name}.png"
+    htmlp.write_text(doc)
+    shot(chrome, htmlp, pngp, w, h)
+    htmlp.unlink()
+    print("rendered", pngp)
+    return pngp
+
+
+def main():
+    global SCALE
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default="showcase")
+    ap.add_argument("--only", default=None)
+    ap.add_argument("--scale", type=float, default=1.0,
+                    help="device scale factor; 1 = 1200x630 social size (default), 2 = retina")
+    args = ap.parse_args()
+    SCALE = args.scale
+    outdir = Path(args.out); outdir.mkdir(parents=True, exist_ok=True)
+    chrome = chromium()
+    for c in SIMPLE:
+        if not args.only or c["name"] == args.only:
+            render_simple(c, outdir, chrome)
+    for c in GRID:
+        if not args.only or c["name"] == args.only:
+            render_grid(c, outdir, chrome)
+    if not args.only:
+        render_contact_sheet(outdir, chrome)
+
+
+SHEET_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+html,body {{ width:2280px; }}
+body {{ font-family:'Fira Sans',sans-serif; padding:56px 60px 64px;
+  background:radial-gradient(1100px 700px at 12% 4%, rgba(168,85,247,.28), transparent 60%),
+    linear-gradient(140deg,#120a26 0%,#1b0f3c 50%,#210e50 100%); color:#efeaff; }}
+.h {{ display:flex; align-items:baseline; gap:16px; margin-bottom:8px; }}
+.h .b {{ font-family:'Fira Code',monospace; font-weight:700; font-size:46px; color:#fff; }}
+.h .b .d {{ color:#c084fc; }}
+.h .t {{ font-size:24px; color:#b9a8e6; }}
+.sub {{ font-size:22px; color:#c3b6ea; margin-bottom:26px; }}
+.g {{ display:grid; grid-template-columns:repeat(3,1fr); gap:26px; }}
+.g img {{ width:100%; border-radius:14px; border:1px solid rgba(168,85,247,.22); box-shadow:0 14px 40px rgba(0,0,0,.4); display:block; }}
+</style></head><body>
+  <div class="h"><div class="b">nlir<span class="d">·</span></div><div class="t">natural-language IR — terse shorthand becomes fluent English</div></div>
+  <div class="sub">github.com/harryaskham/nlir — a config-defined operator language for your prompt window</div>
+  <div class="g">{imgs}</div>
+</body></html>"""
+
+
+def render_contact_sheet(outdir, chrome):
+    order = ["formalize", "simplify", "expand", "tip", "collective", "pow",
+             "negate", "subject", "gettysburg", "answer", "reverse-dictionary", "mvp",
+             "opposite", "three-bases", "exec-summary", "escalation", "opposition", "target-reverse"]
+    imgs = "".join(f'<img src="file://{outdir.resolve()}/nlir-{n}.png">'
+                   for n in order if (outdir / f"nlir-{n}.png").exists())
+    doc = SHEET_HTML.format(imgs=imgs)
+    htmlp = outdir / "_sheet.html"
+    pngp = outdir / "nlir-showreel.png"
+    htmlp.write_text(doc)
+    rows = (len(order) + 2) // 3
+    shot(chrome, htmlp, pngp, 2280, 200 + rows * 430)
+    htmlp.unlink()
+    print("contact sheet", pngp)
+
+
+if __name__ == "__main__":
+    main()

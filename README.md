@@ -22,6 +22,32 @@ binary is a small VM; the language is config.**
 See [`SPEC.md`](./SPEC.md) for the full normative contract; this README is the
 usage-oriented tour.
 
+## Showreel
+
+Terse shorthand in, fluent English out. A few of the moves (deterministic outputs
+are exact; LLM outputs are real `claude-sonnet-5` captures):
+
+![nlir showreel — a grid of expression-to-language cards](showcase/nlir-showreel.png)
+
+One claim, refracted along every axis of meaning — `[#x, ~x, >x, !x, @x, x?]`:
+
+![the perspective wheel — one claim through six lenses](showcase/nlir-perspective-wheel.png)
+
+| | |
+|---|---|
+| ![formalise](showcase/nlir-formalize.png) | ![words become math](showcase/nlir-tip.png) |
+| `@'lmk if any Qs'` → a polished professional line | `'sixty'+'sixty'*'a fifth'` → `72` (a $60 bill + a 20% tip) |
+| ![right-associative pow](showcase/nlir-pow.png) | ![the executive summary](showcase/nlir-exec-summary.png) |
+| `2**3**2` → `512` (exponentiation, done right) | `@~x` → a rambling update becomes one crisp line |
+
+The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
+[`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
+HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):
+
+```sh
+python3 scripts/build-showcase.py --out showcase
+```
+
 ## Mental model
 
 ```
