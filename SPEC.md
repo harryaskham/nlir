@@ -207,7 +207,8 @@ sub-forms); escapes `\x`.
 
 **Operator attributes (config):** `op`, `arity` (`1`,`2`,…,`>0`), `fixity`
 (`prefix`/`postfix`/`infix`/`mixfix`), `priority` (higher binds tighter,
-default `9`), `operands`/`result` types.
+default `9`), `assoc` (`left`/`right`, default `left`; only meaningful for
+`infix`), `operands`/`result` types.
 
 **Precedence (config-tunable):** `^` indexing is tightest; **prefix unary**
 (`# !`) binds above **all binary**; binary follows normal math — `**` > `* /` >
@@ -215,7 +216,12 @@ default `9`), `operands`/`result` types.
 (binds everything to its left); `=` is loosest. Concretely: `^` 20 · `# !` 14 ·
 `**` 13 · `* /` 12 · `+ -` 11 · `& |` 9 · `?` 1 · `=` 0. prefix takes one right
 operand; postfix takes leftward to its priority; variadic flattens; mixfix unifies
-infix/list/nullary; ties → prefix > infix > postfix. `(…)` overrides and is
+infix/list/nullary; ties → prefix > infix > postfix. **Associativity:** infix
+operators are **left-associative** by default (`a-b-c` = `(a-b)-c`, `16/4/2` =
+`(16/4)/2`); `**` sets `assoc: right`, so exponentiation is **right-associative**
+(`2**3**2` = `2**(3**2)` = 512), matching normal math and Python. Mixfix operators
+flatten same-op chains into one n-ary node, so associativity does not affect them.
+`(…)` overrides and is
 preserved in output.
 
 ---
@@ -389,7 +395,7 @@ operators:  # `%` = operand under replacement; `%%` = literal %
   mul: { op: "*",  arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
   sub: { op: "-",  arity: 2,   fixity: infix,  priority: 11, operands: number, result: number, reduce: sub }
   div: { op: "/",  arity: 2,   fixity: infix,  priority: 12, operands: number, result: number, reduce: div }
-  pow: { op: "**", arity: 2,   fixity: infix,  priority: 13, operands: number, result: number, reduce: pow }
+  pow: { op: "**", arity: 2,   fixity: infix,  priority: 13, assoc: right, operands: number, result: number, reduce: pow }
 
 tests:
   det-echo:   { mode: det, expr: "xxx_2",         expected: "xxx xxx" }
@@ -401,6 +407,7 @@ tests:
   det-assign: { mode: det, expr: "k=foo;$k",       expected: "foo" }
   num-add:    { mode: det, expr: "1+2+3",          expected: "6" }
   num-index:  { mode: det, expr: "(1+1)**3",       expected: "8" }
+  num-powassoc:{ mode: det, expr: "2**3**2",        expected: "512" }
   msg:
     mode: det
     context:

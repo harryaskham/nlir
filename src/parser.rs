@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::config::{Fixity, OperatorConfig};
+use crate::config::{Assoc, Fixity, OperatorConfig};
 use crate::lexer::{MessageRole, Token};
 
 /// Default operator priority when the config leaves it unset. Per SPEC's
@@ -170,6 +170,7 @@ impl std::error::Error for ParseError {}
 struct OpInfo {
     fixity: Fixity,
     priority: i64,
+    assoc: Assoc,
 }
 
 /// Build the sigil → [`OpInfo`] table from the config operator definitions.
@@ -182,6 +183,7 @@ fn op_table(operators: &BTreeMap<String, OperatorConfig>) -> BTreeMap<String, Op
                 OpInfo {
                     fixity: o.fixity,
                     priority: o.priority.unwrap_or_else(|| default_priority(o.fixity)),
+                    assoc: o.assoc,
                 },
             )
         })
@@ -459,7 +461,17 @@ impl Parser<'_> {
                         break;
                     }
                     self.pos += 1;
-                    let rhs = self.expr(l_bp + 1)?;
+                    // Left-assoc recurses the right operand one bp higher so an
+                    // equal-precedence op to the right breaks and groups left
+                    // (`a-b-c` = `(a-b)-c`); right-assoc (e.g. `**`) recurses one
+                    // bp lower so it binds and groups right (`a**b**c` =
+                    // `a**(b**c)`), matching normal math (bd-df62f1). bp() doubles
+                    // priority precisely to leave this ±1 room.
+                    let r_min_bp = match info.assoc {
+                        Assoc::Right => l_bp.saturating_sub(1),
+                        Assoc::Left => l_bp + 1,
+                    };
+                    let rhs = self.expr(r_min_bp)?;
                     lhs = Expr::Apply {
                         op,
                         fixity: Fixity::Infix,
@@ -620,7 +632,16 @@ mod tests {
         BTreeMap::from([
             ("subject".to_owned(), op("#", Fixity::Prefix, 14)),
             ("not".to_owned(), op("!", Fixity::Prefix, 14)),
-            ("pow".to_owned(), op("**", Fixity::Infix, 13)),
+            (
+                "pow".to_owned(),
+                OperatorConfig {
+                    op: "**".to_owned(),
+                    fixity: Fixity::Infix,
+                    priority: Some(13),
+                    assoc: Assoc::Right,
+                    ..OperatorConfig::default()
+                },
+            ),
             ("mul".to_owned(), op("*", Fixity::Mixfix, 12)),
             ("div".to_owned(), op("/", Fixity::Infix, 12)),
             ("add".to_owned(), op("+", Fixity::Mixfix, 11)),
@@ -731,6 +752,16 @@ mod tests {
         assert_eq!(render("2*3**4"), "(2 * (3 ** 4))");
         // Left-associative subtraction.
         assert_eq!(render("a-b-c"), "((a - b) - c)");
+    }
+
+    #[test]
+    fn pow_is_right_associative() {
+        // `**` is right-associative (bd-df62f1): `2**3**2` == `2**(3**2)` (=512),
+        // not `(2**3)**2` (=64), matching normal math / Python.
+        assert_eq!(render("2**3**2"), "(2 ** (3 ** 2))");
+        // Regression guards (msm-0): the other infix ops stay left-associative.
+        assert_eq!(render("2-3-4"), "((2 - 3) - 4)");
+        assert_eq!(render("8/4/2"), "((8 / 4) / 2)");
     }
 
     #[test]

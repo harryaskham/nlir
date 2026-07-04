@@ -166,6 +166,10 @@ pub struct OperatorConfig {
     /// Binding strength; higher binds tighter (SPEC default 9). `None` lets the
     /// defaults-resolution bead apply the default.
     pub priority: Option<i64>,
+    /// Associativity for equal-precedence `infix` chains (default `left`).
+    /// `right` makes `a op b op c` group as `a op (b op c)` — used by `**` so
+    /// `2**3**2` == `2**(3**2)` == 512, matching normal math / Python (bd-df62f1).
+    pub assoc: Assoc,
     /// Required operand type (each operand is coerced to this first).
     pub operands: TypeName,
     /// Result type.
@@ -198,6 +202,22 @@ pub enum Fixity {
     Infix,
     /// Unifies infix / list / nullary (e.g. `&`, `+`).
     Mixfix,
+}
+
+/// Operator associativity for equal-precedence binary chains (SPEC §Grammar &
+/// parsing). Only meaningful for `infix` operators. `left` groups `a-b-c` as
+/// `(a-b)-c` (the default, matching normal math for `- /`); `right` groups
+/// `a**b**c` as `a**(b**c)` (matching normal math and Python for exponentiation).
+/// Mixfix operators flatten same-op chains into one n-ary node, so associativity
+/// does not change their parse.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Assoc {
+    /// Left-associative: `a op b op c` == `(a op b) op c` (default).
+    #[default]
+    Left,
+    /// Right-associative: `a op b op c` == `a op (b op c)` (e.g. `**`).
+    Right,
 }
 
 /// A value type in the tiny type system (SPEC §Types & coercion).
@@ -915,6 +935,16 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
             }
         }
 
+        // Associativity only changes the parse of equal-precedence `infix`
+        // chains; mixfix operators flatten same-op chains, and prefix/postfix
+        // are unary, so `assoc: right` there is a config mistake (bd-df62f1).
+        if op.assoc == Assoc::Right && op.fixity != Fixity::Infix {
+            errs.push(ValidationError::new(
+                &loc,
+                "assoc: right is only meaningful for infix operators",
+            ));
+        }
+
         let has_realisation = op.command.is_some()
             || op.reduce.is_some()
             || op.template.is_some()
@@ -1388,6 +1418,36 @@ operators:
             issues
                 .iter()
                 .any(|e| e.location == "operators.badprefix" && e.message.contains("arity 1")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn assoc_right_only_on_infix_is_rejected() {
+        // bd-df62f1: `assoc: right` only changes equal-precedence infix chains;
+        // on prefix/postfix/mixfix it is a config mistake and must be rejected,
+        // while a right-associative infix operator (like `**`) is valid.
+        let cfg: Config = serde_yaml::from_str(
+            r##"
+operators:
+  badprefixassoc: { op: "#", arity: 1, fixity: prefix, assoc: right, template: "x" }
+  okpow:          { op: "**", arity: 2, fixity: infix, assoc: right, reduce: pow }
+"##,
+        )
+        .unwrap();
+        let issues = validate(&cfg);
+        assert!(
+            issues
+                .iter()
+                .any(|e| e.location == "operators.badprefixassoc"
+                    && e.message
+                        .contains("assoc: right is only meaningful for infix")),
+            "{issues:?}"
+        );
+        assert!(
+            !issues
+                .iter()
+                .any(|e| e.location == "operators.okpow" && e.message.contains("assoc")),
             "{issues:?}"
         );
     }
