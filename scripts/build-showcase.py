@@ -100,6 +100,14 @@ SIMPLE = [
          cap="! on a lone concept-word gives its opposite, not just 'not hot'"),
     dict(name="three-bases", expr="'0o17'+'0xF'+'0b1'", pill="llm coercion · exact", out="31",
          cap="octal + hex + binary, added as numbers — every base a source file uses"),
+    # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
+    dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
+         src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
+         out="The team debated event-sourcing versus a simpler append-only ledger for the new "
+             "billing service, settling on the ledger approach given team size.  \u2192  and their "
+             "live question, verbatim: \u201chow do we handle refunds and corrections in an "
+             "append-only model?\u201d",
+         cap="catch up in one glance \u2014 bind the thread-so-far as a summary, then emit it + their live question raw"),
 ]
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------

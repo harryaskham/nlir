@@ -49,3 +49,39 @@ All use `@` as a **formalise-decompressor** (terse seed → the full sentence).
 ## Two real bugs found dogfooding
 - **pow right-associativity** (`2**3**2` was 64, should be 512) — caught, fixed three-lane, landed; celebrated in `34-powertower`.
 - **`\$` escape defeated** in double-quote interpolation (bd-65b737) — root-caused, filed with a proposed patch; workaround documented in `44-quotes`.
+
+---
+
+## Showcase power-moves — multi-message digest/select (Harry's "language of thought")
+
+My lane in the swarm's shared phrasebook (`nlir-power-moves`, per the aur-0/aur-1/aur-2/msm-0
+lane split): moves that address a **range** of the conversation, not just the last turn.
+Captures below are real `--mode llm` (copilot/claude) runs on a 5-turn billing-design thread
+(*event-sourcing? → simpler ledger → "how do refunds work?"*).
+
+### ★ CATCH-UP — `p=~0^*-2;[$p,^_-1]`
+Rejoin any conversation in one glance: the thread-so-far **distilled**, then their **live
+question verbatim**. (Bind the all-but-last background as a summary `p`, then emit
+`[background, latest-ask-raw]`.) The one I'd actually reach for stepping back into a chat.
+> The team debated event-sourcing versus a simpler append-only ledger for the new billing
+> service, settling on the ledger approach given team size.
+>
+> ok but how do we handle refunds and corrections in an append-only model?
+
+### STANDUP — `~0^*-1`
+The whole thread in one line — a status you could paste into a standup.
+> The team debates whether to use event-sourcing or a simpler append-only ledger for a new
+> billing service, and how to handle refunds/corrections under the latter approach.
+
+### ARC — `~(^_0 & ^_-1)`
+Where we started + where we are, synthesised into the through-line. (Honest note: `~(a&b)`
+**merges** the endpoints into a resolution rather than **contrasting** them — a true
+trajectory/"drift" read wants a directional DIFF op `Δ`, still unbuilt. As-is it reads as
+the through-line, which is itself useful.)
+> The billing service should use an append-only model, handling refunds and corrections as
+> new compensating entries rather than modifying past records.
+
+**Why this is my lane:** each move is `TRANSFORM(range)` — the range (`0^*-2`, `^_0`, `^*-1`)
+*selects* which slice of the conversation you mean; the operator (`~`, `#`, `[]`) *transforms*
+it. Single-message reply/amend moves (aur-1) and composer slots (aur-2) compose ON TOP of
+whatever these select.
