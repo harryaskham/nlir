@@ -13,9 +13,11 @@
 # grammar reconcile: reversed-N normalises, out-of-bounds clamps, negative-N resolves from
 # the end, and computed endpoints all hold.)
 #
-# BOUNDARY (dogfood): a BARE variable in index position (k^*…) does NOT resolve — it's read
-# as a message literal, not the value. Range bounds are arithmetic over literals/indices,
-# not $-interpolated names. Use the arithmetic directly: (0-2)^*-1, not k^*….
+# BOUNDARY (dogfood, refined in #56): a BARE identifier in index position (k^*…) does NOT
+# resolve — it's a string literal, not the value. BUT `$k` IS a context read that coerces
+# to the index ($start^*$end reads BOTH bounds from context) — see #56 THE STORED WINDOW.
+# Only the "...$k..." STRING-interpolation form is non-resolving in index position, not `$k`.
+# Use the arithmetic directly, or a stored value: (0-2)^*-1, or $s^*$e.
 #
 # Deterministic, no LLM — the markers make the slicing legible.
 set -euo pipefail
