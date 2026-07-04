@@ -64,6 +64,14 @@ SIMPLE = [
              "and is now impacting customers. It is essential that an owner be assigned to address this "
              "pipeline issue promptly.",
          cap="@~^_-1 — a heated rant becomes a clean, forwardable escalation"),
+    dict(name="considered-reply", expr="@(^-1 & 'phase it over two quarters, aligned to our Q3 roadmap')",
+         pill="llm · reads your chat",
+         src="I'd rewrite the auth service in Rust for the memory-safety guarantees and to kill the class of bugs we keep hitting.",
+         out="Yes. I would recommend rewriting the authentication service in Rust to leverage its "
+             "memory-safety guarantees and eliminate the recurring bugs \u2014 phased over two quarters, "
+             "in alignment with our Q3 security-first roadmap.",
+         cap="the considered reply \u2014 take an agent's suggestion (^-1), fold in your amendment (& ...), "
+             "make it formal (@). one move: reply to any proposal with your own twist."),
     dict(name="opposition", expr=">@!x", pill="llm · claude-sonnet-5",
          src="we should adopt a four-day work week",
          out="We should not adopt a four-day workweek. While the concept may seem appealing—"
