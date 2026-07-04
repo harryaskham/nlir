@@ -412,6 +412,17 @@ pub fn interpolate(text: &str, lookup: impl Fn(&str) -> Option<String>) -> Strin
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
+        // `\$` is an escaped dollar: emit a literal `$` and do NOT interpolate the
+        // following name (bd-65b737). A lone `\` (not before `$`) passes through.
+        if c == '\\' {
+            if chars.peek() == Some(&'$') {
+                chars.next();
+                out.push('$');
+            } else {
+                out.push('\\');
+            }
+            continue;
+        }
         if c != '$' {
             out.push(c);
             continue;
@@ -858,6 +869,11 @@ mod tests {
         assert_eq!(interpolate("$missing tail", lookup), "$missing tail");
         // Adjacent interpolations.
         assert_eq!(interpolate("$k$k", lookup), "rustrust");
+        // `\$` is an escaped dollar -> literal `$`, NOT interpolated (bd-65b737).
+        assert_eq!(interpolate("\\$k", lookup), "$k");
+        assert_eq!(interpolate("cost \\$5", lookup), "cost $5");
+        // A lone backslash (not before `$`) passes through unchanged.
+        assert_eq!(interpolate("a\\b", lookup), "a\\b");
     }
 
     #[test]

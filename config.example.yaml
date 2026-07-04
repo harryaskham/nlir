@@ -145,6 +145,7 @@ tests:
   det-quote: { mode: det, expr: "'one two'", expected: "one two" }
   det-sep: { mode: det, expr: "_sep=\\ ;[a,b]", expected: "a b" }
   det-assign: { mode: det, expr: "k=foo;$k", expected: "foo" }
+  det-dollar-escape: { mode: det, expr: 'k=world;"\$k"', expected: '$k' }
   num-add: { mode: det, expr: "1+2+3", expected: "6" }
   num-prec: { mode: det, expr: "1+2*3", expected: "7" }
   num-prec2: { mode: det, expr: "2+3*4-1", expected: "13" }

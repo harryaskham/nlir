@@ -478,9 +478,19 @@ fn lex_escaped_quote(chars: &[char], start: usize) -> Result<(Token, usize), Lex
                 ));
             }
             '\\' => {
-                let (ch, next) = read_escape(chars, i)?;
-                out.push(ch);
-                i = next;
+                // `\$` must survive to eval-time interpolation as a literal `$`
+                // (bd-65b737): preserve it verbatim here. If the lexer collapsed
+                // `\$` -> `$`, `interpolate()` could not tell an escaped `$` from a
+                // real one and would expand it. All other escapes collapse as usual.
+                if chars.get(i + 1) == Some(&'$') {
+                    out.push('\\');
+                    out.push('$');
+                    i += 2;
+                } else {
+                    let (ch, next) = read_escape(chars, i)?;
+                    out.push(ch);
+                    i = next;
+                }
             }
             _ => {
                 out.push(c);
@@ -646,6 +656,16 @@ mod tests {
             tokenize("\"a\\\"b\"", NO_OPS).unwrap(),
             vec![Token::Quoted {
                 content: "a\"b".to_owned(),
+                interpolate: true
+            }]
+        );
+        // `\$` is PRESERVED verbatim (as two chars) so eval-time interpolation can
+        // honour the escape as a literal `$` (bd-65b737) — the lexer must NOT
+        // collapse it to `$` here, or interpolate() would expand it.
+        assert_eq!(
+            tokenize("\"\\$k\"", NO_OPS).unwrap(),
+            vec![Token::Quoted {
+                content: "\\$k".to_owned(),
                 interpolate: true
             }]
         );
