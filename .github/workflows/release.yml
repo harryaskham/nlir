@@ -191,20 +191,24 @@ jobs:
 
       - name: Build the release binary (native)
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           # aarch64-darwin: dtolnay is skipped, so drive the build with the login
-          # user's already-installed stable rustup toolchain + the system clang
-          # linker. We PREPEND (not append) because the earlier append left NO usable
-          # `cc` on the build's PATH (`error: linker cc not found`, os error 2) -- the
-          # nix runner's minimal step PATH had no /usr/bin, and the runner SERVICE
-          # overrides HOME so the login ~/.cargo + ~/.rustup are hidden. Prepending
-          # /usr/bin (Apple clang, verified to build nlir) and the login ~/.cargo/bin
-          # makes both win regardless of the step's default PATH. Gated on Darwin so
-          # Linux keeps dtolnay's toolchain untouched (bd-7e465a follow-up).
-          if [ "$(uname -s)" = "Darwin" ]; then
+          # user's already-installed stable rustup toolchain + the system clang linker.
+          # Gate on $TARGET (matrix env), NOT `uname`: the nix runner's minimal step
+          # PATH can lack /usr/bin entirely, so `uname`/`id`/`cc` are themselves missing
+          # (an earlier `[ "$(uname -s)" = Darwin ]` gate silently no-op'd, leaving the
+          # ambient nix cargo-1.95 whose rustc-wrapper linker is absent -> "cc not
+          # found"). Prepend /usr/bin FIRST (a literal, needs no command) so id/cc
+          # resolve, then prepend the login ~/.cargo/bin so the login cargo wins over
+          # the nix cargo. HOME is overridden by the runner service, so resolve the
+          # login home explicitly. No-op on Linux where dtolnay provides cargo (bd-7e465a).
+          if [ "${TARGET:-}" = "aarch64-darwin" ]; then
+            export PATH="/usr/bin:/bin:$PATH"
             lh="$(eval echo "~$(id -un)")"
-            export PATH="$lh/.cargo/bin:/usr/bin:/bin:$PATH"
+            export PATH="$lh/.cargo/bin:$PATH"
             export RUSTUP_HOME="${RUSTUP_HOME:-$lh/.rustup}"
           fi
           echo "build toolchain: cargo=$(command -v cargo || echo none) cc=$(command -v cc || echo none) rustc=$(command -v rustc || echo none)"
