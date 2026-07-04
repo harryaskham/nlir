@@ -49,6 +49,9 @@ variadic ops) · `^`/`^_` message ranges · `;` push · `$` peek/read · `=` ass
 | `golf-aur2-dilemma` | frame options as the decision question | `|[a,b]?` |
 | `golf-aur2-matrix` | a 2-axis options matrix (OR-in-AND) | `~&[|[a,b],|[c,d]]` |
 | `golf-aur2-brief` | rough notes → one polished status brief | `@~&[n1,n2,n3]` |
+| `golf-aur2-mission` | a list of values → one punchy mission line | `<~&[v1,v2,v3]` |
+| `golf-aur2-moral` | the shared moral of two cautionary tales | `#~&[t1,t2]` |
+| `golf-aur2-veto` | reject a forced either/or (do neither) | `~!|[a,b]` |
 
 ### aur-1 · cognition, the stack machine, register composition
 
@@ -64,6 +67,9 @@ variadic ops) · `^`/`^_` message ranges · `;` push · `$` peek/read · `=` ass
 | `golf-aur1-08-steelman` | strongest vs weakest framing | `[>@c, <:c]` |
 | `golf-aur1-09-panel` | advocate / skeptic / layperson → verdict | `~[@c,!c,:c]` |
 | `golf-aur1-10-drift` | how the conversation's topic moved | `[#^_0, #^_-1]` |
+| `golf-aur1-11-faq` | a knowledge-base Q&A row from one doc | `'<doc>';[#$?,~$]` |
+| `golf-aur1-12-counterfactual` | the road not taken, fleshed out (premortem) | `>!x` |
+| `golf-aur1-13-tempered` | self-critique → the mature position | `~(x & >@!x)` |
 
 ### msm-0 · the conversation (ranges, assignment, interpolation)
 
@@ -78,6 +84,9 @@ variadic ops) · `^`/`^_` message ranges · `;` push · `$` peek/read · `=` ass
 | `golf-msm0-07-subject` | interpolate an LLM value into a template | `t=#~0^*-1;"re: $t"` |
 | `golf-msm0-08-flashcard` | the last exchange as a Q/A card | `q=^_-1;a=~^-1;"Q: $q\nA: $a"` |
 | `golf-msm0-09-email` | auto-draft a whole email from a chat | `t=#~0^*-1;s=~0^*-1;"Subject: $t\n\n$s\n\nThoughts?"` |
+| `golf-msm0-10-recap` | a thread's through-line from 3 pinpoint reads | `~&[^_0,^-1,^_-1]` |
+| `golf-msm0-11-toc` | slice a wandering thread, number the topics | `a=#0^*1;b=#2^*-1;"1. $a\n2. $b"` |
+| `golf-msm0-12-status` | wide topic × narrow open-question card | `t=#~0^*-1;o=~^_-1;"Topic: $t | Open: $o"` |
 
 ---
 
@@ -98,6 +107,8 @@ a different reconstruction move: **`@` formalise** (msm-0), **`>`/`:`/`~>`**
 | `target-aur2-05-define` | "An idempotent operation gives the same result…" | `:'idempotent'` (13c!) |
 | `target-aur2-06-plainsentence` | "When you make a change, save a snapshot…" | `:'commit … so you can revert later'` |
 | `target-aur2-07-firewall` | "A firewall is a network security system…" | `~>'what a firewall does'` (24c) |
+| `target-aur2-08-legalese` | "You can cancel anytime and get a refund…" | `:'you may terminate … prorated refund'` |
+| `target-aur2-09-analogy` | "A mutex is like a single bathroom key…" | `:'a mutex is a lock only one thread can hold'` |
 
 ### aur-1 · `?` questionify (how / what / why / should-I) + nested
 
@@ -111,6 +122,9 @@ a different reconstruction move: **`@` formalise** (msm-0), **`>`/`:`/`~>`**
 | `target-aur1-06-why` | "Why do my tests keep failing randomly?" | `'…'?` |
 | `target-aur1-07-todo` | a polite multi-task request | `@&['…','…','…']` |
 | `target-aur1-08-decision` | "Should I use REST or GraphQL …?" | `'…'?` |
+| `target-aur1-09-howmuch` | "How much memory does a Rust Vec use?" | `'…'?` |
+| `target-aur1-10-whatif` | a compound suggestion-question | `('a'&'b')?` |
+| `target-aur1-11-when` | "When should you use an arc instead of a box?" | `'…'?` |
 
 ### msm-0 · `@` formalise (texting shorthand → professional; the 1-char floor)
 
@@ -124,6 +138,9 @@ a different reconstruction move: **`@` formalise** (msm-0), **`>`/`:`/`~>`**
 | `target-msm0-06-fullreply` | a full 3-sentence reply | `@'thx, reviewed…, lgtm, merge…'` |
 | `target-msm0-07-standup` | a full standup update | `@'ystd …, today …, blocked …'` |
 | `target-msm0-08-status` | "…deployed to staging and ready for your review…" | `@'pushed fix to staging, ready to test'` |
+| `target-msm0-09-review` | a review request (stance preserved) | `@'look at auth refactor when free…'` |
+| `target-msm0-10-apology` | "Apologies for the delay…" | `@'sorry for the delay, got pulled into an incident…'` |
+| `target-msm0-11-bug` | a bug report from telegraphic symptoms | `@'export button broken on safari…'` |
 
 ---
 
