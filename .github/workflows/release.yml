@@ -68,6 +68,16 @@ jobs:
           if [[ "${CARGO_HOME:-}" == /mnt/build-cache/* ]]; then
             echo "CARGO_HOME=$RUNNER_TEMP/nlir-cargo-home" >> "$GITHUB_ENV"
           fi
+      - name: Ensure rustup on PATH (persistent runner: step shell may lack ~/.cargo/bin and curl)
+        shell: bash
+        run: |
+          # dtolnay/rust-toolchain runs `command -v rustup`, else curl-installs it. On the
+          # persistent ms-mac runner the minimal step PATH has neither ~/.cargo/bin (where
+          # rustup is installed) nor curl, so the fallback dies with `curl: command not found`
+          # (exit 127). Put an existing rustup on PATH so the install-if-needed fallback is skipped.
+          if [ -x "$HOME/.cargo/bin/rustup" ]; then
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install C toolchain (cc linker)
@@ -114,6 +124,16 @@ jobs:
             echo "CARGO_HOME=$RUNNER_TEMP/nlir-cargo-home" >> "$GITHUB_ENV"
           fi
 
+      - name: Ensure rustup on PATH (persistent runner: step shell may lack ~/.cargo/bin and curl)
+        shell: bash
+        run: |
+          # dtolnay/rust-toolchain runs `command -v rustup`, else curl-installs it. On the
+          # persistent ms-mac runner the minimal step PATH has neither ~/.cargo/bin (where
+          # rustup is installed) nor curl, so the fallback dies with `curl: command not found`
+          # (exit 127). Put an existing rustup on PATH so the install-if-needed fallback is skipped.
+          if [ -x "$HOME/.cargo/bin/rustup" ]; then
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
