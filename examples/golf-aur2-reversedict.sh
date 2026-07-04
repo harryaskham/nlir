@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# nlir-golf (aur-2) — "the reverse dictionary": describe a thing, # names it.
+# nlir-golf (aur-2) — "subject of a definition": # extracts the topic noun-phrase.
 #
 #     # 'a program that translates source code into machine code'
 #     └subject┘└──────── the description ────────┘
 #
-# # extracts the SUBJECT of a description -- the single word the whole phrase is
-# defining. Feed it what something DOES, get back what it's CALLED: "Compiler".
-# A dictionary run backwards. (Distinct from #~& over a LIST, which names a shared
-# category; this is # on a single DESCRIPTION.)
+# # is SUBJECT extraction (config: "extract the primary subject as a short noun
+# phrase"). Fed a crisp definition, the model SOMETIMES collapses it to the canonical
+# term -- here "Compiler" -- but that's the LLM going beyond spec, NOT a reliable
+# reverse-dictionary: cf. 'a device that measures temperature', which # simply restates.
+# A true description->one-word lookup is a DISTINCT "name-this-concept" operation, not
+# what # does (credit aur-0 for pinning this). (Distinct too from #~& over a LIST, which
+# names a shared category.)
 #
-# Real output (claude-sonnet-5): Compiler
+# Real output (claude-sonnet-5): Compiler  (a subject-collapse; not guaranteed)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 NLIR="${NLIR:-target/release/nlir}"
