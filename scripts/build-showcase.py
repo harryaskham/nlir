@@ -72,6 +72,16 @@ SIMPLE = [
              "in alignment with our Q3 security-first roadmap.",
          cap="the considered reply \u2014 take an agent's suggestion (^-1), fold in your amendment (& ...), "
              "make it formal (@). one move: reply to any proposal with your own twist."),
+    dict(name="grounded-counter",
+         expr="@(^-1 & '- but scoped to just the hot 10% of users' & ^_-1)",
+         pill="llm · reads your chat",
+         src="you: 'infra budget is frozen this quarter'  ·  agent: 'cache the entire user graph in Redis'",
+         out="I recommend caching the complete user graph in Redis to address the API latency issue, "
+             "scoped specifically to the hottest 10% of users. Please note that our infrastructure "
+             "budget is frozen for this quarter.",
+         cap="the grounded counter — reply to their suggestion, fold in your amendment, and ground it "
+             "in an earlier constraint, made formal: reply + modify + reference + restyle, a whole "
+             "considered response in a handful of sigils"),
     dict(name="opposition", expr=">@!x", pill="llm · claude-sonnet-5",
          src="we should adopt a four-day work week",
          out="We should not adopt a four-day workweek. While the concept may seem appealing—"

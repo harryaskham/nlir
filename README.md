@@ -33,6 +33,12 @@ One claim, refracted along every axis of meaning — `[#x, ~x, >x, !x, @x, x?]`:
 
 ![the perspective wheel — one claim through six lenses](showcase/nlir-perspective-wheel.png)
 
+A whole *layered reply* — answer the agent's suggestion, fold in your amendment, and
+ground it in an earlier constraint, all made formal — in a handful of sigils that read
+your live chat (`^-1` their last message, `^_-1` your earlier one):
+
+![the grounded counter — a whole considered reply in a handful of sigils](showcase/nlir-grounded-counter.png)
+
 | | |
 |---|---|
 | ![formalise](showcase/nlir-formalize.png) | ![words become math](showcase/nlir-tip.png) |
