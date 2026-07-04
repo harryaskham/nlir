@@ -76,13 +76,16 @@ jobs:
           # with neither curl NOR rustup, so BOTH the primary check and the curl fallback die
           # (`curl: command not found`, exit 127). Put the system bin dirs on PATH so curl is
           # found for the fallback, and surface an on-disk rustup for this runner user if present
-          # (skips the download). Guarded, so it is a harmless no-op on any runner already set up.
+          # (skips the download). Best-effort: `if`-guarded so a missing dir/binary never trips
+          # `set -e`, and a trailing `exit 0` so a final short-circuited test (e.g. no on-disk
+          # rustup yet, before dtolnay installs it) can never fail this job (bd-7e465a).
           for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
-            [ -d "$d" ] && echo "$d" >> "$GITHUB_PATH"
+            if [ -d "$d" ]; then echo "$d" >> "$GITHUB_PATH"; fi
           done
           for d in "$HOME/.cargo/bin" "${CARGO_HOME:-/nonexistent}/bin"; do
-            [ -x "$d/rustup" ] && echo "$d" >> "$GITHUB_PATH"
+            if [ -x "$d/rustup" ]; then echo "$d" >> "$GITHUB_PATH"; fi
           done
+          exit 0
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install C toolchain (cc linker)
@@ -137,13 +140,16 @@ jobs:
           # with neither curl NOR rustup, so BOTH the primary check and the curl fallback die
           # (`curl: command not found`, exit 127). Put the system bin dirs on PATH so curl is
           # found for the fallback, and surface an on-disk rustup for this runner user if present
-          # (skips the download). Guarded, so it is a harmless no-op on any runner already set up.
+          # (skips the download). Best-effort: `if`-guarded so a missing dir/binary never trips
+          # `set -e`, and a trailing `exit 0` so a final short-circuited test (e.g. no on-disk
+          # rustup yet, before dtolnay installs it) can never fail this job (bd-7e465a).
           for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
-            [ -d "$d" ] && echo "$d" >> "$GITHUB_PATH"
+            if [ -d "$d" ]; then echo "$d" >> "$GITHUB_PATH"; fi
           done
           for d in "$HOME/.cargo/bin" "${CARGO_HOME:-/nonexistent}/bin"; do
-            [ -x "$d/rustup" ] && echo "$d" >> "$GITHUB_PATH"
+            if [ -x "$d/rustup" ]; then echo "$d" >> "$GITHUB_PATH"; fi
           done
+          exit 0
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
