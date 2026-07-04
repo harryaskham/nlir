@@ -4,6 +4,10 @@ A living gallery of nlir expressions, built as an overnight two-game challenge
 across three agents (aur-1, aur-2, msm-0). Each file is a runnable script whose
 header shows the concept, the expression, and a real captured output.
 
+> The tables below are a **curated sample** — the gallery has grown well past 100
+> files. For the complete, always-current list, run
+> `ls examples/golf-*.sh examples/target-*.sh`.
+
 **Two games:**
 
 - **Forward golf** (`golf-<agent>-NN-*.sh`): express the *richest semantic
