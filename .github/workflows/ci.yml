@@ -47,16 +47,21 @@ jobs:
             echo "CARGO_HOME=$RUNNER_TEMP/nlir-cargo-home" >> "$GITHUB_ENV"
           fi
 
-      - name: Ensure rustup on PATH (persistent runner may lack ~/.cargo/bin and curl on the step PATH)
+      - name: Ensure curl and rustup are reachable for the toolchain install (minimal step PATH)
         shell: bash
         run: |
-          # dtolnay/rust-toolchain runs `command -v rustup`, else curl-installs it. On the
-          # persistent ms-mac runner the minimal step PATH has neither ~/.cargo/bin (where
-          # rustup is installed) nor curl, so the fallback dies with `curl: command not found`
-          # (exit 127). Put an existing rustup on PATH so the install-if-needed fallback is skipped.
-          if [ -x "$HOME/.cargo/bin/rustup" ]; then
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          # dtolnay/rust-toolchain runs `command -v rustup`; if absent it curl-installs rustup.
+          # This persistent runner's step shell (nix bash --noprofile --norc) has a minimal PATH
+          # with neither curl NOR rustup, so BOTH the primary check and the curl fallback die
+          # (`curl: command not found`, exit 127). Put the system bin dirs on PATH so curl is
+          # found for the fallback, and surface an on-disk rustup for this runner user if present
+          # (skips the download). Guarded, so it is a harmless no-op on any runner already set up.
+          for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
+            [ -d "$d" ] && echo "$d" >> "$GITHUB_PATH"
+          done
+          for d in "$HOME/.cargo/bin" "${CARGO_HOME:-/nonexistent}/bin"; do
+            [ -x "$d/rustup" ] && echo "$d" >> "$GITHUB_PATH"
+          done
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
