@@ -68,7 +68,7 @@ jobs:
           if [[ "${CARGO_HOME:-}" == /mnt/build-cache/* ]]; then
             echo "CARGO_HOME=$RUNNER_TEMP/nlir-cargo-home" >> "$GITHUB_ENV"
           fi
-      - name: Ensure rustup on PATH (persistent runner: step shell may lack ~/.cargo/bin and curl)
+      - name: Ensure rustup on PATH (persistent runner may lack ~/.cargo/bin and curl on the step PATH)
         shell: bash
         run: |
           # dtolnay/rust-toolchain runs `command -v rustup`, else curl-installs it. On the
@@ -124,7 +124,7 @@ jobs:
             echo "CARGO_HOME=$RUNNER_TEMP/nlir-cargo-home" >> "$GITHUB_ENV"
           fi
 
-      - name: Ensure rustup on PATH (persistent runner: step shell may lack ~/.cargo/bin and curl)
+      - name: Ensure rustup on PATH (persistent runner may lack ~/.cargo/bin and curl on the step PATH)
         shell: bash
         run: |
           # dtolnay/rust-toolchain runs `command -v rustup`, else curl-installs it. On the
