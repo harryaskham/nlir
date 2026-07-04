@@ -206,7 +206,14 @@ jobs:
             # ABI-compatible system /usr/lib/libiconv.2.dylib and FAIL if any /nix/store
             # dep remains -- so the shipped asset links only /usr/lib. Verified locally:
             # otool then shows only /usr/lib and the rewritten binary runs (bd-7e465a).
-            nix develop --command bash -c '
+            # Use the EXPLICIT aarch64-darwin devShell, not a bare `nix develop`:
+            # a clean `nix develop` on this Mac resolves aarch64-darwin (clang +
+            # cctools/otool), but the GH-Actions job env makes the runner's implicit
+            # `nix develop` resolve the WRONG system (it pulled stdenv-linux/gcc-wrapper,
+            # so `otool` was missing). Referencing `.#devShells.aarch64-darwin.default`
+            # forces the native darwin toolchain regardless of the runner's default
+            # system (flake exposes it via flake-utils.eachDefaultSystem) (bd-099010).
+            nix develop '.#devShells.aarch64-darwin.default' --command bash -c '
               set -euo pipefail
               cargo build --release --bin nlir
               bin="${CARGO_TARGET_DIR:-target}/release/nlir"
