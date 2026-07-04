@@ -18,7 +18,10 @@
 # The deterministic substrate is production-safe; that's what lets pi embed nlir in a
 # hot path. (Robustness re-confirmed by fresh dogfooding; the depth guard is my
 # earlier fuzz-hardening.)
-set -euo pipefail
+# NOTE: no `set -e` here — this example DELIBERATELY runs malformed input, so nlir
+# exits non-zero on purpose. The whole point is that those non-zero exits are CLEAN
+# errors, not crashes; aborting on the first one would defeat the demonstration.
+set -uo pipefail
 cd "$(dirname "$0")/.."
 NLIR="${NLIR:-./target/release/nlir}"
 [ -x "$NLIR" ] || { echo "build first: cargo build --release (or set NLIR=...)"; exit 1; }
@@ -26,11 +29,11 @@ CFG="${NLIR_CONFIG:-config.example.yaml}"
 # fully deterministic — no key needed
 
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
-try() { printf '  %-24s => ' "$1"; "$NLIR" --config "$CFG" --mode det -e "$2" 2>&1 | head -1; }
+try() { printf '  %-24s => ' "$1"; "$NLIR" --config "$CFG" --mode det -e "$2" 2>&1 | head -1 || true; }
 
 say 'malformed input -> clean errors, never a panic:'
 DEEP="$(printf '~%.0s' $(seq 1 400))a"
-printf '  %-24s => ' 'deep nest (400x ~)'; "$NLIR" --config "$CFG" --mode det -e "$DEEP" 2>&1 | head -1
+printf '  %-24s => ' 'deep nest (400x ~)'; { "$NLIR" --config "$CFG" --mode det -e "$DEEP" 2>&1 | head -1; } || true
 try 'out-of-bounds read'   '^99'
 try 'unterminated quote'   '"oops'
 try 'prefix, no operand'   '~'
