@@ -18,6 +18,7 @@ on:
       - README.md
       - SPEC.md
       - scripts/build-docs.sh
+      - showcase/**
       - .github/workflows/pages.yml
   workflow_dispatch:
 
