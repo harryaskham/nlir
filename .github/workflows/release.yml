@@ -87,11 +87,23 @@ jobs:
           done
           exit 0
       - name: Install Rust toolchain
+        # aarch64-darwin skips dtolnay: on the nix self-hosted darwin runner its
+        # composite action runs its OWN `command -v rustup` that does NOT inherit the
+        # ensure-step's GITHUB_PATH, so it finds neither rustup nor curl and dies at
+        # exit 127 (bd-7e465a follow-up). The Build step surfaces the login user's
+        # already-installed stable toolchain instead. In the non-matrix test job
+        # matrix.target is null, so this stays true and dtolnay still runs there.
+        if: matrix.target != 'aarch64-darwin'
         uses: dtolnay/rust-toolchain@stable
       - name: Install C toolchain (cc linker)
         shell: bash
         run: |
-          if ! command -v cc >/dev/null 2>&1; then
+          # Surface system cc even when GITHUB_PATH additions don't reach this step on
+          # the self-hosted runner, and only apt-get where it exists (Linux); macOS
+          # provides cc via the system/Xcode toolchain (bd-7e465a follow-up).
+          for d in /usr/bin /bin; do case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$PATH:$d";; esac; done
+          export PATH
+          if ! command -v cc >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
             SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
             $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends build-essential
           fi
@@ -151,12 +163,24 @@ jobs:
           done
           exit 0
       - name: Install Rust toolchain
+        # aarch64-darwin skips dtolnay: on the nix self-hosted darwin runner its
+        # composite action runs its OWN `command -v rustup` that does NOT inherit the
+        # ensure-step's GITHUB_PATH, so it finds neither rustup nor curl and dies at
+        # exit 127 (bd-7e465a follow-up). The Build step surfaces the login user's
+        # already-installed stable toolchain instead. In the non-matrix test job
+        # matrix.target is null, so this stays true and dtolnay still runs there.
+        if: matrix.target != 'aarch64-darwin'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install C toolchain (cc linker)
         shell: bash
         run: |
-          if ! command -v cc >/dev/null 2>&1; then
+          # Surface system cc even when GITHUB_PATH additions don't reach this step on
+          # the self-hosted runner, and only apt-get where it exists (Linux); macOS
+          # provides cc via the system/Xcode toolchain (bd-7e465a follow-up).
+          for d in /usr/bin /bin; do case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$PATH:$d";; esac; done
+          export PATH
+          if ! command -v cc >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
             SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
             $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends build-essential
           fi
@@ -167,7 +191,22 @@ jobs:
 
       - name: Build the release binary (native)
         shell: bash
-        run: cargo build --release --bin nlir
+        run: |
+          set -euo pipefail
+          # aarch64-darwin: dtolnay is skipped (its composite action can't see our
+          # ensure-step GITHUB_PATH on the nix runner), so surface the login user's
+          # already-installed rustup stable toolchain directly. The runner SERVICE
+          # overrides HOME away from the login home where ~/.cargo + ~/.rustup live,
+          # so resolve the login user's real home; also put system cc on PATH for the
+          # linker. No-op on Linux where dtolnay already put cargo on PATH (bd-7e465a
+          # follow-up).
+          if ! command -v cargo >/dev/null 2>&1; then
+            lh="$(eval echo "~$(id -un)")"
+            export PATH="$lh/.cargo/bin:$PATH"
+            export RUSTUP_HOME="${RUSTUP_HOME:-$lh/.rustup}"
+          fi
+          for d in /usr/bin /bin; do case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && export PATH="$PATH:$d";; esac; done
+          cargo build --release --bin nlir
 
       - name: Package update-compatible asset
         shell: bash
@@ -176,6 +215,8 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          for d in /usr/bin /bin; do case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$PATH:$d";; esac; done
+          export PATH
           mkdir -p dist
           root="nlir-$VERSION-$TARGET"
           rm -rf "$root"; mkdir -p "$root"
@@ -193,6 +234,8 @@ jobs:
           # will — <root>/nlir — and run it, so a broken or mislaid binary fails
           # the release BEFORE the asset is published (the pre-publish gate).
           set -euo pipefail
+          for d in /usr/bin /bin; do case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$PATH:$d";; esac; done
+          export PATH
           root="nlir-$VERSION-$TARGET"
           rm -rf smoke; mkdir -p smoke
           tar -xzf "dist/$root.tar.gz" -C smoke
