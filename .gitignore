@@ -27,3 +27,8 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 nlir-work.yaml
+
+# showcase generator transient artifacts
+scripts/__pycache__/
+__pycache__/
+showcase/*.html

@@ -28,6 +28,9 @@ SIMPLE = [
     dict(name="formalize", expr="@'lmk if any Qs'", pill="llm · claude-sonnet-5",
          out="Please let me know if you have any questions.",
          cap="@ formalise — texting shorthand becomes professional"),
+    dict(name="understood", expr="@'k'", pill="llm · 1 char → a sentence",
+         out="Understood.",
+         cap="the formalise floor — a single character of shorthand becomes a complete, courteous reply"),
     dict(name="simplify", expr=":'idempotent'", pill="llm · claude-sonnet-5",
          out="Doing it again doesn't change anything after the first time.",
          cap=": simplify — 13 characters become a plain-English definition"),
@@ -115,6 +118,14 @@ GRID = [
                                "caching complexity may outweigh the benefits for the team right now."),
              ("~(…&…)  VERDICT", "Weighs migrating from REST to GraphQL — reduced over/under-fetching and "
                                  "strong typing against migration effort, learning curve, and caching complexity."),
+         ]),
+    dict(name="ladder", expr="[:x, x, @x]", pill="llm · one thought, three registers",
+         claim="we really need to ship this by friday",
+         cap="one message flexed up and down the formality scale — pick your register at a glance",
+         cols=1, cells=[
+             (":x  plain", "We really need to finish this by Friday."),
+             ("x   as-is", "we really need to ship this by friday"),
+             ("@x  formal", "This deliverable must be completed and shipped by Friday."),
          ]),
 ]
 
@@ -310,7 +321,7 @@ body {{ font-family:'Fira Sans',sans-serif; padding:56px 60px 64px;
 
 
 def render_contact_sheet(outdir, chrome):
-    order = ["formalize", "simplify", "expand", "tip", "collective", "pow",
+    order = ["formalize", "understood", "simplify", "expand", "tip", "collective", "pow",
              "negate", "subject", "gettysburg", "answer", "reverse-dictionary", "mvp",
              "opposite", "three-bases", "exec-summary", "escalation", "opposition", "target-reverse"]
     imgs = "".join(f'<img src="file://{outdir.resolve()}/nlir-{n}.png">'
