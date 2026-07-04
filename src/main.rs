@@ -32,7 +32,16 @@ use nlir::{
 )]
 struct Cli {
     /// Evaluate a shorthand expression and print the English result.
-    #[arg(short = 'e', long = "expr", value_name = "EXPR")]
+    ///
+    /// `allow_hyphen_values` lets an expression that opens with `-` (e.g. a
+    /// leading-negative range index like `-1^*0`) reach the evaluator instead of
+    /// being rejected by clap as an unknown flag (bd-d2d23c).
+    #[arg(
+        short = 'e',
+        long = "expr",
+        value_name = "EXPR",
+        allow_hyphen_values = true
+    )]
     expr: Option<String>,
 
     /// Path to the nlir config file (default: ~/.config/nlir/config.yaml).
@@ -115,7 +124,7 @@ enum Command {
 #[derive(Debug, Args)]
 struct ParseArgs {
     /// The shorthand expression to parse.
-    #[arg(value_name = "EXPR")]
+    #[arg(value_name = "EXPR", allow_hyphen_values = true)]
     expr: String,
 }
 
@@ -880,5 +889,37 @@ fn run_feedback_report(args: &FeedbackArgs) -> Result<(), i32> {
             eprintln!("nlir feedback: {error}");
             Err(1)
         }
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    // bd-d2d23c: an expression that opens with `-` (e.g. a leading-negative range
+    // index) must be parsed as the EXPR value, not rejected by clap as an unknown
+    // flag. `allow_hyphen_values` on the expr args guards this.
+    #[test]
+    fn expr_flag_accepts_leading_hyphen_value() {
+        let cli = Cli::try_parse_from(["nlir", "-e", "-1^*0"])
+            .expect("leading-hyphen expr must parse as a value");
+        assert_eq!(cli.expr.as_deref(), Some("-1^*0"));
+
+        let cli = Cli::try_parse_from(["nlir", "--expr", "-5+3"])
+            .expect("leading-hyphen --expr must parse as a value");
+        assert_eq!(cli.expr.as_deref(), Some("-5+3"));
+    }
+
+    #[test]
+    fn parse_subcommand_accepts_leading_hyphen_value() {
+        let cli = Cli::try_parse_from(["nlir", "parse", "-1^*0"])
+            .expect("parse subcommand must accept a leading-hyphen expr");
+        assert!(matches!(cli.command, Some(Command::Parse(_))));
+    }
+
+    // Guard against the fix over-reaching: a genuinely unknown flag must still error.
+    #[test]
+    fn unknown_flag_still_rejected() {
+        assert!(Cli::try_parse_from(["nlir", "--definitely-not-a-flag"]).is_err());
     }
 }
