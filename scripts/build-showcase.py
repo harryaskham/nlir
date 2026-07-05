@@ -409,6 +409,23 @@ SIMPLE = [
              "work until it's done. Could you finish looking at it by the end of tomorrow?",
          cap="the nudge — :&[REMINDER, WHY_IT_MATTERS, LOW_PRESSURE_ASK]: the : warm tone turns a "
              "follow-up into a friendly chase, not a pushy one. Reminder, the stakes, the gentle ask"),
+    dict(name="escalation",
+         expr="@&['I am blocked on the vendor API — their sandbox has returned 500s for two days','this "
+              "is holding the payments integration and will slip our launch','~I have retried with fresh "
+              "credentials, tested from three networks, and opened two support tickets with no reply','I "
+              "need you to escalate through our account manager or approve switching to the backup "
+              "provider']",
+         pill="llm · claude-sonnet-5",
+         out="I am currently blocked by an issue with the vendor API. Their sandbox environment has "
+             "been returning HTTP 500 errors for the past two days, which is delaying the payments "
+             "integration and places our launch timeline at risk. To date, I have attempted to resolve "
+             "the issue by retrying with new credentials, testing from three separate networks, and "
+             "submitting two support tickets, none of which have received a response. I would appreciate "
+             "it if you could escalate this matter through our account manager, or alternatively, approve "
+             "a switch to the backup provider.",
+         cap="the escalation — @&[BLOCKER, IMPACT, ~WHAT_YOU_TRIED, ASK]: raise a blocker upward as a "
+             "decision request. The ~ slot digests your long list of attempts into one crisp clause, so "
+             "it reads competent, not like a rant"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
