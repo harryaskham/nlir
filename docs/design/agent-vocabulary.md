@@ -66,17 +66,6 @@ Where the subject is piped in (a diff, code, an error), the same lenses apply to
 | "summarise this PR / diff" | `git diff \| nlir -e '[#$_stdin,~$_stdin]'` | subject + gist of the diff |
 | "review this code" | `<code> \| nlir -e '@&[~$_stdin,‹points›]'` | formal weave of gist + review points |
 | "what's the likely fix?" | `<err> \| nlir -e '~(>"the most likely fix for: $_stdin")'` | expand a fix hypothesis, then distil |
-| "explain this code" | `<code> \| nlir -e ':$_stdin'` | plain-language explanation (verified: catches an `add` that subtracts) |
-| "name this fn/var" | `<code> \| nlir -e '#$_stdin'` | the subject/name |
-| "is this correct?" | `<code> \| nlir -e '$_stdin ~> "correctly does X"'` | → **bool** assertion (verified `false` on a buggy `add`) — the faithful yes/no form §3b notes |
-
-**The correctness-gate** (the coding instance of the det+llm flagship — aur-0-verified live): map a `~>`-check over a module's functions and fold the pass/fails:
-
-```
-$fold%({$0+$1}, $map%({$0 ~> "is a correct implementation of its name"}, [fn1, fn2, fn3])) -> 2
-```
-
-→ the per-function correctness vector is `[true, false, true]` (catches the broken one), summed = "2 of 3 correct". The LLM judges each function, deterministic `+` counts. Card pending.
 
 The exhaustive coding-idiom catalogue + showcase cards live in the coding-pipe
 lane (aur-0 cards/cookbook, aur-2 POWERMOVES); this doc keeps a representative
@@ -137,15 +126,39 @@ existing escape hatches.
 
 Harry: *"better partial result display in e.g. pi would let us quickly iterate on
 chains of thought."* The vocabulary only pays off if you can **watch a chain
-resolve**. That's already in flight:
+resolve**. Status across the three surfaces:
 
-- `nlir step` streams each reduction live (**bd-89eb89**, CLI leg landed) — you
+- **CLI** — `nlir step` streams each reduction live (**bd-89eb89**, landed): you
   see `~(>@^-1)` unfold one realisation at a time.
-- The TUI live det-preview (**bd-970e05**) shows the result-so-far as you type.
-- The **pi plugin** is the place to close this: as you build a `|`-prefixed
-  chain, show the intermediate realisations inline (each `$map`/fold/lens step as
-  it resolves) so you tune the chain without re-running it whole. Tracks the same
-  streaming API as the CLI/TUI legs.
+- **TUI workbench** — live det-preview **landed** (**bd-970e05** slice 1,
+  @e38868b): type an expression and ~350ms after you pause, the det
+  result-so-far appears italic in the Output pane; Enter commits.
+- **pi plugin** — live det-preview **landed** (**bd-970e05** slice 2): as you
+  type a `|`-prefixed nlir line, the det result-so-far shows in a widget above
+  the editor (debounced ~350ms, cleared on send). Closes the surface Harry named.
+
+### The shared partial-display contract
+
+All three surfaces follow the same rules, so the UX is consistent:
+
+1. **Debounce, don't eval per-keystroke** (~350ms after the last edit) — a
+   speculative preview, not a running eval.
+2. **Deterministic mode is the safe default** — det is instant, offline, and
+   **free**, so debounced det preview needs no cost gating. A mid-edit /
+   unparseable / non-det expression shows **no** preview rather than flickering
+   an error.
+3. **Speculative ≠ committed** — the preview is styled distinctly (italic / dim
+   / a "live" marker) and never persists context writes; only an explicit
+   submit/Enter commits.
+4. **The llm tier is gated + cached** — live-previewing an `~`/`@`/`>` chain
+   means paid model calls, so it is opt-in and rides **msm-0's incremental
+   cache** (subexpr-identity memoization + AST-diff invalidation): a small edit
+   only re-fires the edited node, reusing cached realisations for the rest. That
+   is what makes iterating on an llm chain of thought affordable.
+
+The streaming step API (`step_trace_streaming`) is the shared engine for the llm
+tier: each realisation resolves live so a long chain paints incrementally instead
+of blocking.
 
 ---
 
@@ -159,8 +172,9 @@ resolve**. That's already in flight:
 4. **Partial-result display in pi** — makes iterating on chains-of-thought fast
    (4).
 
-Items 3–4 are already moving (bd-44c294, bd-89eb89, bd-970e05). Items 1–2 are the
-new language concepts this exploration surfaces.
+Items 3–4 are already moving (bd-44c294, bd-89eb89, bd-970e05 — TUI + pi det
+previews landed). Items 1–2 are the new language concepts this exploration
+surfaces.
 
 ---
 

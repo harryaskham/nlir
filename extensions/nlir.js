@@ -44,7 +44,63 @@ function errText(err) {
 // per keystroke, so overriding its border colour reflects the live buffer).
 const NLIR_YELLOW = "\x1b[93m"; // bright yellow
 const ANSI_RESET = "\x1b[0m";
+const NLIR_DIM = "\x1b[2m";
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+// Live deterministic preview (bd-970e05): as you type an nlir expression
+// (leading `|`), show the det result-so-far in a widget above the editor,
+// debounced ~350ms after you stop typing, so you can iterate on a chain of
+// thought without sending it. Det mode only: instant, offline, free -- no llm
+// calls fire on preview. Degrades silently if `ctx.ui.setWidget` is absent.
+const PREVIEW_WIDGET = "nlir-preview";
+const PREVIEW_DEBOUNCE_MS = 350;
+let _previewTimer = null;
+let _previewLastBuffer = null;
+
+function setPreviewWidget(ctx, lines) {
+  try {
+    if (ctx?.ui && typeof ctx.ui.setWidget === "function") {
+      ctx.ui.setWidget(PREVIEW_WIDGET, lines);
+    }
+  } catch {
+    /* widget API unavailable / failed -- the `|` expansion still works. */
+  }
+}
+
+function clearPreview(ctx) {
+  if (_previewTimer) {
+    clearTimeout(_previewTimer);
+    _previewTimer = null;
+  }
+  _previewLastBuffer = null;
+  setPreviewWidget(ctx, []);
+}
+
+// Debounce a deterministic eval of `buffer` (a leading-`|` nlir line) and show
+// the result-so-far above the editor. A mid-edit / non-det expression clears
+// the widget rather than flickering an error.
+function schedulePreview(ctx, buffer) {
+  if (_previewTimer) clearTimeout(_previewTimer);
+  _previewTimer = setTimeout(async () => {
+    _previewTimer = null;
+    const expr = buffer.replace(/^\|/, "").trim();
+    if (!expr) {
+      setPreviewWidget(ctx, []);
+      return;
+    }
+    try {
+      const out = await expand(expr, ["--mode", "det"]);
+      const flat = out ? out.replace(/\n+/g, " ").trim() : "";
+      setPreviewWidget(
+        ctx,
+        flat ? [`${NLIR_YELLOW}nlir \u00bb${ANSI_RESET} ${NLIR_DIM}${flat}${ANSI_RESET}`] : [],
+      );
+    } catch {
+      // Incomplete/unparseable or non-deterministic mid-edit: no preview yet.
+      setPreviewWidget(ctx, []);
+    }
+  }, PREVIEW_DEBOUNCE_MS);
+}
 
 /** Register the nlir-mode yellow-border editor, degrading silently if the
  *  running pi build doesn't expose CustomEditor / setEditorComponent. */
@@ -76,9 +132,27 @@ async function installNlirModeEditor(ctx) {
       render(width) {
         const lines = super.render(width);
         try {
-          if (inNlirMode(this) && lines.length >= 2) {
+          let text = "";
+          try {
+            text = typeof this.getText === "function" ? this.getText() : "";
+          } catch {
+            text = "";
+          }
+          const nlir = text.startsWith("|");
+          if (nlir && lines.length >= 2) {
             lines[0] = NLIR_YELLOW + stripAnsi(lines[0]) + ANSI_RESET;
             lines[lines.length - 1] = NLIR_YELLOW + stripAnsi(lines[lines.length - 1]) + ANSI_RESET;
+          }
+          // Live det preview (bd-970e05): re-render is the only per-keystroke
+          // hook, so (re)schedule the debounced preview when the buffer actually
+          // changes (robust to per-frame re-renders), and clear it on exit.
+          if (nlir) {
+            if (text !== _previewLastBuffer) {
+              _previewLastBuffer = text;
+              schedulePreview(ctx, text);
+            }
+          } else if (_previewLastBuffer !== null) {
+            clearPreview(ctx);
           }
         } catch {
           /* fall back to the un-tinted lines on any render error */
@@ -108,6 +182,7 @@ export default function (pi) {
     if (!text.startsWith("|")) return { action: "continue" };
     const expr = text.slice(1).trim();
     if (!expr) return { action: "continue" };
+    clearPreview(ctx); // the line is being sent; drop the live preview widget
     try {
       const out = await expand(expr);
       if (!out) return { action: "continue" };
