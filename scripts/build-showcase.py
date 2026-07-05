@@ -299,6 +299,15 @@ SIMPLE = [
              "faster  ·  Added shortcut keys you can press on the keyboard",
          cap="the changelog — a tone op on a list WITHOUT & MAPS over each item (one polished line each); "
              ": = friendly release notes, @ = formal. Add & to weave into one sentence instead"),
+    dict(name="review-verdict",
+         expr="@&['the error handling is thorough and the tests are solid','but the new endpoint has no "
+              "rate limiting','add a limiter before merge','approve with that one change']",
+         pill="llm · claude-sonnet-5",
+         out="The error handling is thorough, and the tests are solid. However, the new endpoint lacks "
+             "rate limiting. Please add a rate limiter prior to merging; with that single change, this "
+             "is approved.",
+         cap="the review verdict — @&[GOOD, GAP, FIX, VERDICT] weaves a fair code-review comment: what's "
+             "strong, what's missing, the fix, and the call. Firm but constructive"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
