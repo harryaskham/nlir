@@ -204,8 +204,10 @@ $fold%({$0+$1}, ['3 apples','5 oranges','2 pears'])   -> 10   (--mode llm)
 Why it's a genuine mix: in `--mode det` this exact expression **errors** —
 `cannot coerce '3 apples' to number` — so the `+` reduce is deterministic and the
 string→number extraction is the llm step. The model reads 3, 5, 2; the sum is
-exact. The same shape tallies votes — `$fold%({$0+$1}, ['yes','no','yes','yes'])`
-maps yes→1 / no→0 (llm) then sums (det).
+exact — a real llm-mode capture. A vote tally is the same idea, but `'yes'`/`'no'`
+aren't numbers, so classify each to a boolean first with `~>` (implies), which
+coerces to 1/0:
+`$fold%({$0+$1}, $map%({$0~>'affirmative'},['yes','no','yes','yes']))` -> `3`.
 
 **Distil a list into a running consensus** — each fold step weaves then gists:
 
