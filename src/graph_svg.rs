@@ -117,18 +117,17 @@ pub fn render(graph: &Graph) -> String {
         }
     }
 
-    // Nodes.
+    // Nodes: each wrapped in a `<g data-id="<dotted NodeId>">` so a panel can
+    // target/highlight a node by identity — G5 animation keys on this together
+    // with G2's `reduced` NodeId to light up the just-reduced node per frame.
     for (i, node) in graph.nodes.iter().enumerate() {
         let (fill, stroke, text) = palette(&node.kind);
         let w = node_w(i);
         let (x, y) = (cx(i) - w / 2.0, cy(i) - NODE_H / 2.0);
         let _ = write!(
             svg,
-            r##"<rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{NODE_H}" rx="10" fill="{fill}" stroke="{stroke}" stroke-width="1.3"/>"##,
-        );
-        let _ = write!(
-            svg,
-            r##"<text x="{:.1}" y="{:.1}" fill="{text}" text-anchor="middle" dominant-baseline="central">{}</text>"##,
+            r##"<g data-id="{}"><rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{NODE_H}" rx="10" fill="{fill}" stroke="{stroke}" stroke-width="1.3"/><text x="{:.1}" y="{:.1}" fill="{text}" text-anchor="middle" dominant-baseline="central">{}</text></g>"##,
+            node.id.dotted(),
             cx(i),
             cy(i),
             esc(&fit(&node.label)),
@@ -220,6 +219,15 @@ mod tests {
         // Two binding edges (Assign(k) → both $k reads).
         assert_eq!(svg.matches("marker-end=\"url(#bind)\"").count(), 2);
         assert!(svg.contains("stroke-dasharray"));
+    }
+
+    #[test]
+    fn nodes_carry_stable_data_id() {
+        // Each node group is tagged with its dotted NodeId so a panel can
+        // highlight by identity (G5 + G2 `reduced`).
+        let svg = render(&graph("2**3**2"));
+        assert!(svg.contains(r#"<g data-id="0">"#), "root node id 0");
+        assert!(svg.contains(r#"<g data-id="0.1">"#), "inner ** id 0.1");
     }
 
     #[test]
