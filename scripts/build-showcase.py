@@ -249,6 +249,15 @@ SIMPLE = [
              "enough to gate every push?",
          cap="the decision record — the composer states the call (@&[...]), then ? turns each open "
              "unknown into a question. The Decision + Open Questions skeleton of an ADR, in one line"),
+    dict(name="myth-buster",
+         expr="@&[!'more tests always mean better code','coverage without meaningful assertions just "
+              "slows the build and gives false confidence']",
+         pill="llm · claude-sonnet-5",
+         out="An increased number of tests does not necessarily equate to higher-quality code. Coverage "
+             "achieved without meaningful assertions merely slows the build process and creates a false "
+             "sense of confidence.",
+         cap="the myth-buster — ! rejects the misconception, & weaves in the reality: a clean 'not X; "
+             "rather Y' correction. Reads no chat — it busts a free-standing myth"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
