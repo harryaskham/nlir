@@ -177,6 +177,11 @@ struct ReplArgs {
     /// Raw mode: pipe shorthand straight in without the pretty prompt.
     #[arg(long)]
     raw: bool,
+
+    /// Resume the most recent saved REPL session (restore its context +
+    /// messages) before starting the loop (bd-ff485a).
+    #[arg(long = "continue")]
+    continue_session: bool,
 }
 
 #[derive(Debug, Args)]
@@ -1104,6 +1109,122 @@ fn run_test(cli: &Cli) -> Result<(), i32> {
     if failed > 0 { Err(1) } else { Ok(()) }
 }
 
+// ---------------------------------------------------------------------------
+// REPL session archive / restore (bd-ff485a `--continue`; bd-2275f6 `--resume`
+// + bd-414aee `:resume` layer on top). A "session" is a timestamped snapshot of
+// the context store, saved beside it under `sessions/<unix-ts>.json`. The live
+// store is unchanged — sessions are archived on REPL exit and restored on
+// demand, so this is additive over the default REPL persistence.
+// ---------------------------------------------------------------------------
+
+/// The effective context store path (`--context-file`, else the config default).
+fn effective_context_path(cli: &Cli, cfg: &nlir::config::Config) -> Option<std::path::PathBuf> {
+    if let Some(path) = cli.context_file.as_ref() {
+        return Some(path.clone());
+    }
+    let home = std::env::var_os("HOME");
+    nlir::context::default_context_path(&cfg.context, home.as_deref())
+}
+
+/// The REPL session archive directory: `<context-dir>/sessions/`.
+fn sessions_dir(context_path: &std::path::Path) -> std::path::PathBuf {
+    context_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("sessions")
+}
+
+/// Sort key for a session file: its `<ts>.json` stem, falling back to mtime.
+fn session_ts(path: &std::path::Path) -> u64 {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| stem.parse::<u64>().ok())
+        .or_else(|| {
+            std::fs::metadata(path)
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|dur| dur.as_secs())
+        })
+        .unwrap_or(0)
+}
+
+/// Saved sessions in `dir`, most-recent first.
+fn list_sessions(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut sessions: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .collect();
+    sessions.sort_by_key(|path| std::cmp::Reverse(session_ts(path)));
+    sessions
+}
+
+/// The most recent saved session, if any.
+fn most_recent_session(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    list_sessions(dir).into_iter().next()
+}
+
+/// Archive the current context store to `sessions/<ts>.json`. Skips an empty
+/// store, and skips when byte-identical to the most-recent archive (no dupes).
+/// Returns the archive path when one was written.
+fn archive_session(context_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let bytes = std::fs::read(context_path).ok()?;
+    let trimmed = std::str::from_utf8(&bytes).unwrap_or("").trim();
+    if trimmed.is_empty() || trimmed == "{}" {
+        return None;
+    }
+    let dir = sessions_dir(context_path);
+    if let Some(recent) = most_recent_session(&dir) {
+        if std::fs::read(&recent).ok().as_deref() == Some(bytes.as_slice()) {
+            return None;
+        }
+    }
+    std::fs::create_dir_all(&dir).ok()?;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|dur| dur.as_secs())
+        .unwrap_or(0);
+    let dest = dir.join(format!("{ts}.json"));
+    std::fs::copy(context_path, &dest).ok()?;
+    Some(dest)
+}
+
+/// Archive the REPL's context store on exit (best-effort; notes to stderr).
+fn archive_repl_session(cli: &Cli) {
+    let Ok(cfg) = resolve_config(cli) else {
+        return;
+    };
+    let Some(path) = effective_context_path(cli, &cfg) else {
+        return;
+    };
+    if let Some(dest) = archive_session(&path) {
+        eprintln!("nlir: session saved \u{2192} {}", dest.display());
+    }
+}
+
+/// Restore a saved session by copying it over the active context store.
+fn restore_session(cli: &Cli, session: &std::path::Path) -> Result<(), i32> {
+    let Ok(cfg) = resolve_config(cli) else {
+        return Err(1);
+    };
+    let Some(path) = effective_context_path(cli, &cfg) else {
+        eprintln!("nlir: no context store configured to restore a session into");
+        return Err(1);
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::copy(session, &path).map_err(|error| {
+        eprintln!("nlir: restore session {}: {error}", session.display());
+        1
+    })?;
+    eprintln!("nlir: resumed session {}", session.display());
+    Ok(())
+}
+
 fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
     use std::io::IsTerminal;
 
@@ -1131,6 +1252,19 @@ fn run_repl_plain(cli: &Cli, prompts: bool) -> Result<(), i32> {
             "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:set`/`:get`/`:append-message`/`:quit`); Ctrl-D to exit."
         );
     }
+    // --continue: restore the most recent saved session before the loop (bd-ff485a).
+    if args.continue_session {
+        if let Ok(cfg) = resolve_config(cli) {
+            if let Some(path) = effective_context_path(cli, &cfg) {
+                match most_recent_session(&sessions_dir(&path)) {
+                    Some(session) => {
+                        let _ = restore_session(cli, &session);
+                    }
+                    None => eprintln!("nlir: no saved sessions to --continue"),
+                }
+            }
+        }
+    }
     let stdin = io::stdin();
     let mut input = stdin.lock();
     let mut pending = String::new();
@@ -1152,6 +1286,7 @@ fn run_repl_plain(cli: &Cli, prompts: bool) -> Result<(), i32> {
                 if prompts {
                     eprintln!();
                 }
+                archive_repl_session(cli);
                 break;
             }
             Ok(_) => {}
@@ -1485,7 +1620,10 @@ fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
     let parts: Vec<&str> = meta.split_whitespace().collect();
     match parts.as_slice() {
         [] => Ok(()),
-        ["quit" | "exit" | "q"] => std::process::exit(0),
+        ["quit" | "exit" | "q"] => {
+            archive_repl_session(cli);
+            std::process::exit(0)
+        }
         ["new"] => run_new(cli),
         ["set", tail @ ..] if !tail.is_empty() => run_set(
             cli,
