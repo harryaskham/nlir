@@ -12,14 +12,16 @@
 //! - results are `{ ok, result|error }` / `{ ok, steps }` objects (never JS
 //!   rejections) so the workspace renders errors inline.
 //!
-//! DET mode is the KEY-FREE path (no realiser): `evaluate`/`step`/`parse`/
-//! `operators`/`version` all work with zero network + zero key. LLM mode needs
-//! the injected `Realiser` (P3: a JS `fetch`/on-device callback) + msm-0's
-//! `evaluate_async`/`step_async`; those branches return a clear "needs a key"
-//! error until P3 wires the JsRealiser.
+//! DET mode is the KEY-FREE path (no realiser). LLM mode uses the injected
+//! `Realiser` (P3): a JS `{ llm, command }` object of async callbacks (e.g.
+//! `fetch(base_url)` — BYO key, keys never leave the user's endpoint) bridged
+//! through msm-0's `Realiser` trait + `evaluate_async`/`step_async`.
 
+use js_sys::{Function, Promise, Reflect};
 use nlir::Mode;
+use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
 
 /// Parse `configJson` into a [`nlir::config::Config`] at the wasm boundary.
 fn parse_config(config_json: &str) -> Result<nlir::config::Config, String> {
@@ -50,13 +52,126 @@ fn parse_mode(mode: &str) -> Result<Mode, String> {
     match mode {
         "det" => Ok(Mode::Det),
         "llm" => Ok(Mode::Llm),
-        other => Err(format!("unknown mode {other:?} (expected \"det\" or \"llm\")")),
+        other => Err(format!(
+            "unknown mode {other:?} (expected \"det\" or \"llm\")"
+        )),
     }
 }
 
 /// Serialise any value to a `JsValue` result payload.
 fn payload<T: serde::Serialize>(value: &T) -> JsValue {
     serde_wasm_bindgen::to_value(value).unwrap_or(JsValue::NULL)
+}
+
+// --- P3: the JS-callback Realiser (bd-7482e6) -------------------------------
+
+/// A JS view of an assembled [`nlir::llm::LlmCall`] passed to the JS `llm`
+/// callback (LlmCall itself is not `Serialize`; its fields are). JS reads
+/// `call.vars.NLIR_PROMPT` + `call.model.model` (the model id).
+#[derive(serde::Serialize)]
+struct CallView<'a> {
+    vars: &'a std::collections::BTreeMap<String, String>,
+    model: &'a nlir::config::ModelConfig,
+    operands: &'a [String],
+}
+
+/// A [`nlir::realiser::Realiser`] backed by injected JS async callbacks: the
+/// browser supplies `{ llm, command }` functions returning Promises (e.g.
+/// `fetch(base_url + "/chat/completions")`). Keys never leave the user's
+/// endpoint (static site, no proxy).
+struct JsRealiser {
+    llm: Option<Function>,
+    command: Option<Function>,
+}
+
+impl JsRealiser {
+    /// Extract the `llm` / `command` callbacks from the JS `realisers` object
+    /// (missing/undefined → `None`, surfaced as a clear error if reached).
+    fn from_js(realisers: &JsValue) -> Self {
+        Self {
+            llm: get_fn(realisers, "llm"),
+            command: get_fn(realisers, "command"),
+        }
+    }
+}
+
+fn get_fn(obj: &JsValue, key: &str) -> Option<Function> {
+    Reflect::get(obj, &JsValue::from_str(key))
+        .ok()
+        .and_then(|value| value.dyn_into::<Function>().ok())
+}
+
+fn js_err_string(error: &JsValue) -> String {
+    error
+        .as_string()
+        .or_else(|| {
+            js_sys::JSON::stringify(error)
+                .ok()
+                .and_then(|s| s.as_string())
+        })
+        .unwrap_or_else(|| "unknown JS error".to_owned())
+}
+
+/// Wrap a realiser-side message as a [`nlir::llm::RealiseError`]. (Uses the
+/// String-carrying variant; a dedicated `Realiser(String)` variant would read
+/// cleaner — flagged to msm-0 as a nice-to-have.)
+fn realise_err(message: impl Into<String>) -> nlir::llm::RealiseError {
+    nlir::llm::RealiseError::OperatorCommand(message.into())
+}
+
+/// Call a JS async realiser callback and await its Promise to a string.
+async fn call_js_realiser(
+    func: &Function,
+    args: Vec<JsValue>,
+) -> Result<String, nlir::llm::RealiseError> {
+    let this = JsValue::NULL;
+    let returned = match args.as_slice() {
+        [a] => func.call1(&this, a),
+        [a, b] => func.call2(&this, a, b),
+        _ => func.call0(&this),
+    }
+    .map_err(|e| realise_err(format!("js realiser threw: {}", js_err_string(&e))))?;
+    let resolved = JsFuture::from(Promise::from(returned))
+        .await
+        .map_err(|e| realise_err(format!("js realiser rejected: {}", js_err_string(&e))))?;
+    resolved
+        .as_string()
+        .ok_or_else(|| realise_err("js realiser did not resolve to a string"))
+}
+
+impl nlir::realiser::Realiser for JsRealiser {
+    fn llm<'a>(&'a self, call: &'a nlir::llm::LlmCall) -> nlir::realiser::RealiseFuture<'a> {
+        Box::pin(async move {
+            let func = self.llm.as_ref().ok_or_else(|| {
+                realise_err("no llm realiser set — provide an API base-url + key for llm mode")
+            })?;
+            let view = CallView {
+                vars: &call.vars,
+                model: &call.model,
+                operands: &call.operands,
+            };
+            let call_js = serde_wasm_bindgen::to_value(&view)
+                .map_err(|e| realise_err(format!("serialize LlmCall: {e}")))?;
+            call_js_realiser(func, vec![call_js]).await
+        })
+    }
+
+    fn command<'a>(
+        &'a self,
+        command: &'a str,
+        operands: &'a [String],
+    ) -> nlir::realiser::RealiseFuture<'a> {
+        Box::pin(async move {
+            let func = self
+                .command
+                .as_ref()
+                .ok_or_else(|| realise_err("no command realiser set for this endpoint"))?;
+            let cmd_js = JsValue::from_str(command);
+            let ops_js = serde_wasm_bindgen::to_value(operands)
+                .map_err(|e| realise_err(format!("serialize operands: {e}")))?;
+            call_js_realiser(func, vec![cmd_js, ops_js]).await
+        })
+    }
 }
 
 /// `version() -> { crate, git }` — the co-build stamp (P7 sets `NLIR_WASM_GIT`).
@@ -77,8 +192,8 @@ pub fn parse(expr: &str, config_json: &str) -> JsValue {
         let cfg = parse_config(config_json)?;
         let sigils = nlir::config::operator_sigils(&cfg);
         let tokens = nlir::lexer::tokenize(expr, &sigils).map_err(|error| error.to_string())?;
-        let program =
-            nlir::parser::parse_program(&tokens, &cfg.operators).map_err(|error| error.to_string())?;
+        let program = nlir::parser::parse_program(&tokens, &cfg.operators)
+            .map_err(|error| error.to_string())?;
         Ok(program.render())
     })();
     match result {
@@ -100,60 +215,61 @@ pub fn operators(config_json: &str) -> JsValue {
     }
 }
 
-/// `evaluate(expr, configJson, contextJson, mode) -> Promise<{ ok, result|error }>`.
-/// DET evaluates fully (key-free); LLM awaits the injected realiser (P3).
+/// `evaluate(expr, configJson, contextJson, mode, realisers) -> Promise<{ ok, result|error }>`.
+/// DET evaluates on the sync core (key-free); LLM drives `evaluate_async` with
+/// the [`JsRealiser`] built from the `realisers` object.
 #[wasm_bindgen]
 pub async fn evaluate(
     expr: String,
     config_json: String,
     context_json: String,
     mode: String,
+    realisers: JsValue,
 ) -> JsValue {
-    let result = (|| -> Result<String, String> {
-        let cfg = parse_config(&config_json)?;
-        let parsed_mode = parse_mode(&mode)?;
-        let mut ctx = parse_context(&context_json, &cfg)?;
-        match parsed_mode {
-            Mode::Det => {
-                let value = nlir::eval::evaluate(&expr, &cfg, &mut ctx, Mode::Det)
-                    .map_err(|error| error.to_string())?;
-                Ok(value.render(&ctx.sep()))
-            }
-            Mode::Llm => Err(
-                "llm mode needs a realiser (an API key or on-device model) — wired in P3; \
-                 det mode is key-free"
-                    .to_owned(),
-            ),
-        }
-    })();
-    match result {
+    match evaluate_inner(&expr, &config_json, &context_json, &mode, &realisers).await {
         Ok(rendered) => payload(&serde_json::json!({ "ok": true, "result": rendered })),
         Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
     }
 }
 
-/// `step(expr, configJson, contextJson, mode) -> Promise<{ ok, steps|error }>`.
-/// DET replays the real small-step reduction (the same engine as `nlir step` /
-/// the repl `:step`); LLM step awaits msm-0's `step_async` follow-up.
+async fn evaluate_inner(
+    expr: &str,
+    config_json: &str,
+    context_json: &str,
+    mode: &str,
+    realisers: &JsValue,
+) -> Result<String, String> {
+    let cfg = parse_config(config_json)?;
+    let parsed_mode = parse_mode(mode)?;
+    let mut ctx = parse_context(context_json, &cfg)?;
+    let sep = ctx.sep();
+    let value = match parsed_mode {
+        Mode::Det => {
+            nlir::eval::evaluate(expr, &cfg, &mut ctx, Mode::Det).map_err(|e| e.to_string())?
+        }
+        Mode::Llm => {
+            let realiser = JsRealiser::from_js(realisers);
+            nlir::eval::evaluate_async(expr, &cfg, &mut ctx, Mode::Llm, &realiser)
+                .await
+                .map_err(|e| e.to_string())?
+        }
+    };
+    Ok(value.render(&sep))
+}
+
+/// `step(expr, configJson, contextJson, mode, realisers) -> Promise<{ ok, steps|error }>`.
+/// DET replays `step_trace` (same engine as `nlir step` / the repl `:step`);
+/// LLM drives `step_async` with the [`JsRealiser`] — so the step view unfolds
+/// live for llm ops too (one realise per step).
 #[wasm_bindgen]
 pub async fn step(
     expr: String,
     config_json: String,
     context_json: String,
     mode: String,
+    realisers: JsValue,
 ) -> JsValue {
-    let result = (|| -> Result<Vec<String>, String> {
-        let cfg = parse_config(&config_json)?;
-        let parsed_mode = parse_mode(&mode)?;
-        if let Mode::Llm = parsed_mode {
-            return Err(
-                "llm step needs step_async (a follow-up); det step is key-free".to_owned(),
-            );
-        }
-        let mut ctx = parse_context(&context_json, &cfg)?;
-        nlir::eval::step_trace(&expr, &cfg, &mut ctx, Mode::Det).map_err(|error| error.to_string())
-    })();
-    match result {
+    match step_inner(&expr, &config_json, &context_json, &mode, &realisers).await {
         Ok(steps) => {
             let rows: Vec<serde_json::Value> = steps
                 .into_iter()
@@ -162,5 +278,28 @@ pub async fn step(
             payload(&serde_json::json!({ "ok": true, "steps": rows }))
         }
         Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
+async fn step_inner(
+    expr: &str,
+    config_json: &str,
+    context_json: &str,
+    mode: &str,
+    realisers: &JsValue,
+) -> Result<Vec<String>, String> {
+    let cfg = parse_config(config_json)?;
+    let parsed_mode = parse_mode(mode)?;
+    let mut ctx = parse_context(context_json, &cfg)?;
+    match parsed_mode {
+        Mode::Det => {
+            nlir::eval::step_trace(expr, &cfg, &mut ctx, Mode::Det).map_err(|e| e.to_string())
+        }
+        Mode::Llm => {
+            let realiser = JsRealiser::from_js(realisers);
+            nlir::eval::step_async(expr, &cfg, &mut ctx, Mode::Llm, &realiser)
+                .await
+                .map_err(|e| e.to_string())
+        }
     }
 }
