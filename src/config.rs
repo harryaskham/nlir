@@ -310,10 +310,16 @@ impl OperatorConfig {
     /// `operators()` export.
     #[must_use]
     pub fn is_deterministic(&self) -> bool {
-        self.reduce.is_some()
-            || self.command.is_some()
-            || self.join.is_some()
-            || self.template.is_some()
+        // Display semantics (nlir help det/llm tag + operator_reference `det`): an
+        // op is "deterministic" only if its PRIMARY realisation is offline — it has
+        // an offline realisation AND is not llm-primary. A det-STUB `template:` on an
+        // llm op (a test-mode det-coverage fallback, aur-2 det-stubs) is NOT the op's
+        // identity: an op carrying a `model:` shows "llm" even with a det stub.
+        self.model.is_none()
+            && (self.reduce.is_some()
+                || self.command.is_some()
+                || self.join.is_some()
+                || self.template.is_some())
     }
 }
 
@@ -1877,8 +1883,9 @@ context:
         assert_eq!(subject.op, "#");
         assert_eq!(subject.fixity, "prefix");
         assert!(
-            subject.det,
-            "subject now has a det template stub (aur-2 det-stubs @145e43d): template in det, model in llm"
+            !subject.det,
+            "subject is llm-PRIMARY (model+prompt); its det template is a test-mode stub for \
+             det-coverage, not its identity, so it displays llm (det = has_det && model.is_none())"
         );
 
         let and = refs.iter().find(|r| r.name == "and").expect("and present");
