@@ -241,6 +241,14 @@ SIMPLE = [
              "bandwidth?",
          cap="the question set — jot your risky assumptions; ? (postfix) flips each into the pointed "
              "question to ask before you commit. A due-diligence checklist in one line"),
+    dict(name="decision-record",
+         expr="[@&['adopt trunk-based development'],'the team can commit to daily merges'?,"
+              "'our CI is fast enough to gate every push'?]",
+         pill="llm · claude-sonnet-5",
+         out="Adopt trunk-based development.  Can the team commit to daily merges?  Is our CI fast "
+             "enough to gate every push?",
+         cap="the decision record — the composer states the call (@&[...]), then ? turns each open "
+             "unknown into a question. The Decision + Open Questions skeleton of an ADR, in one line"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",

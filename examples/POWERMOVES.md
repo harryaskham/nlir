@@ -58,6 +58,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | computed brief | `@&[LEAD_IN, <a live calc>, TAIL]` | nlir does the maths and weaves the figure into the sentence | aur-2 |
 | register ladder | `[~&[F], :&[F], @&[F]]` | one announcement → terse + plain + formal, all at once | aur-2 |
 | the question set | `['ASSUMPTION'?, ...]` | flip your risky assumptions into the questions to ask | aur-2 |
+| decision record | `[@&[DECISION], 'OPEN'?, ...]` | the call you're making + the questions it leaves open | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |
