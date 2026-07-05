@@ -102,21 +102,54 @@ fn get_fn(obj: &JsValue, key: &str) -> Option<Function> {
 }
 
 fn js_err_string(error: &JsValue) -> String {
-    error
-        .as_string()
-        .or_else(|| {
-            js_sys::JSON::stringify(error)
-                .ok()
-                .and_then(|s| s.as_string())
-        })
-        .unwrap_or_else(|| "unknown JS error".to_owned())
+    // 1. A thrown string.
+    if let Some(text) = error.as_string() {
+        return text;
+    }
+    // 2. A JS Error (or subclass: TypeError, RangeError, …). Its `name`/`message`
+    //    are NON-ENUMERABLE own properties, so `JSON.stringify` silently drops
+    //    them and yields "{}" — the historical cause of the useless
+    //    "js realiser rejected: {}" (the workspace `llm` realiser throws
+    //    `new Error('llm endpoint 401')`, and a failed `fetch` throws
+    //    `TypeError: Failed to fetch`; both stringify to "{}"). Read the Error's
+    //    own `name`/`message` so the real cause survives.
+    if let Some(err) = error.dyn_ref::<js_sys::Error>() {
+        let name = String::from(err.name());
+        let message = String::from(err.message());
+        return match (name.is_empty(), message.is_empty()) {
+            (false, false) => format!("{name}: {message}"),
+            (true, false) => message,
+            (false, true) => name,
+            (true, true) => "unknown JS error".to_owned(),
+        };
+    }
+    // 3. An Error-like object that is not `instanceof Error` (some DOMException
+    //    implementations): read `.message` directly.
+    if let Ok(message) = Reflect::get(error, &JsValue::from_str("message")) {
+        if let Some(message) = message.as_string() {
+            if !message.is_empty() {
+                return message;
+            }
+        }
+    }
+    // 4. A plain object/value carrying data: JSON.stringify, but ignore an empty
+    //    "{}"/"null" (which conveys nothing).
+    if let Ok(json) = js_sys::JSON::stringify(error) {
+        if let Some(json) = json.as_string() {
+            if json != "{}" && json != "null" && !json.is_empty() {
+                return json;
+            }
+        }
+    }
+    "unknown JS error".to_owned()
 }
 
-/// Wrap a realiser-side message as a [`nlir::llm::RealiseError`]. (Uses the
-/// String-carrying variant; a dedicated `Realiser(String)` variant would read
-/// cleaner — flagged to msm-0 as a nice-to-have.)
+/// Wrap a realiser-side message as a [`nlir::llm::RealiseError`] via the
+/// dedicated `Realiser(String)` variant, so a JS-realiser failure renders as
+/// "realisation via realiser: …" instead of the misleading "operator command"
+/// framing (bd — wasm llm error legibility).
 fn realise_err(message: impl Into<String>) -> nlir::llm::RealiseError {
-    nlir::llm::RealiseError::OperatorCommand(message.into())
+    nlir::llm::RealiseError::Realiser(message.into())
 }
 
 /// Call a JS async realiser callback and await its Promise to a string.

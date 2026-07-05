@@ -877,6 +877,10 @@ pub enum RealiseError {
     Anthropic(AnthropicError),
     /// An operator `command:` snippet failed to spawn or exited non-zero.
     OperatorCommand(String),
+    /// A pluggable [`crate::realiser::Realiser`] backend failed (e.g. the wasm
+    /// JS realiser's `fetch`/on-device callback rejected). Carries the backend's
+    /// own message so the surface can render the real cause.
+    Realiser(String),
 }
 
 impl fmt::Display for RealiseError {
@@ -890,6 +894,9 @@ impl fmt::Display for RealiseError {
             RealiseError::OperatorCommand(message) => {
                 write!(f, "realisation via operator command: {message}")
             }
+            RealiseError::Realiser(message) => {
+                write!(f, "realisation via realiser: {message}")
+            }
         }
     }
 }
@@ -901,6 +908,7 @@ impl std::error::Error for RealiseError {
             RealiseError::Command(error) => Some(error),
             RealiseError::Anthropic(error) => Some(error),
             RealiseError::OperatorCommand(_) => None,
+            RealiseError::Realiser(_) => None,
         }
     }
 }
