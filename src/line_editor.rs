@@ -65,10 +65,8 @@ impl LineEditor {
         self.cursor += 1;
     }
 
-    /// Insert each char of `s` at the cursor (e.g. a bracketed paste). Public
-    /// editing primitive; currently exercised by the unit tests, not yet wired
-    /// to a paste event, so it is dead in non-test builds.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Insert each char of `s` at the cursor (e.g. prefilling the context-edit
+    /// box with a key's current value, or a bracketed paste).
     pub fn insert_str(&mut self, s: &str) {
         for c in s.chars() {
             self.insert_char(c);

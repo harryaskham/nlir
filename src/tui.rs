@@ -12,7 +12,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::line_editor::LineEditor;
 
@@ -61,6 +61,26 @@ pub struct ContextEntry {
     pub value: String,
 }
 
+/// What an active modal edit will commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditKind {
+    /// Replace the value of an existing context key.
+    Value,
+    /// Add a new `key=value` context entry.
+    NewEntry,
+}
+
+/// An in-progress modal edit over the context (value edit or new entry).
+pub struct EditState {
+    pub kind: EditKind,
+    /// The key being edited (`Value`); `None` for a `NewEntry`.
+    pub key: Option<String>,
+    /// Prompt shown in the modal.
+    pub prompt: String,
+    /// The line editor for the modal input.
+    pub editor: LineEditor,
+}
+
 /// The pure workbench state. `main.rs` mutates it via the methods here and reads
 /// it back to render; it performs no IO itself.
 pub struct Workbench {
@@ -77,6 +97,8 @@ pub struct Workbench {
     /// Transient status-line message (last action outcome).
     status: String,
     should_quit: bool,
+    /// An active modal context edit, if any (mutually exclusive with pane input).
+    editing: Option<EditState>,
 }
 
 impl Workbench {
@@ -94,6 +116,7 @@ impl Workbench {
             status: "Tab switches pane · Enter evaluates / restores · Ctrl-D or Esc quits"
                 .to_owned(),
             should_quit: false,
+            editing: None,
         }
     }
 
@@ -178,6 +201,60 @@ impl Workbench {
     pub fn set_status(&mut self, status: impl Into<String>) {
         self.status = status.into();
     }
+
+    /// The context row currently selected in the Context pane, if any.
+    pub fn selected_context(&self) -> Option<&ContextEntry> {
+        self.context.get(self.context_sel)
+    }
+
+    /// Whether a modal context edit is active (input goes to the modal, not panes).
+    pub fn is_editing(&self) -> bool {
+        self.editing.is_some()
+    }
+
+    /// The active edit state, for rendering the modal.
+    pub fn editing(&self) -> Option<&EditState> {
+        self.editing.as_ref()
+    }
+
+    /// Mutable access to the modal editor, for routing key presses.
+    pub fn edit_editor_mut(&mut self) -> Option<&mut LineEditor> {
+        self.editing.as_mut().map(|state| &mut state.editor)
+    }
+
+    /// Begin editing an existing context key's value, prefilling the current one.
+    pub fn begin_value_edit(&mut self, key: String, current: String) {
+        let mut editor = LineEditor::new();
+        editor.insert_str(&current);
+        self.editing = Some(EditState {
+            kind: EditKind::Value,
+            prompt: format!("edit  {key} ="),
+            key: Some(key),
+            editor,
+        });
+    }
+
+    /// Begin adding a new `key=value` context entry.
+    pub fn begin_new_entry(&mut self) {
+        self.editing = Some(EditState {
+            kind: EditKind::NewEntry,
+            prompt: "new entry  (key=value)".to_owned(),
+            key: None,
+            editor: LineEditor::new(),
+        });
+    }
+
+    /// Cancel the active modal edit (Esc), discarding input.
+    pub fn cancel_edit(&mut self) {
+        self.editing = None;
+    }
+
+    /// Commit the active modal edit, returning its kind, target key, and the
+    /// typed input, and clearing the modal. `None` if nothing is being edited.
+    pub fn commit_edit(&mut self) -> Option<(EditKind, Option<String>, String)> {
+        let state = self.editing.take()?;
+        Some((state.kind, state.key, state.editor.buffer_string()))
+    }
 }
 
 /// Draw the whole workbench for one frame.
@@ -192,7 +269,7 @@ pub fn render(frame: &mut Frame, wb: &Workbench) {
             Constraint::Length(1),
         ])
         .split(area);
-    render_help(frame, rows[0]);
+    render_help(frame, rows[0], wb);
 
     // body: left column (sessions/context) · right column (expr/output)
     let cols = Layout::default()
@@ -213,6 +290,11 @@ pub fn render(frame: &mut Frame, wb: &Workbench) {
     render_expr(frame, right[0], wb);
     render_output(frame, right[1], wb);
     render_status(frame, rows[2], wb);
+
+    // A modal context edit floats above the panes.
+    if wb.is_editing() {
+        render_edit_modal(frame, area, wb);
+    }
 }
 
 fn pane_block(title: &str, focused: bool) -> Block<'_> {
@@ -236,8 +318,8 @@ fn pane_block(title: &str, focused: bool) -> Block<'_> {
         .title(Span::styled(format!(" {title} "), title_style))
 }
 
-fn render_help(frame: &mut Frame, area: Rect) {
-    let line = Line::from(vec![
+fn render_help(frame: &mut Frame, area: Rect, wb: &Workbench) {
+    let line1 = Line::from(vec![
         Span::styled(
             "nlir workbench",
             Style::default()
@@ -249,12 +331,16 @@ fn render_help(frame: &mut Frame, area: Rect) {
         Span::raw(" pane · "),
         Span::styled("Enter", Style::default().fg(Color::Yellow)),
         Span::raw(" eval/restore · "),
-        Span::styled("↑↓", Style::default().fg(Color::Yellow)),
-        Span::raw(" select/history · "),
         Span::styled("Ctrl-D/Esc", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]);
-    frame.render_widget(Paragraph::new(line), area);
+    let hint = match wb.focus() {
+        Pane::Expr => "Expression: type · Enter evaluates · ↑↓ history · Ctrl-A/E/K/U/W edit",
+        Pane::Sessions => "Sessions: ↑↓ select · Enter restores into the context",
+        Pane::Context => "Context: ↑↓ select · e edit · a add · d delete",
+    };
+    let line2 = Line::from(Span::styled(hint, Style::default().fg(Color::DarkGray)));
+    frame.render_widget(Paragraph::new(vec![line1, line2]), area);
 }
 
 fn render_sessions(frame: &mut Frame, area: Rect, wb: &Workbench) {
@@ -370,6 +456,86 @@ fn render_status(frame: &mut Frame, area: Rect, wb: &Workbench) {
     );
 }
 
+/// Draw the modal context-edit box (value edit or new entry) over the panes.
+fn render_edit_modal(frame: &mut Frame, area: Rect, wb: &Workbench) {
+    let Some(state) = wb.editing() else {
+        return;
+    };
+    let modal = centered_fixed(area, 70, 6);
+    frame.render_widget(Clear, modal);
+    let title = match state.kind {
+        EditKind::Value => " Edit context value ",
+        EditKind::NewEntry => " New context entry ",
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        )
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(modal);
+    frame.render_widget(block, modal);
+    if inner.height < 2 {
+        return;
+    }
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            state.prompt.clone(),
+            Style::default().fg(Color::Gray),
+        )),
+        rows[0],
+    );
+    let prompt = "» ";
+    let buffer = state.editor.buffer_string();
+    let width = rows[1].width.max(1) as usize;
+    let cursor_col = prompt.chars().count() + state.editor.cursor();
+    let scroll = cursor_col.saturating_sub(width.saturating_sub(1)) as u16;
+    frame.render_widget(
+        Paragraph::new(format!("{prompt}{buffer}")).scroll((0, scroll)),
+        rows[1],
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "Enter: save · Esc: cancel",
+            Style::default().fg(Color::DarkGray),
+        )),
+        rows[3],
+    );
+    let x = rows[1].x + (cursor_col as u16).saturating_sub(scroll);
+    frame.set_cursor_position(Position {
+        x: x.min(rows[1].x + rows[1].width.saturating_sub(1)),
+        y: rows[1].y,
+    });
+}
+
+/// A fixed-size rectangle centered within `area`, clamped to fit.
+fn centered_fixed(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+    Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -480,5 +646,46 @@ mod tests {
         let submitted = wb.editor.submit();
         assert_eq!(submitted, "~@^-1");
         assert!(wb.editor.is_empty());
+    }
+
+    #[test]
+    fn selected_context_tracks_selection() {
+        let mut wb = sample();
+        wb.focus = Pane::Context;
+        assert_eq!(wb.selected_context().unwrap().key, "greeting");
+        wb.list_down();
+        assert_eq!(wb.selected_context().unwrap().key, "_messages");
+    }
+
+    #[test]
+    fn value_edit_lifecycle_commits_typed_input() {
+        let mut wb = sample();
+        assert!(!wb.is_editing());
+        wb.begin_value_edit("greeting".into(), "hi".into());
+        assert!(wb.is_editing());
+        // prefilled with the current value
+        assert_eq!(wb.editing().unwrap().editor.buffer_string(), "hi");
+        // edit it
+        let editor = wb.edit_editor_mut().unwrap();
+        editor.end();
+        editor.insert_str(" there");
+        let (kind, key, input) = wb.commit_edit().unwrap();
+        assert_eq!(kind, EditKind::Value);
+        assert_eq!(key.as_deref(), Some("greeting"));
+        assert_eq!(input, "hi there");
+        assert!(!wb.is_editing());
+    }
+
+    #[test]
+    fn new_entry_lifecycle_and_cancel() {
+        let mut wb = sample();
+        wb.begin_new_entry();
+        assert!(wb.is_editing());
+        assert_eq!(wb.editing().unwrap().kind, EditKind::NewEntry);
+        wb.edit_editor_mut().unwrap().insert_str("name=Ada");
+        // cancel discards without returning input
+        wb.cancel_edit();
+        assert!(!wb.is_editing());
+        assert!(wb.commit_edit().is_none());
     }
 }

@@ -2240,6 +2240,30 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
 
+    // A modal context edit swallows all input until Enter (commit) / Esc (cancel).
+    if wb.is_editing() {
+        match key.code {
+            KeyCode::Esc => wb.cancel_edit(),
+            KeyCode::Enter => {
+                if let Some((kind, target_key, input)) = wb.commit_edit() {
+                    match tui_apply_context_edit(cli, kind, target_key, &input) {
+                        Ok(status) => {
+                            wb.set_context(tui_build_context(cli));
+                            wb.set_status(status);
+                        }
+                        Err(error) => wb.set_status(error),
+                    }
+                }
+            }
+            _ => {
+                if let Some(editor) = wb.edit_editor_mut() {
+                    apply_line_edit_key(editor, key.code, ctrl, alt);
+                }
+            }
+        }
+        return;
+    }
+
     // Global: Esc quits; Tab / Shift-Tab cycle panes. (Ctrl-C is handled
     // per-pane so it can clear a non-empty expression line first, shell-style.)
     match key.code {
@@ -2286,26 +2310,7 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
                     wb.editor.discard();
                 }
             }
-            KeyCode::Char('a') if ctrl => wb.editor.home(),
-            KeyCode::Char('e') if ctrl => wb.editor.end(),
-            KeyCode::Char('k') if ctrl => wb.editor.kill_to_end(),
-            KeyCode::Char('u') if ctrl => wb.editor.kill_to_start(),
-            KeyCode::Char('w') if ctrl => wb.editor.delete_word_before(),
-            KeyCode::Char('d') if ctrl => wb.editor.delete(),
-            KeyCode::Char('b') if alt => wb.editor.word_left(),
-            KeyCode::Char('f') if alt => wb.editor.word_right(),
-            KeyCode::Char(c) if !ctrl && !alt => wb.editor.insert_char(c),
-            KeyCode::Left if ctrl || alt => wb.editor.word_left(),
-            KeyCode::Right if ctrl || alt => wb.editor.word_right(),
-            KeyCode::Left => wb.editor.left(),
-            KeyCode::Right => wb.editor.right(),
-            KeyCode::Home => wb.editor.home(),
-            KeyCode::End => wb.editor.end(),
-            KeyCode::Up => wb.editor.history_prev(),
-            KeyCode::Down => wb.editor.history_next(),
-            KeyCode::Backspace => wb.editor.backspace(),
-            KeyCode::Delete => wb.editor.delete(),
-            _ => {}
+            _ => apply_line_edit_key(&mut wb.editor, key.code, ctrl, alt),
         },
         Pane::Sessions => match key.code {
             KeyCode::Char('c') if ctrl => wb.quit(),
@@ -2332,11 +2337,136 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
             KeyCode::Up | KeyCode::Char('k') => wb.list_up(),
             KeyCode::Down | KeyCode::Char('j') => wb.list_down(),
             KeyCode::Char('q') => wb.quit(),
+            // Edit the selected key's value (system keys / _messages are read-only).
+            KeyCode::Char('e') | KeyCode::Enter => {
+                if let Some(entry) = wb.selected_context() {
+                    let key = entry.key.clone();
+                    if nlir::context::Context::is_system_key(&key) {
+                        wb.set_status(format!("{key} is read-only (system key)"));
+                    } else if let Some(current) = tui_context_raw_value(cli, &key) {
+                        wb.begin_value_edit(key, current);
+                    } else {
+                        wb.set_status(format!("{key}: no value to edit"));
+                    }
+                }
+            }
+            // Add a new key=value entry.
+            KeyCode::Char('a') => wb.begin_new_entry(),
+            // Delete the selected key.
+            KeyCode::Char('d') => {
+                if let Some(entry) = wb.selected_context() {
+                    let key = entry.key.clone();
+                    if nlir::context::Context::is_system_key(&key) {
+                        wb.set_status(format!("{key} is read-only (system key)"));
+                    } else {
+                        match tui_delete_context_key(cli, &key) {
+                            Ok(()) => {
+                                wb.set_context(tui_build_context(cli));
+                                wb.set_status(format!("deleted {key}"));
+                            }
+                            Err(error) => wb.set_status(format!("delete failed: {error}")),
+                        }
+                    }
+                }
+            }
             _ => {}
         },
     }
 }
 
+/// Apply a common line-editing key to `editor` (motion, kill/delete, history
+/// recall, char insert). Leaves Enter / Ctrl-C / Ctrl-D / Tab to the caller so
+/// the same core drives the expression pane and the context-edit modal.
+fn apply_line_edit_key(
+    editor: &mut line_editor::LineEditor,
+    code: crossterm::event::KeyCode,
+    ctrl: bool,
+    alt: bool,
+) {
+    use crossterm::event::KeyCode;
+    match code {
+        KeyCode::Char('a') if ctrl => editor.home(),
+        KeyCode::Char('e') if ctrl => editor.end(),
+        KeyCode::Char('k') if ctrl => editor.kill_to_end(),
+        KeyCode::Char('u') if ctrl => editor.kill_to_start(),
+        KeyCode::Char('w') if ctrl => editor.delete_word_before(),
+        KeyCode::Char('b') if alt => editor.word_left(),
+        KeyCode::Char('f') if alt => editor.word_right(),
+        KeyCode::Char(c) if !ctrl && !alt => editor.insert_char(c),
+        KeyCode::Left if ctrl || alt => editor.word_left(),
+        KeyCode::Right if ctrl || alt => editor.word_right(),
+        KeyCode::Left => editor.left(),
+        KeyCode::Right => editor.right(),
+        KeyCode::Home => editor.home(),
+        KeyCode::End => editor.end(),
+        KeyCode::Up => editor.history_prev(),
+        KeyCode::Down => editor.history_next(),
+        KeyCode::Backspace => editor.backspace(),
+        KeyCode::Delete => editor.delete(),
+        _ => {}
+    }
+}
+
+/// The raw current value of a context key as an editable string: the string
+/// content for a JSON string, else its compact JSON text.
+fn tui_context_raw_value(cli: &Cli, key: &str) -> Option<String> {
+    let ctx = open_context(cli).ok()?;
+    match ctx.get(key)? {
+        serde_json::Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+/// Parse a context value from modal input: JSON if it parses, else a plain
+/// string (so `42`/`true`/`{"a":1}` round-trip but bare words stay strings).
+fn parse_context_value(input: &str) -> serde_json::Value {
+    serde_json::from_str::<serde_json::Value>(input)
+        .unwrap_or_else(|_| serde_json::Value::String(input.to_owned()))
+}
+
+/// Apply a committed context edit (replace a value, or add a `key=value`) and
+/// persist. Returns a status message or an error string for the status bar.
+fn tui_apply_context_edit(
+    cli: &Cli,
+    kind: tui::EditKind,
+    key: Option<String>,
+    input: &str,
+) -> Result<String, String> {
+    let mut ctx = open_context(cli).map_err(|_| "context error".to_owned())?;
+    match kind {
+        tui::EditKind::Value => {
+            let key = key.ok_or_else(|| "no key to edit".to_owned())?;
+            ctx.set(key.clone(), parse_context_value(input))
+                .map_err(|error| error.to_string())?;
+            ctx.save().map_err(|error| error.to_string())?;
+            Ok(format!("updated {key}"))
+        }
+        tui::EditKind::NewEntry => {
+            let (raw_key, raw_value) = input
+                .split_once('=')
+                .ok_or_else(|| "expected key=value".to_owned())?;
+            let new_key = raw_key.trim();
+            if new_key.is_empty() {
+                return Err("empty key".to_owned());
+            }
+            if nlir::context::Context::is_system_key(new_key) {
+                return Err(format!("{new_key} is a reserved system key"));
+            }
+            ctx.set(new_key, parse_context_value(raw_value.trim()))
+                .map_err(|error| error.to_string())?;
+            ctx.save().map_err(|error| error.to_string())?;
+            Ok(format!("added {new_key}"))
+        }
+    }
+}
+
+/// Delete a context key and persist.
+fn tui_delete_context_key(cli: &Cli, key: &str) -> Result<(), String> {
+    let mut ctx = open_context(cli).map_err(|_| "context error".to_owned())?;
+    ctx.remove(key);
+    ctx.save().map_err(|error| error.to_string())?;
+    Ok(())
+}
 /// Build the workbench session-browser rows from the shared pool.
 fn tui_build_sessions(cli: &Cli) -> Vec<tui::SessionEntry> {
     let Ok(cfg) = resolve_config(cli) else {
