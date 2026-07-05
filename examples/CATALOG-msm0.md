@@ -111,3 +111,19 @@ on a 5-turn scoping thread (fuzzy matching? → latency tradeoff → fallback �
 > **Fuzzy matching fallback**
 > The team decided to add fuzzy matching only as a fallback when exact search returns no
 > results, capped at edit-distance 2.
+
+### THE PLAIN RECAP — `:~0^*-1`
+Explain the whole thread like someone just walked in: `~0^*-1` distills it, `:` drops the jargon
+into plain language. The **tone-knob sibling** of EXEC BRIEF (`@~0^*-1`, formal) — same whole-thread
+SELECT, different register (aur-2's tone-knob: `@` formal for an exec, `:` plain for a newcomer,
+`~` terse for a ping). Real capture on a 4-turn API-freeze debate:
+> Some computers are having big problems, and the people fixing them need extra time. But another
+> team already told everyone a big launch would be ready by a certain day. So now there's a hard
+> choice: fix the problems first and be a little late, or keep the promise and launch on time.
+
+**SELECT gap found (my lane, for a future addressing enhancement):** whole-*role*-channel selection
+doesn't work — `~0^_*-1` / `~0^@*-1` ("summarise everything the USER said" vs "…the ASSISTANT said")
+errors (`reduce Mul expects ≥1 operand, got 0`; the `@` even mis-parses as formalize). Only indexed
+role picks (`^_0`, `^_-1`) resolve. A `^_*` / `^@*` "all-of-one-role" range would unlock a true
+TWO-SIDES move (each party's position across a debate). Noting, not proposing an op — it's an
+addressing/lexer feature, deferred.

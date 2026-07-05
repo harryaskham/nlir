@@ -159,6 +159,13 @@ SIMPLE = [
          out="\u201cFuzzy matching fallback\u201d  \u2014  The team decided to add fuzzy matching only "
              "as a fallback when exact search returns no results, capped at edit-distance 2.",
          cap="turn a messy chat into a titled ticket \u2014 subject line (#) + one-line summary (~), ready to file"),
+    dict(name="plain-recap", expr=":~0^*-1", pill="llm · reads your whole thread",
+         src="a 4-turn debate — freeze the API for stability vs ship the already-announced launch",
+         out="Some computers are having big problems, and the people fixing them need extra time. "
+             "But another team already told everyone a big launch would be ready by a certain day. "
+             "So now there's a hard choice: fix the problems first and be a little late, or keep the "
+             "promise and launch on time.",
+         cap="explain the whole thread like I just walked in \u2014 : gives a plain, jargon-free recap (tone-knob sibling of EXEC BRIEF's @)"),
 ]
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
