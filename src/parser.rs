@@ -576,11 +576,33 @@ impl Parser<'_> {
             Token::StackPeek => Ok(Expr::StackPeek),
             Token::StackIndex(n) => Ok(Expr::StackIndex(n)),
             Token::Message(role) => {
-                let index = self.expr(bp(CARET_PRIORITY))?;
-                Ok(Expr::Message {
-                    role,
-                    index: Box::new(index),
-                })
+                // A bare view with no index = the whole channel: `^*` ≡ `0^*-1`,
+                // `^_` ≡ `0^_-1`, `^` ≡ `0^-1`, `^/` ≡ all system. An index parses
+                // only when the next token can begin one; a terminator (`;` `,`
+                // `]` `)`), an operator, or end-of-input means "the full range of
+                // this view". Indexed forms (`^-1`, `^0`, `^*-1`) are unchanged;
+                // the infix `M^N` range is handled in the led, not here.
+                let index_follows = !matches!(
+                    self.peek(),
+                    None | Some(Token::Semicolon)
+                        | Some(Token::Comma)
+                        | Some(Token::RBracket)
+                        | Some(Token::RParen)
+                        | Some(Token::Operator(_))
+                );
+                if index_follows {
+                    let index = self.expr(bp(CARET_PRIORITY))?;
+                    Ok(Expr::Message {
+                        role,
+                        index: Box::new(index),
+                    })
+                } else {
+                    Ok(Expr::MessageRange {
+                        role,
+                        start: Box::new(Expr::Number(0.0)),
+                        end: Box::new(Expr::Number(-1.0)),
+                    })
+                }
             }
             Token::LParen => {
                 let inner = self.expr(0)?;
@@ -819,6 +841,21 @@ mod tests {
     fn message_index_prefix() {
         assert_eq!(render("^-1"), "^-1");
         assert_eq!(render("^_-1"), "^_-1");
+    }
+
+    #[test]
+    fn bare_view_defaults_to_full_range() {
+        // A bare view sigil (no index) = the whole channel: `^*` ≡ `0^*-1`,
+        // `^_` ≡ `0^_-1`, `^` ≡ `0^-1`. Additive: bare `^*` previously parse-errored.
+        assert_eq!(render("^*"), "0^*-1");
+        assert_eq!(render("^_"), "0^_-1");
+        assert_eq!(render("^"), "0^-1");
+        // Indexed forms are UNCHANGED (an index follows -> single message).
+        assert_eq!(render("^-1"), "^-1");
+        assert_eq!(render("^*-1"), "^*-1");
+        assert_eq!(render("^_0"), "^_0");
+        // The explicit infix range is unchanged (handled in the led).
+        assert_eq!(render("0^*-1"), "0^*-1");
     }
 
     #[test]
