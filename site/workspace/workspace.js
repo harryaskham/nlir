@@ -124,6 +124,7 @@ const MOCK = {
     { svg:PLACEHOLDER_SVG, reduced:'0.1' }, { svg:PLACEHOLDER_SVG, reduced:'0' },
   ] }; },
   async graphFramesAsync(){ return this.graphFrames(); },
+  async graphFramesStreaming(e,c,x,md,r,onFrame){ const res = this.graphFrames(); (res.frames||[]).forEach(f => onFrame(f)); return { ok:true, count:(res.frames||[]).length, mock:true }; },
   version(){ return { crate:'mock', git:'—' }; },
   defaultConfigYaml(){ return DEFAULT_CONFIG; },
 };
@@ -147,6 +148,7 @@ let wasmReal = false;
       graph(e,c){ return O(m.graph(e,c)); },
       graphFrames(e,c,md){ const r = O(m.graphFrames(e,c,md)); if (r.frames) r.frames = A(r.frames); return r; },
       async graphFramesAsync(e,c,x,md,r){ const rr = O(await m.graphFramesAsync(e,c,x,md,r)); if (rr.frames) rr.frames = A(rr.frames); return rr; },
+      async graphFramesStreaming(e,c,x,md,r,onFrame){ return O(await m.graphFramesStreaming(e,c,x,md,r, f => onFrame(O(f)))); },
       version(){ return O(m.version()); },
       defaultConfigYaml(){ return m.defaultConfigYaml(); },
     };
@@ -409,19 +411,37 @@ async function animate(){
   const box = $('graphsvg');
   $('graphview').hidden = false; box.innerHTML = '<span class="placeholder">building frames…</span>';
   const md = wasmMode();
-  const r = md === 'llm'
-    ? await nlir.graphFramesAsync(expr, configJson(), contextJson(), md, realisers())
-    : nlir.graphFrames(expr, configJson(), md);
+  const scrub = $('scrub'); scrub.hidden = false;
+  const frames = [];
+  const cap = (k, tag) => { const red = frames[k] && frames[k].reduced; $('framecap').textContent = `frame ${k+1}/${frames.length}` + (red ? ` · reduced ${red}` : '') + (tag ? ` · ${tag}` : ''); };
+
+  if (md === 'llm'){
+    // Live streaming (bd-89eb89): render each frame the moment its realisation resolves
+    // — in llm mode the graph animation builds itself frame-by-frame as the model runs.
+    const onFrame = (frame) => {
+      if (!frames.length) box.innerHTML = '';
+      frames.push(frame);
+      const k = frames.length - 1; renderFrame(frame); scrub.max = k; scrub.value = k; cap(k, 'live');
+    };
+    let r;
+    try { r = await nlir.graphFramesStreaming(expr, configJson(), contextJson(), md, realisers(), onFrame); }
+    catch (e){ box.innerHTML = `<span class="err">${e}</span>`; return; }
+    if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
+    if (!frames.length){ box.innerHTML = '<span class="placeholder">(no frames)</span>'; return; }
+    const show = k => { renderFrame(frames[k]); scrub.value = k; cap(k); };
+    scrub.oninput = e => show(+e.target.value);
+    show(frames.length - 1);
+    return;
+  }
+
+  // det: batch frames + timed auto-advance animation (frames are instant)
+  const r = nlir.graphFrames(expr, configJson(), md);
   if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
-  const frames = r.frames || [];
+  (r.frames || []).forEach(f => frames.push(f));
   if (!frames.length){ box.innerHTML = '<span class="placeholder">(no frames)</span>'; return; }
-  const scrub = $('scrub'); scrub.hidden = false; scrub.max = frames.length - 1;
+  scrub.max = frames.length - 1;
   let i = 0;
-  const show = k => {
-    i = k; renderFrame(frames[k]); scrub.value = k;
-    const red = frames[k].reduced;
-    $('framecap').textContent = `frame ${k+1}/${frames.length}` + (red ? ` · reduced ${red}` : '') + (r.mock ? ' · preview' : '');
-  };
+  const show = k => { i = k; renderFrame(frames[k]); scrub.value = k; cap(k, r.mock ? 'preview' : ''); };
   show(0);
   scrub.oninput = e => { clearInterval(animTimer); show(+e.target.value); };
   animTimer = setInterval(() => { if (i >= frames.length - 1){ clearInterval(animTimer); return; } show(i + 1); }, 950);
