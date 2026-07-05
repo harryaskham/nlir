@@ -1597,17 +1597,124 @@ fn run_repl_plain(cli: &Cli, prompts: bool) -> Result<(), i32> {
 /// (possibly multi-line) input without exiting, Ctrl-D exits cleanly. Line
 /// semantics (`\` continuation, `:cmd` meta-commands, empty-line skip) match the
 /// plain path exactly so only the input surface changes.
+/// A rustyline helper that shows the current line's DETERMINISTIC result-so-far
+/// as a dim ` → <result>` hint after the cursor, as you type (bd-970e05, the
+/// REPL slice of the cross-surface live-preview feature; siblings: TUI
+/// `tui_eval_preview`, Pi-plugin editor widget). It follows the shared
+/// partial-display contract: speculative and NON-persisting (evaluated against a
+/// CLONE of the context, never saved), det-only (llm ops just show no hint — no
+/// paid calls per keystroke), and guarded so a mid-edit line stays quiet.
+///
+/// Because the hint fires synchronously per keystroke (no debounce, unlike the
+/// TUI), it must never trigger a side effect: an expression that uses a
+/// shell-`command:` operator (e.g. `_` echo) is skipped, since det eval would
+/// shell out. Everything pure (arithmetic / forms / map / fold / join) previews.
+struct ReplHelper {
+    cfg: nlir::config::Config,
+    /// Context snapshot for preview eval; cloned per hint (never mutated in
+    /// place) and refreshed after each submission so writes show in later hints.
+    ctx: nlir::context::Context,
+    sep: String,
+    /// Sigils of shell-`command:`-backed operators — previews using any of these
+    /// are suppressed (det eval would execute the command).
+    command_sigils: Vec<String>,
+}
+
+impl ReplHelper {
+    /// The det result-so-far of `line`, as a dim-ready ` → …` hint, or `None`
+    /// when there is nothing safe/clean to show.
+    fn preview(&self, line: &str) -> Option<String> {
+        let expr = line.trim();
+        // Skip empties, `:meta` commands, and over-long lines (keystroke-cheap).
+        if expr.is_empty() || expr.starts_with(':') || expr.len() > 160 {
+            return None;
+        }
+        // Never preview an expression that uses a shell-command operator: det
+        // eval would SHELL OUT, and this fires per keystroke. Conservative
+        // substring check — a false positive merely suppresses the preview.
+        if self
+            .command_sigils
+            .iter()
+            .any(|sig| !sig.is_empty() && expr.contains(sig.as_str()))
+        {
+            return None;
+        }
+        // Side-effect-free: eval a CLONE in det mode and never save. Any
+        // parse/eval error (incl. an llm op in det mode) yields no hint.
+        let mut ctx = self.ctx.clone();
+        let value = nlir::eval::evaluate(expr, &self.cfg, &mut ctx, nlir::Mode::Det).ok()?;
+        let rendered = value.render(&self.sep).replace('\n', " ");
+        // Keep the hint to one bounded line.
+        let capped = if rendered.chars().count() > 60 {
+            let head: String = rendered.chars().take(59).collect();
+            format!("{head}\u{2026}")
+        } else {
+            rendered
+        };
+        Some(format!("  \u{2192} {capped}"))
+    }
+}
+
+impl rustyline::hint::Hinter for ReplHelper {
+    type Hint = String;
+
+    fn hint(&self, line: &str, pos: usize, _ctx: &rustyline::Context<'_>) -> Option<String> {
+        // Only when the cursor is at the end of the line (not editing mid-line).
+        if pos < line.len() {
+            return None;
+        }
+        self.preview(line)
+    }
+}
+
+impl rustyline::highlight::Highlighter for ReplHelper {
+    fn highlight_hint<'h>(&self, hint: &'h str) -> std::borrow::Cow<'h, str> {
+        // Dim the speculative preview so it reads as uncommitted.
+        std::borrow::Cow::Owned(format!("\u{1b}[2m{hint}\u{1b}[0m"))
+    }
+}
+
+impl rustyline::completion::Completer for ReplHelper {
+    type Candidate = String;
+}
+
+impl rustyline::validate::Validator for ReplHelper {}
+
+impl rustyline::Helper for ReplHelper {}
+
 fn run_repl_interactive(cli: &Cli) -> Result<(), i32> {
     use rustyline::error::ReadlineError;
 
-    let mut editor = match rustyline::DefaultEditor::new() {
-        Ok(editor) => editor,
-        Err(error) => {
-            // Fall back to the plain reader if the terminal can't host rustyline.
-            eprintln!("nlir repl: line editor unavailable ({error}); using plain input.");
-            return run_repl_plain(cli, true);
+    let mut editor: rustyline::Editor<ReplHelper, rustyline::history::DefaultHistory> =
+        match rustyline::Editor::new() {
+            Ok(editor) => editor,
+            Err(error) => {
+                // Fall back to the plain reader if the terminal can't host rustyline.
+                eprintln!("nlir repl: line editor unavailable ({error}); using plain input.");
+                return run_repl_plain(cli, true);
+            }
+        };
+
+    // Attach the live deterministic preview helper (bd-970e05): shows the current
+    // line's det result-so-far as a dim ` → …` hint as you type. Best-effort — if
+    // config/context can't load, plain line-editing still works.
+    if let Ok(cfg) = resolve_config(cli) {
+        if let Ok(ctx) = open_context(cli) {
+            let sep = ctx.sep();
+            let command_sigils = cfg
+                .operators
+                .iter()
+                .filter(|(_name, op)| op.command.is_some())
+                .map(|(_name, op)| op.op.clone())
+                .collect();
+            editor.set_helper(Some(ReplHelper {
+                cfg,
+                ctx,
+                sep,
+                command_sigils,
+            }));
         }
-    };
+    }
 
     // Persist command history across sessions (best-effort; a missing file on
     // first run is expected and ignored).
@@ -1657,6 +1764,15 @@ fn run_repl_interactive(cli: &Cli) -> Result<(), i32> {
                 } else {
                     // Context is re-opened each time so writes/reloads reflect.
                     repl_eval(cli, submission);
+                }
+                // Refresh the preview helper's context snapshot so writes from
+                // this submission (`k=v`, `:set`, `:new`/`:resume`) show in
+                // later live previews (bd-970e05).
+                if let Some(helper) = editor.helper_mut() {
+                    if let Ok(ctx) = open_context(cli) {
+                        helper.sep = ctx.sep();
+                        helper.ctx = ctx;
+                    }
                 }
             }
             // Ctrl-C: abandon the current input, keep the REPL alive.
@@ -2927,5 +3043,51 @@ mod cli_tests {
     fn subcommand_wins_over_bare_expr() {
         let cli = Cli::try_parse_from(["nlir", "test"]).expect("subcommand must parse");
         assert!(matches!(cli.command, Some(Command::Test)));
+    }
+
+    // bd-970e05 (REPL slice): the live-preview helper shows a det result-so-far
+    // hint, and crucially SKIPS any expression that uses a shell-`command:`
+    // operator (det eval would shell out) as well as meta/empty/parse-error lines.
+    #[test]
+    fn repl_preview_hints_pure_det_and_skips_command_ops() {
+        use std::path::Path;
+        let yaml = r##"
+operators:
+  add: { op: "+", arity: ">0", fixity: mixfix, operands: number, result: number, reduce: add }
+  mul: { op: "*", arity: ">0", fixity: mixfix, operands: number, result: number, reduce: mul }
+  echo:
+    op: "_"
+    arity: 2
+    fixity: infix
+    operands: string
+    command: |
+      printf '%s' "${NLIR_ARGS[0]}"
+"##;
+        let cfg = nlir::config::parse_str(yaml, Path::new("preview-test.yaml"))
+            .expect("valid test config");
+        let ctx = nlir::context::Context::empty(&cfg.context);
+        let sep = ctx.sep();
+        let command_sigils = cfg
+            .operators
+            .iter()
+            .filter(|(_name, op)| op.command.is_some())
+            .map(|(_name, op)| op.op.clone())
+            .collect();
+        let helper = ReplHelper {
+            cfg,
+            ctx,
+            sep,
+            command_sigils,
+        };
+
+        // Pure det expressions preview their result-so-far.
+        assert_eq!(helper.preview("2*21").as_deref(), Some("  \u{2192} 42"));
+        assert_eq!(helper.preview("1+2+3").as_deref(), Some("  \u{2192} 6"));
+        // A shell-command operator is NEVER previewed (no per-keystroke side effect).
+        assert_eq!(helper.preview("'hi'_2"), None);
+        // Meta-commands, blanks, and mid-edit parse errors stay quiet.
+        assert_eq!(helper.preview(":quit"), None);
+        assert_eq!(helper.preview("   "), None);
+        assert_eq!(helper.preview("2*"), None);
     }
 }
