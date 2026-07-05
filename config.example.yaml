@@ -25,7 +25,7 @@ defaults:
   model:
     small: haiku
     medium: sonnet
-    large: copilot
+    large: opus
   parallelism: 8
 
 context:
@@ -100,10 +100,10 @@ models:
     format: text
     command: claude --model claude-sonnet-5 --append-system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
 
-  copilot:
+  opus:
     type: command
     format: text
-    command: pi --no-extensions --no-session --model github-copilot/claude-sonnet-4.6 --system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
+    command: pi --no-extensions --no-session --model github-copilot/claude-opus-4.8 --system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
 
   # Direct HTTP against a LiteLLM proxy speaking the Anthropic Messages API.
   direct:
@@ -179,7 +179,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
     fixity: postfix
     priority: 0
     template: "is it the case that %?"
-    model: copilot
+    model: opus
     prompt: |
       Convert the text inside <text> into a question, preserving subject and meaning.
 
