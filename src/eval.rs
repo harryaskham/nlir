@@ -677,6 +677,9 @@ impl<'a> Evaluator<'a> {
             {
                 return self.eval_higher_order(name, args);
             }
+            if matches!(name.as_str(), "if" | "nth" | "sort") && self.context.get(name).is_none() {
+                return self.eval_value_builtin(name, args);
+            }
         }
         let body = match self.eval(form)? {
             Value::Form(inner) => *inner,
@@ -703,6 +706,105 @@ impl<'a> Evaluator<'a> {
     fn eval_higher_order(&mut self, name: &str, args: &[Expr]) -> Result<Value, EvalError> {
         let (body, items) = self.higher_order_operands(name, args)?;
         self.run_higher_order(name, &body, items)
+    }
+
+    /// Value-level builtins dispatched at `%`-application (like `$map`/`$fold`)
+    /// that operate on evaluated VALUES, not a form-per-item (basics batch,
+    /// docs/design/basics-primitives.md §3–4):
+    /// - `$if%(cond, then, else)` → `then` if `cond` is truthy else `else`; the
+    ///   untaken branch is NOT evaluated (short-circuit).
+    /// - `$nth%(i, list)` → the i-th element (0-based; negative = from the end).
+    /// - `$sort%list` → the list ascending (numeric if all-numeric, else lexical).
+    fn eval_value_builtin(&mut self, name: &str, args: &[Expr]) -> Result<Value, EvalError> {
+        match name {
+            "if" => {
+                if args.len() != 3 {
+                    return Err(builtin_arity_err(name, "(cond, then, else)", args.len()));
+                }
+                if value_is_truthy(&self.eval(&args[0])?) {
+                    self.eval(&args[1])
+                } else {
+                    self.eval(&args[2])
+                }
+            }
+            "nth" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(index, list)", args.len()));
+                }
+                let index = self.eval(&args[0])?;
+                let items = as_items(self.eval(&args[1])?);
+                let sep = self.sep();
+                let at = resolve_nth(&index, items.len(), &sep)?;
+                Ok(items[at].clone())
+            }
+            "sort" => {
+                let items = self.value_builtin_list(args)?;
+                let sep = self.sep();
+                Ok(Value::list(sort_values(items, &sep)))
+            }
+            _ => unreachable!("unknown value builtin: {name}"),
+        }
+    }
+
+    /// The list operand(s) for a value builtin: a single arg spreads a
+    /// [`Value::List`], otherwise each arg is one item.
+    fn value_builtin_list(&mut self, args: &[Expr]) -> Result<Vec<Value>, EvalError> {
+        if args.len() == 1 {
+            return Ok(as_items(self.eval(&args[0])?));
+        }
+        let mut items = Vec::with_capacity(args.len());
+        for arg in args {
+            items.push(self.eval(arg)?);
+        }
+        Ok(items)
+    }
+
+    /// Async twin of [`eval_value_builtin`](Self::eval_value_builtin): the operand
+    /// evaluations may `await` the realiser (llm mode). `$if` still short-circuits
+    /// — only the taken branch is evaluated.
+    async fn eval_value_builtin_async<R: crate::realiser::Realiser>(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        realiser: &R,
+    ) -> Result<Value, EvalError> {
+        match name {
+            "if" => {
+                if args.len() != 3 {
+                    return Err(builtin_arity_err(name, "(cond, then, else)", args.len()));
+                }
+                let cond = self.eval_async(&args[0], realiser).await?;
+                if value_is_truthy(&cond) {
+                    self.eval_async(&args[1], realiser).await
+                } else {
+                    self.eval_async(&args[2], realiser).await
+                }
+            }
+            "nth" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(index, list)", args.len()));
+                }
+                let index = self.eval_async(&args[0], realiser).await?;
+                let items = as_items(self.eval_async(&args[1], realiser).await?);
+                let sep = self.sep();
+                let at = resolve_nth(&index, items.len(), &sep)?;
+                Ok(items[at].clone())
+            }
+            "sort" => {
+                let items = if args.len() == 1 {
+                    as_items(self.eval_async(&args[0], realiser).await?)
+                } else {
+                    let mut items = Vec::with_capacity(args.len());
+                    for arg in args {
+                        items.push(self.eval_async(arg, realiser).await?);
+                    }
+                    items
+                };
+                let sep = self.sep();
+                Ok(Value::list(sort_values(items, &sep)))
+            }
+            _ => unreachable!("unknown value builtin: {name}"),
+        }
     }
 
     /// The value-level map/fold core (bd-14af74): `map` applies `body` per item
@@ -1115,6 +1217,11 @@ impl<'a> Evaluator<'a> {
                             return self
                                 .run_higher_order_async(name.clone(), hbody, items, realiser)
                                 .await;
+                        }
+                        if matches!(name.as_str(), "if" | "nth" | "sort")
+                            && self.context.get(name).is_none()
+                        {
+                            return self.eval_value_builtin_async(name, args, realiser).await;
                         }
                     }
                     // Form application (bd-5dd86f), async: eval the form + args
@@ -2069,6 +2176,57 @@ fn value_is_truthy(v: &Value) -> bool {
     }
 }
 
+/// Build a `$builtin` arity error with the expected operand shape.
+fn builtin_arity_err(name: &str, shape: &str, got: usize) -> EvalError {
+    EvalError::Unsupported(format!("`${name}` takes {shape}; got {got} argument(s)"))
+}
+
+/// A value as a list of items: a [`Value::List`] spreads, anything else is a
+/// singleton. Shared by the value builtins (`$nth`/`$sort`).
+fn as_items(v: Value) -> Vec<Value> {
+    match v {
+        Value::List(items) => items,
+        other => vec![other],
+    }
+}
+
+/// Sort values ascending (`$sort`): numeric order when every item renders as a
+/// number, else lexicographic on the rendered text. Total + deterministic.
+fn sort_values(mut items: Vec<Value>, sep: &str) -> Vec<Value> {
+    let numeric = |v: &Value| v.render(sep).trim().parse::<f64>().ok();
+    if items.iter().all(|v| numeric(v).is_some()) {
+        items.sort_by(|a, b| {
+            numeric(a)
+                .unwrap_or(0.0)
+                .partial_cmp(&numeric(b).unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    } else {
+        items.sort_by_key(|v| v.render(sep));
+    }
+    items
+}
+
+/// Resolve a `$nth` index against a list length: 0-based, negative counts from
+/// the end (`-1` = last). Errors on a non-integer or out-of-range index.
+fn resolve_nth(index: &Value, len: usize, sep: &str) -> Result<usize, EvalError> {
+    let raw = index.render(sep);
+    let i = raw.trim().parse::<i64>().map_err(|_| {
+        EvalError::Unsupported(format!(
+            "`$nth` index must be an integer, got `{}`",
+            raw.trim()
+        ))
+    })?;
+    let len_i = len as i64;
+    let resolved = if i < 0 { len_i + i } else { i };
+    if resolved < 0 || resolved >= len_i {
+        return Err(EvalError::Unsupported(format!(
+            "`$nth` index {i} out of range for a {len}-element list"
+        )));
+    }
+    Ok(resolved as usize)
+}
+
 /// Extract the `(form-body, items)` for a `builtin:` map/fold glyph operator from
 /// its two already-evaluated operands (bd-44c294): first must be a `{…}` form, the
 /// second a list (a lone non-list value becomes a one-element list).
@@ -2752,6 +2910,28 @@ operators:
         check("(□ & †)%5", "25 & 6"); // (□5) & (†5) = 25 & 6 (join)
         // atop 3-chain (all prefix): (□ † □) = {□(†(□($0)))}.
         check("(□ † □)%2", "25"); // □(†(□2)) = □(†4) = □5 = 25
+    }
+
+    #[test]
+    fn value_builtins_if_nth_sort() {
+        // basics batch (docs/design/basics-primitives.md §3–4): value builtins
+        // dispatched at % like map/fold, operating on evaluated values.
+        let cfg = config::parse_str("operators: {}\n", Path::new("v.yaml")).unwrap();
+        let check = |src: &str, expected: &str| {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = evaluate(src, &cfg, &mut ctx, Mode::Det).expect(src);
+            assert_eq!(out.render(&ctx.sep()), expected, "for {src}");
+        };
+        // $if — short-circuit ternary over a truthy cond.
+        check("$if%(true,'yes','no')", "yes");
+        check("$if%(false,'yes','no')", "no");
+        // $nth — 0-based (negative-from-end verified via dogfood; `-` lexing
+        // needs a configured `-` op which this minimal config omits).
+        check("$nth%(1,[a,b,c])", "b");
+        check("$nth%(0,[a,b,c])", "a");
+        // $sort — numeric when all-numeric, else lexicographic.
+        check("$sort%[3,1,2]", "1\n2\n3");
+        check("$sort%[banana,apple,cherry]", "apple\nbanana\ncherry");
     }
 
     #[test]
