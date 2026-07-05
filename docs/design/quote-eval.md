@@ -55,7 +55,7 @@ else (map, fold, do-N-times, macros) rides on top.
 > Lisp path (`'`=quote, strings→`"`) is kept below as the alternative — Harry's
 > aesthetic call.
 
-### D1. Form-quote sigil  — RECOMMENDED: a fresh sigil (keep `'`=string)
+### D1. Form-quote sigil  — DECIDED: `{…}` (Harry; keep `'`=string)
 - **Today**: `'…'` is the raw string literal; `"…"` is the interpolating string.
   Both are used across ~275 `.sh` + ~96 doc exprs + config.
 - **Recommended (cheap):** give **form-quote its own fresh sigil**, leave strings
@@ -75,16 +75,17 @@ else (map, fold, do-N-times, macros) rides on top.
 - **DECISION NEEDED (Harry, aesthetic):** cheap fresh sigil (`{…}`) vs canonical
   `'`→quote migration.
 
-### D2. Application sigil — RECOMMENDED: a fresh sigil (keep `#`=subject)
-- `#` is the well-used **subject** operator (`#^-1`; central to the catalog), so
-  overloading it for application is ambiguous (context-overload — `#` on a form =
-  apply, on text = subject — is possible but adds a type-dependent parse).
-- **Recommended:** application gets its **own fresh infix sigil**, `#` stays
-  subject-only. `f<apply>x` ≡ `f<apply>[x,y]` ≡ `f<apply>(x,y)`. Candidate glyphs
-  to pin in review (need one that's not already an operator): a call-dot or a
-  fresh mark — pinned on Harry's aesthetic call. Application binds TIGHTER than
-  `,` (so `f<apply>a,b` = `(f<apply>a),b`; use `f<apply>(a,b)` to pass a tuple).
-- **DECISION NEEDED (Harry):** which apply glyph (or accept a proposed default).
+### D2. Application sigil — DECIDED: `%` (Harry reserved `.`)
+- `#` is the well-used **subject** operator (`#^-1`; central to the catalog), so it stays
+  subject-only (no application overload).
+- **DECIDED (Harry ruling + msm-0 parser-lead + team consensus): apply/eval = `%`.**
+  `f%x` ≡ `f%[x,y]` ≡ `f%(x,y)`. `%` is lexer-clean (zero `%` in the expr lexer today). Harry
+  **reserved `.`** for future use, so the call-dot is out. Application binds TIGHTER than `,`
+  (so `f%a,b` = `(f%a),b`; use `f%(a,b)` to pass a tuple).
+- **Doc note (the one caveat):** `%` is also the config `template:` placeholder
+  (`substitute_operands` in llm.rs: `%`/`%%`/`%0`) — but that is the *realisation/template-string*
+  layer, NOT the expression lexer, so there is **no parser collision**. One glyph, two layers,
+  documented so config authors aren't surprised. (`\` is the one-token fallback if it ever bites.)
 
 ### D3. Comma as list/tuple — `a,b,c ≡ [a,b,c]`
 - Additive: `,` currently only separates items *inside* `[…]`; a top-level comma
@@ -130,10 +131,10 @@ machinery.
 3. Layer the **functional primitives** (do-N-times / map / fold over forms), then
    **macros**, as follow-ups.
 
-## Open questions for Harry / team
-- **D1**: `'`→quote migration — go? (breaking, fleet-wide)
-- **D2**: application sigil — which glyph?
-- **D3/D4**: comma-list + `$N` params as proposed?
+## Resolved / open questions
+- **D1**: form-quote sigil — **RESOLVED: `{…}`** (Harry). The `'`→quote migration is moot (fresh sigil).
+- **D2**: application sigil — **RESOLVED: `%`** (Harry reserved `.`; msm-0 parser-lead + team consensus).
+- **D3/D4**: comma-list + `$N` params — as proposed (macro holes reuse `$N`).
 - Should forms be **hygienic** (params scoped per form) or dynamic? (Recommend
   hygienic — an explicit argument frame, not the shared stack.)
 
@@ -146,33 +147,27 @@ machinery.
   read), `^` (message views + suffixes `^_ ^* ^/ ^!`), `;` (statement sep), `=` (assign),
   `,` (list sep), `'` / `"` (raw / interpolating string), `( )` (group), `[ ]` (list),
   and `` ` `` (**serial** — backtick is TAKEN, confirmed).
-- **Free** — the *only* unused single-char ASCII punctuation is **`{ }  %  .  \`** (five glyphs):
-  - **`{ }`** — clean, zero lexer conflict; brackets pair naturally with `()`.
-  - **`%`** — clean, zero conflict.
-  - **`.`** — free as an operator, but the lexer must disambiguate it from the decimal
-    point in numbers (`3.14`); usable with care.
-  - **`\`** — free, but overlaps string-escape handling → more lexer edge cases.
+- **Free** — the *only* unused single-char ASCII punctuation is **`{ }  %  .  \`** (five glyphs).
+  **FINAL assignment** (Harry's ruling + msm-0 parser-lead):
+  - **`{ }`** → **form-quote** (LOCKED): `{a+b}` = the form, `(a+b)` = the value.
+  - **`%`** → **apply/eval** (PINNED): `f%x`. Lexer-clean; the template-string `%` is a separate
+    layer (doc note below), no parser collision.
+  - **`.`** → **RESERVED** by Harry (future use) — NOT apply.
+  - **`\`** → still free; earmarked for the deferred **macro-splice** glyph.
 
-### Recommendation — the functional layer costs just **2 fresh glyphs**
+### SETTLED — the functional layer costs just **2 fresh glyphs**
 Macro *holes* reuse the existing positional `$N` reads (D4), so no third sigil is needed
-until macros-that-build-forms (splice) land later. So:
-- **form-quote = `{…}`** (+1 msm-0): `{a + b}` = the form, `(a + b)` = the value — the cleanest
-  mnemonic (code-as-data braces vs grouping parens), zero lexer conflict.
-- **form-apply** (infix) — two clean options, a genuine tradeoff (flagged by aur-2, template owner):
-  - **`%`**: lexer-clean (zero `%` token in the expr lexer today), keeps `#` subject-only. *Wart:*
-    `%` is already the config **`template:`** placeholder (`substitute_operands` in llm.rs: `%`=operand,
-    `%%`=literal, `%0/%1`=positional). That is a DIFFERENT layer (realisation/template strings, not
-    the expr lexer → **no parser collision**), but a config author would see `%` mean two things.
-    Fine *if* the doc flags the layer split.
-  - **`.`** (call-dot, `f.x`): familiar (method-call syntax everywhere), **no dual-meaning**, but the
-    lexer must disambiguate the decimal point (`3.14` = number between digits; `f.x` = apply between
-    non-digits — a standard lexer rule).
-  Either keeps `#` subject-only (no overload). **Harry's aesthetic + msm-0's parseability call.**
-  Consolidator lean: **`.`** now (zero dual-meaning, universally readable) *if* msm-0 confirms the
-  decimal rule is clean; else **`%`** with the layer split documented.
+until macros-that-build-forms (splice) land later. Final:
+- **form-quote = `{…}`** (LOCKED, Harry): `{a + b}` = the form, `(a + b)` = the value — code-as-data
+  braces vs grouping parens, zero lexer conflict.
+- **form-apply/eval = `%`** (PINNED — Harry reserved `.`; msm-0 parser-lead + team consensus):
+  `f%x` ≡ `f%[x,y]` ≡ `f%(x,y)`, infix, binds tighter than `,`. Lexer-clean (zero `%` expr token).
+  **Doc note:** `%` is also the config `template:` placeholder — a *different layer* (realisation
+  strings, not the expr lexer) → no parser collision; one glyph, two layers, documented so config
+  authors aren't surprised. (`\` is the one-token fallback if the dual-meaning ever bites.)
 - **holes = `$0 $1 …`** (reuse `$N`, D4) — no new sigil.
 - **deferred: macro-splice** (forms that build forms) → a 3rd glyph from the remaining free
-  set (`\` or `.`), pinned when macros land.
+  set (`\`, now that `.` is reserved), pinned when macros land.
 
 Net: the whole quote/eval/apply layer is **2 new glyphs (`{}` + `%`)**, both clean-free,
 with **zero migration and zero overload** — backtick, `#`, and `'` all stay exactly as they are.
