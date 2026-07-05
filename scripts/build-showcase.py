@@ -561,10 +561,6 @@ SIMPLE = [
          out="A Rust function intended to average an i32 slice, but its inclusive range (0..=xs.len()) "
              "causes an out-of-bounds index panic.     \u00b7     false",
          cap="cat avg.rs | nlir \u2014 the review pipe: ~ diagnoses the code straight off the pipe (nails the 0..= panic), then Harry's ~> returns a hard production-ready verdict \u2014 false"),
-    dict(name="commit-pipe", expr="~$_stdin", pill="llm · reads a git diff",
-         src="@@ job submit handler @@  + rate_limiter.check(user)  + job.set_priority(user.tier)  + metrics.incr('jobs.submitted')",
-         out="The diff adds rate limiting, tier-based job priority, and submission metrics to the job submission handler.",
-         cap="git diff | nlir -e '~$_stdin' \u2014 the commit message writes itself: the whole diff distilled to one line"),
     dict(name="code-concept", expr="#^!", pill="llm \u00b7 reads the agent's code stream",
          src="\u2039tool result\u203a  def fib(n):  if n<2: return n  return fib(n-1)+fib(n-2)",
          out="Recursive Fibonacci function",
@@ -577,6 +573,18 @@ SIMPLE = [
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
 GRID = [
+    # aur-0 — the smart-pipe era: one sigil (~) distils whatever you pipe into $_stdin (aur-2)
+    dict(name="distiller", expr="~$_stdin", pill="llm · one sigil, any pipe",
+         claim="the same expression on three very different pipes — a git diff, a compiler error, a stack trace",
+         cap="the distiller — `~$_stdin` distils whatever you pipe it: a diff becomes a commit message, a wall of compiler errors becomes the root cause, a stack trace becomes its one-line cause",
+         cols=1, cells=[
+             ("git diff | nlir -e '~$_stdin'   → a commit message",
+              "The diff adds rate limiting, tier-based job priority, and submission metrics to the job submission handler."),
+             ("cargo build 2>&1 | nlir -e '~$_stdin'   → the root cause",
+              "Rust compilation fails with two borrow-checker errors: an immutable `v` being mutated, and a mutable borrow conflicting with an existing immutable borrow."),
+             ("python worker.py 2>&1 | nlir -e '~$_stdin'   → the root cause",
+              "A batch-processing job crashed because a required \"weight\" key was missing from the payload during transformation."),
+         ]),
     dict(name="handoff", expr="k=@~0^*-1;[$k, ^_-1, ~$k]", pill="llm · hand off a whole thread",
          claim="a 5-turn incident thread — 500s after the 2pm deploy → 2026-expiry bug → hotfix + 'brief the VP'",
          cap="the handoff dossier — bind a formal brief, then emit it + what's still open + its own headline (msm-0 SELECT ∘ aur-0's self-reflection)",

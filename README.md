@@ -46,8 +46,8 @@ your own summary. Six communicative moves, a handful of sigils, reading your liv
 | `@'lmk if any Qs'` → a polished professional line | `'sixty'+'sixty'*'a fifth'` → `72` (a $60 bill + a 20% tip) |
 | ![right-associative pow](showcase/nlir-pow.png) | ![the executive summary](showcase/nlir-exec-summary.png) |
 | `2**3**2` → `512` (exponentiation, done right) | `@~x` → a rambling update becomes one crisp line |
-| ![the review pipe](showcase/nlir-review-pipe.png) | ![the commit pipe](showcase/nlir-commit-pipe.png) |
-| `cat foo.rs \| nlir -e '[~$_stdin, $_stdin~>"production-ready"]'` → a code diagnosis + a hard verdict | `git diff \| nlir -e '~$_stdin'` → the commit message writes itself |
+| ![the review pipe](showcase/nlir-review-pipe.png) | ![the distiller](showcase/nlir-distiller.png) |
+| `cat foo.rs \| nlir -e '[~$_stdin, $_stdin~>"production-ready"]'` → a code diagnosis + a hard verdict | `‹any› \| nlir -e '~$_stdin'` → a diff, a compiler error, or a stack trace — distilled to one line |
 
 The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
 [`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
