@@ -2696,6 +2696,18 @@ const SYNTAX_FORMS: &[(&str, &str, &str, &str)] = &[
         "force a subtree to run one-at-a-time (no parallelism)",
         "`",
     ),
+    (
+        "$map",
+        "map",
+        "apply a form to each list item: $map%({$0*$0},[1,2,3]) -> [1,4,9]",
+        "$map",
+    ),
+    (
+        "$fold",
+        "fold",
+        "reduce a list with a 2-arg form: $fold%({$0+$1},[1,2,3,4]) -> 10",
+        "$fold",
+    ),
 ];
 
 /// Build the Ctrl-P syntax palette: the grammar special forms first (quote,
