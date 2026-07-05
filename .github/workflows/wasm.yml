@@ -1,0 +1,78 @@
+name: wasm
+
+# nlir-wasm CI build home (epic bd-360d0c, P7 bd-c69da6 — aur-2 / CI lane).
+#
+# CI is the CANONICAL wasm build home: the shipped in-page evaluator is built here
+# from the SAME commit as the native binary (rustup + wasm32-unknown-unknown +
+# wasm-pack), so source-rustc author nodes never need a local wasm toolchain.
+#
+# GUARDED / EARLY: this job is a NO-OP until the P1 crate (bd-3fcf96) lands at
+# crates/nlir-wasm. The `detect` step gates every build step on the crate's
+# presence, so this can live on main now and AUTO-ACTIVATES as P1's build+smoke
+# home the moment the crate is scaffolded. P7-full (version-stamp enforcement +
+# embedding pkg/ into the published site + wasm-opt size trim) lands once the
+# evaluate/operators/version exports exist.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+
+jobs:
+  wasm-build:
+    name: wasm build + smoke
+    runs-on: [self-hosted, azure-ephemeral]
+    timeout-minutes: 30
+    steps:
+      - name: Reset leftover git url rewrite (persistent-runner hygiene)
+        shell: bash
+        run: git config --global --unset-all url."ssh://git@github.com/".insteadOf 2>/dev/null || true
+
+      - uses: actions/checkout@v4
+
+      - name: Detect the nlir-wasm crate (P1 bd-3fcf96)
+        id: detect
+        shell: bash
+        run: |
+          if [ -f crates/nlir-wasm/Cargo.toml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "nlir-wasm crate present — building the wasm package."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "nlir-wasm crate not present yet (P1 bd-3fcf96) — wasm build is a no-op until it lands."
+          fi
+
+      - name: Add the wasm32 target + wasm-pack
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: |
+          rustup target add wasm32-unknown-unknown
+          command -v wasm-pack >/dev/null 2>&1 || cargo install wasm-pack --locked
+
+      - name: Build the wasm package (same commit as the native binary)
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: |
+          cd crates/nlir-wasm
+          wasm-pack build --target web --out-dir pkg
+          ls -la pkg/
+
+      - name: Smoke — the build emitted the wasm + JS glue
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: |
+          # P1 acceptance: a browser smoke page runs det evaluate + step. That page
+          # is wired here (headless) once it lands; for now, assert the artifact.
+          wasm="$(find crates/nlir-wasm/pkg -maxdepth 1 -name '*_bg.wasm' | head -n1)"
+          test -n "$wasm" || { echo "no *_bg.wasm artifact produced"; exit 1; }
+          echo "wasm artifact: $wasm"
+          echo "det-mode browser smoke to be wired with the P1 smoke page."
