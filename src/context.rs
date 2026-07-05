@@ -316,6 +316,20 @@ impl Context {
         self.save()
     }
 
+    /// Insert `key = value` in memory ONLY, without write-through. For transient
+    /// keys (e.g. piped `_stdin`) that must be visible to evaluation but never
+    /// persisted to the store. Pair with [`Context::remove`] before any `save`.
+    pub fn set_transient(&mut self, key: impl Into<String>, value: Value) {
+        self.data.insert(key.into(), value);
+    }
+
+    /// Remove `key` in memory, returning its previous value if present. Used to
+    /// drop a transient key (e.g. `_stdin`) before write-through so it is never
+    /// persisted to the store.
+    pub fn remove(&mut self, key: &str) -> Option<Value> {
+        self.data.remove(key)
+    }
+
     /// Append a `{role, content}` entry to the `_messages` array (creating it if
     /// absent), then write through. Field names honour config
     /// `messages.role_field` / `messages.content_field`.

@@ -437,6 +437,25 @@ fn fixity_label(fixity: nlir::config::Fixity) -> &'static str {
 }
 
 /// `nlir -e 'EXPR'` — SKELETON identity passthrough (bd-57ad92).
+/// Smart-pipe support (Harry's agentic-coding direction): when stdin is piped
+/// (not a TTY), read it into the reserved `_stdin` context key so nlir works in
+/// a pipeline — `cat foo.rs | nlir -e '<expr using $_stdin>'`. Returns whether
+/// stdin was injected (so the caller drops it before write-through). A no-op on a
+/// terminal stdin or empty input; set in memory only (never persisted).
+fn read_stdin_into_context(ctx: &mut nlir::context::Context) -> bool {
+    use std::io::{IsTerminal, Read};
+    if std::io::stdin().is_terminal() {
+        return false;
+    }
+    let mut buf = String::new();
+    if std::io::stdin().read_to_string(&mut buf).is_ok() && !buf.is_empty() {
+        let content = buf.strip_suffix('\n').unwrap_or(&buf).to_string();
+        ctx.set_transient("_stdin", serde_json::Value::String(content));
+        return true;
+    }
+    false
+}
+
 fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     let cfg = resolve_config(cli)?;
     let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
@@ -445,6 +464,9 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
         return run_dry_run(cli, &cfg, expr, settings.mode);
     }
     let mut ctx = open_context(cli)?;
+    // Smart-pipe: expose piped stdin as the reserved `$_stdin` context key so
+    // `cat foo.rs | nlir -e '<expr>'` works (Harry's agentic-coding direction).
+    let piped_stdin = read_stdin_into_context(&mut ctx);
     // Evaluate against a MUTABLE context (assignments write through).
     let result = nlir::eval::evaluate(expr, &cfg, &mut ctx, settings.mode);
     // Read `_sep` AFTER eval so a `_sep=` assignment affects rendering.
@@ -452,6 +474,10 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     match result {
         Ok(value) => {
             let rendered = value.render(&sep);
+            // Never persist the transient piped `_stdin` to the store.
+            if piped_stdin {
+                ctx.remove("_stdin");
+            }
             // Persist context writes from this run (SPEC: writes are
             // write-through; a transient store saves as a no-op).
             if let Err(error) = ctx.save() {
