@@ -191,6 +191,27 @@ The register axis (`@`↔`:`) applied as a FORK, not a dial (cf. `20-phrasing`):
 register — ship both, the same fact for two readers in a single send. SELECT one turn, TRANSFORM it
 two ways, JOIN.
 
+### THE GRADUATED EXPLAINER — `[~^-1, ^-1, >^-1]`
+The DEPTH dial (sibling of the register dial): the same turn at three zoom levels in ONE message —
+gist (`~`) · verbatim (`^-1`) · deep-dive (`>`) — so the reader picks how far to read. SELECT one turn,
+TRANSFORM it three ways along the information axis, list. Real capture on the realiser-seam turn:
+> [gist] The nlir evaluator uses an injectable async realiser trait to separate its pure evaluation
+> core from platform-specific effects, letting the same evaluator run against both native (HTTP/bash)
+> and browser (JS callback) backends.
+>
+> [verbatim] The realiser seam abstracts the effectful half of nlir evaluation behind an injectable
+> async trait, so one evaluator serves both the native CLI (which calls HTTP and bash directly) and
+> the browser (which calls JavaScript callbacks), without the pure evaluation core ever depending on
+> either backend.
+>
+> [deep-dive] The realiser seam is the architectural boundary that cleanly separates the effectful
+> half of nlir evaluation — the portions that must reach out and perform side effects, such as issuing
+> network requests or executing shell processes — from the pure, deterministic core … all the messy,
+> environment-dependent effect-handling is pushed out to the edges of the system. [3 paragraphs]
+
+Where the dual-register brief forks on REGISTER (`@`↔`:`, *who* reads), this forks on DEPTH
+(`~`↔verbatim↔`>`, *how much* they read) — the two independent axes of "one message, many readers".
+
 ## Gotchas (verified with aur-0's QA)
 - **`=` binds an EXPRESSION, so quote string values with operators or spaces.** `_sep=--`
   parse-errors ("operator - not valid in prefix position"); write `_sep='--'` (or escape: `_sep=\-\-`).
