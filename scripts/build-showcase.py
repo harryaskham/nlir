@@ -308,6 +308,15 @@ SIMPLE = [
              "is approved.",
          cap="the review verdict — @&[GOOD, GAP, FIX, VERDICT] weaves a fair code-review comment: what's "
              "strong, what's missing, the fix, and the call. Firm but constructive"),
+    dict(name="risk-heads-up",
+         expr="@&['our TLS certificates expire in 8 days','renewal needs a manual DNS change that takes "
+              "48 hours to propagate','let me start the renewal today so we have buffer']",
+         pill="llm · claude-sonnet-5",
+         out="Our TLS certificates are set to expire in eight days. Renewal requires a manual DNS change, "
+             "which takes up to 48 hours to propagate. To maintain an adequate buffer, I recommend "
+             "initiating the renewal process today.",
+         cap="the risk heads-up — @&[RISK, WHY_NOW, RECOMMENDATION] raises a risk before it bites: what's "
+             "at risk, why it's urgent now, and the concrete action you recommend"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
