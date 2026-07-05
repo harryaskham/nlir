@@ -466,6 +466,10 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
             "apply a form to arguments: {$0+1}%5 → 6; f%(x,y) binds $0=x, $1=y (a form's own arg-frame).",
         ),
         (
+            "({form}_N)",
+            "do-N-times: compose a form N times, then apply — ({$0+1}_3)%5 → 8 (add 1 thrice). Parens needed: % binds tighter than _.",
+        ),
+        (
             "\" \" / ' '",
             "strings: \"double\" interpolates $name; 'single' is literal.",
         ),
