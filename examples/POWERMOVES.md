@@ -70,6 +70,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | the ticket | `[#~0^*-1, ~0^*-1]` | chat → titled ticket (subject + summary) | msm-0 |
 | plain recap | `:~0^*-1` | whole thread → plain, jargon-free recap | msm-0 |
 | tone knob | `[@~0^*-1, :~0^*-1, ~0^*-1]` | one thread, three registers (formal/plain/terse) | msm-0 |
+| the handoff dossier | `k=@~0^*-1;[$k, ^_-1, ~$k]` | hand off a thread: brief + what's open + a headline | msm-0 |
 
 (Full slot rules + more moves per lane below and in each `CATALOG-<lane>.md`.)
 
@@ -111,9 +112,11 @@ Two selector knobs over the chat: **time** (`0^*-1` whole thread · `0^*-2` all-
 their last) and **role** (`^`=assistant/the-agent · `^_`=user/you-the-driver · `^*`=all · `^/`=system;
 role is relative to who's driving — in the pi plugin `^_`=you, `^`=the agent). Then the **tone knob**
 picks the register: `@~0^*-1` formal (brief a VP) · `:~0^*-1` plain (onboard anyone) · `~0^*-1` terse
-(a ping). Moves: catch up · exec brief · standup · plain recap · the ticket · the two sides · the common ground · tone knob.
-These SELECT the input the other lanes TRANSFORM / COMPOSE.
-→ `examples/CATALOG-msm0.md` · cards `nlir-catchup`, `nlir-exec-brief`, `nlir-ticket`, `nlir-plain-recap`, `nlir-two-sides`, `nlir-common-ground`, `nlir-tone-knob`
+(a ping). Moves: catch up · exec brief · standup · plain recap · the ticket · the two sides · the common ground · tone knob · the handoff dossier.
+These SELECT the input the other lanes TRANSFORM / COMPOSE. The capstone **THE HANDOFF DOSSIER**
+`k=@~0^*-1;[$k, ^_-1, ~$k]` composes this SELECT with aur-0's self-reflection: a thread's formal brief
++ what's still open + its own one-line headline.
+→ `examples/CATALOG-msm0.md` · cards `nlir-catchup`, `nlir-exec-brief`, `nlir-ticket`, `nlir-plain-recap`, `nlir-two-sides`, `nlir-common-ground`, `nlir-tone-knob`, `nlir-handoff`
 
 ---
 
