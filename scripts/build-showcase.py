@@ -360,6 +360,19 @@ SIMPLE = [
              "currently operating at 90 percent capacity.",
          cap="the briefed handoff — @&[TASK, ~LONG_REF, PRIORITY]: the ~ slot DIGESTS a long backstory "
              "into the handoff, so the recipient gets the task, the compressed context, and the priority"),
+    dict(name="bluf",
+         expr="[~&['the q3 launch slips two weeks','the payments integration failed its security review',"
+              "'we need three more days of QA plus a re-review'],@&['the q3 launch slips two weeks',"
+              "'the payments integration failed its security review','we need three more days of QA plus "
+              "a re-review']]",
+         pill="llm · claude-sonnet-5",
+         out="[headline] The Q3 launch is delayed by roughly two weeks due to a failed payments security "
+             "review, requiring three more days of QA and re-review.  [full] The Q3 launch will be "
+             "delayed by two weeks. Additionally, the payments integration did not pass its security "
+             "review; three additional days of quality assurance testing, followed by a subsequent "
+             "re-review, will be required.",
+         cap="the BLUF (bottom line up front) — [~&[FACTS], @&[FACTS]]: a skimmable one-line headline "
+             "first (~&), then the full formal detail (@&). Same facts — skim on top, depth below"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
