@@ -132,6 +132,44 @@ pub fn evaluate(
     Evaluator::new(config, context, mode).run(&program)
 }
 
+/// Parse `expr` and return its small-step reduction trace as rendered strings:
+/// the initial expression, then each one-redex reduction, ending at the final
+/// value (bd-9c366d, Harry's "step through an expansion to learn the language"
+/// ask). Deterministic operators reduce instantly; each LLM operator step makes
+/// one realisation call. Powers `nlir step` and the REPL Tab step-through.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub fn step_trace(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+) -> Result<Vec<String>, EvalError> {
+    let sigils = crate::config::operator_sigils(config);
+    let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
+        EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
+    })?;
+    let program = parser::parse_program(&tokens, &config.operators)
+        .map_err(|error| EvalError::Parse(error.to_string()))?;
+    let mut evaluator = Evaluator::new(config, context, mode);
+    let mut steps = Vec::new();
+    for statement in &program.statements {
+        let mut current = statement.clone();
+        steps.push(current.render_step());
+        while let Step::Reduced(next) = evaluator.step_once(&current)? {
+            current = next;
+            steps.push(current.render_step());
+        }
+        // Push each statement's final value so later `;`-statements can read it
+        // off the stack (mirrors `Evaluator::run`).
+        if let Some(value) = as_value(&current) {
+            evaluator.stack.push(value);
+        }
+    }
+    Ok(steps)
+}
+
 /// The operand-first evaluator: a config + context + a run-scoped stack. The
 /// context is mutable so `key=RHS` assignment can write through (SPEC: context
 /// writes happen immediately).
@@ -148,6 +186,42 @@ pub struct Evaluator<'a> {
     /// identical subcalls when `_cache` is on (bd-1d078c). Behind a `Mutex` so
     /// concurrently-evaluated operand subtrees share one cache (bd-780dbf).
     realise_cache: std::sync::Mutex<std::collections::HashMap<String, Value>>,
+}
+
+/// The outcome of a single small-step reduction ([`Evaluator::step_once`],
+/// bd-9c366d).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Step {
+    /// One redex was reduced; the tree rewritten with that node replaced (a
+    /// reduced sub-expression is spliced back as [`Expr::Value`]). Call
+    /// `step_once` again to keep reducing.
+    Reduced(Expr),
+    /// `expr` was already a fully-reduced value; nothing left to reduce.
+    Done(Value),
+}
+
+/// The already-reduced [`Value`] of an expression node, if it is one. Literals
+/// count as values (so a literal never wastes a visible reduction step), as does
+/// a `Group`/`Serial`/`List` all of whose children are values. Reads (`$`, `^`),
+/// interpolating quotes, assignments, and operator applications are NOT yet
+/// values — they each take a step.
+fn as_value(expr: &Expr) -> Option<Value> {
+    match expr {
+        Expr::Value(v) => Some(v.clone()),
+        Expr::Bare(s) => Some(Value::string(s.clone())),
+        Expr::Number(n) => Some(Value::number(*n)),
+        Expr::Quoted {
+            content,
+            interpolate: false,
+        } => Some(Value::string(content.clone())),
+        Expr::Group(inner) | Expr::Serial(inner) => as_value(inner),
+        Expr::List(items) => items
+            .iter()
+            .map(as_value)
+            .collect::<Option<Vec<_>>>()
+            .map(Value::list),
+        _ => None,
+    }
 }
 
 impl<'a> Evaluator<'a> {
@@ -180,6 +254,87 @@ impl<'a> Evaluator<'a> {
             last = Some(value);
         }
         last.ok_or(EvalError::EmptyProgram)
+    }
+
+    /// Reduce the leftmost-innermost redex of `expr` by exactly one step
+    /// (bd-9c366d, "learn the language" step-through). Returns [`Step::Reduced`]
+    /// with the rewritten tree — one node replaced by its [`Value`], spliced
+    /// back as [`Expr::Value`] so the surrounding expression can keep reducing —
+    /// or [`Step::Done`] when `expr` is already a value. Deterministic operators
+    /// reduce instantly; each LLM operator application is a single step (one
+    /// realisation). Powers `nlir step` + the REPL Tab step-through.
+    ///
+    /// # Errors
+    /// Propagates any [`EvalError`] from evaluating the reduced node.
+    pub fn step_once(&mut self, expr: &Expr) -> Result<Step, EvalError> {
+        if let Some(value) = as_value(expr) {
+            return Ok(Step::Done(value));
+        }
+        Ok(Step::Reduced(self.reduce(expr)?))
+    }
+
+    /// One reduction of a non-value node: recurse into the leftmost non-value
+    /// child and step it; once every child is a value, evaluate this node and
+    /// replace it with the resulting [`Expr::Value`].
+    fn reduce(&mut self, expr: &Expr) -> Result<Expr, EvalError> {
+        match expr {
+            // A read / interpolating quote resolves to its value in one step.
+            Expr::ContextRead(_)
+            | Expr::StackPeek
+            | Expr::StackIndex(_)
+            | Expr::Message { .. }
+            | Expr::MessageRange { .. }
+            | Expr::Quoted {
+                interpolate: true, ..
+            } => Ok(Expr::Value(self.eval(expr)?)),
+            // Grouping/serial: step the inner subtree, preserving the wrapper
+            // until its inner becomes a value (then `as_value` absorbs it).
+            Expr::Group(inner) => Ok(Expr::Group(Box::new(self.reduce(inner)?))),
+            Expr::Serial(inner) => Ok(Expr::Serial(Box::new(self.reduce(inner)?))),
+            // List: reduce the leftmost non-value item.
+            Expr::List(items) => {
+                let mut items = items.clone();
+                if let Some(i) = items.iter().position(|it| as_value(it).is_none()) {
+                    items[i] = self.reduce(&items[i])?;
+                }
+                Ok(Expr::List(items))
+            }
+            // Assignment: reduce the RHS; once it is a value, perform the write.
+            Expr::Assign { key, value } => {
+                if as_value(value).is_some() {
+                    Ok(Expr::Value(self.eval(expr)?))
+                } else {
+                    Ok(Expr::Assign {
+                        key: key.clone(),
+                        value: Box::new(self.reduce(value)?),
+                    })
+                }
+            }
+            // Application: reduce the leftmost non-value operand; once all
+            // operands are values, apply the operator (one realisation).
+            Expr::Apply {
+                op,
+                fixity,
+                operands,
+            } => {
+                if let Some(i) = operands.iter().position(|o| as_value(o).is_none()) {
+                    let mut operands = operands.clone();
+                    operands[i] = self.reduce(&operands[i])?;
+                    Ok(Expr::Apply {
+                        op: op.clone(),
+                        fixity: *fixity,
+                        operands,
+                    })
+                } else {
+                    Ok(Expr::Value(self.eval(expr)?))
+                }
+            }
+            // Literals / already-reduced values are caught by `as_value` before
+            // `reduce` is reached; evaluate defensively for exhaustiveness.
+            Expr::Value(_) | Expr::Bare(_) | Expr::Number(_) | Expr::Quoted { .. } => {
+                Ok(Expr::Value(self.eval(expr)?))
+            }
+        }
     }
 
     /// The active list/message-range separator (`_sep`).
@@ -237,6 +392,8 @@ impl<'a> Evaluator<'a> {
                 Ok(assigned)
             }
             Expr::Apply { op, operands, .. } => self.eval_apply(op, operands),
+            // A value spliced in by step-through evaluation is already reduced.
+            Expr::Value(value) => Ok(value.clone()),
         }
     }
 
@@ -586,6 +743,8 @@ fn is_parallel_safe(expr: &Expr) -> bool {
         Expr::Apply { operands, .. } => {
             !operands.is_empty() && operands.iter().all(is_parallel_safe)
         }
+        // A reduced value is pure (no context write, no stack, no op).
+        Expr::Value(_) => true,
     }
 }
 
@@ -706,6 +865,8 @@ fn eval_parallel_safe(
                 op, op_cfg, &coerced, &grouped, &sep, mode, config, cache_on, cache,
             )
         }
+        // A value spliced in by step-through evaluation is already reduced.
+        Expr::Value(value) => Ok(value.clone()),
         // is_parallel_safe excludes these; defensive.
         Expr::Assign { .. } | Expr::StackPeek | Expr::StackIndex(_) => Err(EvalError::Unsupported(
             "non-parallel-safe node reached the parallel eval path".to_owned(),
@@ -1128,6 +1289,32 @@ operators:
             evaluate("1/0", &cfg, &mut ctx, Mode::Det),
             Err(EvalError::Realise(_))
         ));
+    }
+
+    #[test]
+    fn step_trace_reduces_innermost_redex_first() {
+        // Step-through (bd-9c366d): in the test config arithmetic is
+        // left-associative equal-precedence, so `2+3*4` parses as `((2+3)*4)`;
+        // the inner `2+3` reduces before the outer `*`, ending at the final
+        // value. Reduced sub-expressions render in guillemets.
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        let steps = step_trace("2+3*4", &cfg, &mut ctx, Mode::Det).expect("step trace");
+        assert_eq!(steps.first().map(String::as_str), Some("(2 + 3) * 4"));
+        assert!(
+            steps.iter().any(|s| s == "\u{ab}5\u{bb} * 4"),
+            "expected an intermediate `\u{ab}5\u{bb} * 4` step, got {steps:?}"
+        );
+        assert_eq!(steps.last().map(String::as_str), Some("\u{ab}20\u{bb}"));
+    }
+
+    #[test]
+    fn step_trace_of_a_literal_is_a_single_already_reduced_step() {
+        // A literal is already a value: no reduction, just the rendered literal.
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        let steps = step_trace("'hi'", &cfg, &mut ctx, Mode::Det).expect("step trace");
+        assert_eq!(steps, vec!["hi".to_owned()]);
     }
 
     #[test]

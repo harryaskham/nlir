@@ -23,6 +23,7 @@ use std::fmt;
 
 use crate::config::{Assoc, Fixity, OperatorConfig};
 use crate::lexer::{MessageRole, Token};
+use crate::value::Value;
 
 /// Default operator priority when the config leaves it unset. Per SPEC's
 /// precedence ladder the default is per-fixity so the coarse ordering holds
@@ -91,6 +92,12 @@ pub enum Expr {
         fixity: Fixity,
         operands: Vec<Expr>,
     },
+    /// A reduced value spliced back into the tree by the small-step evaluator
+    /// (`nlir step` / REPL step-through, bd-9c366d): an already-evaluated
+    /// [`Value`] standing in for a sub-expression that has been reduced, so the
+    /// surrounding expression can keep reducing one redex at a time. The parser
+    /// never emits this variant; only [`crate::eval::Evaluator::step_once`] does.
+    Value(Value),
 }
 
 impl Expr {
@@ -98,6 +105,9 @@ impl Expr {
     #[must_use]
     pub fn render(&self) -> String {
         match self {
+            // A reduced value: rendered in guillemets so a partially-reduced
+            // expression visibly distinguishes what has already been evaluated.
+            Expr::Value(v) => format!("\u{ab}{v}\u{bb}"),
             Expr::Bare(s) => s.clone(),
             Expr::Quoted { content, .. } => content.clone(),
             Expr::Number(n) => {
@@ -140,6 +150,27 @@ impl Expr {
                     format!("({op} {})", parts.join(" "))
                 }
             },
+        }
+    }
+
+    /// A reader-friendly rendering for step-through display (bd-9c366d): like
+    /// [`Expr::render`] but without the single redundant outermost parenthesis
+    /// pair the structural AST dump wraps compound nodes in, so a
+    /// mid-reduction expression reads naturally (`((2 + 3) * 4)` -> `(2 + 3) *
+    /// 4`). Inner grouping is preserved — it faithfully shows evaluation order.
+    #[must_use]
+    pub fn render_step(&self) -> String {
+        match self {
+            // render() wraps these in one matched outer `(...)`; peel just that
+            // pair. Inner parens (and list `[...]`) are left intact.
+            Expr::Apply { .. } | Expr::Assign { .. } | Expr::Serial(_) => {
+                let full = self.render();
+                full.strip_prefix('(')
+                    .and_then(|s| s.strip_suffix(')'))
+                    .map(str::to_owned)
+                    .unwrap_or(full)
+            }
+            _ => self.render(),
         }
     }
 }

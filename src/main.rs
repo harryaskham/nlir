@@ -101,6 +101,8 @@ impl From<CliMode> for nlir::Mode {
 enum Command {
     /// Tokenise/parse a shorthand expression and print the parse (no eval).
     Parse(ParseArgs),
+    /// Step-through: print EXPR then each reduction, one redex at a time.
+    Step(StepArgs),
     /// Run the config-defined test suite.
     Test,
     /// Print a config-derived reference of every operator + a one-line summary.
@@ -128,6 +130,13 @@ enum Command {
 #[derive(Debug, Args)]
 struct ParseArgs {
     /// The shorthand expression to parse.
+    #[arg(value_name = "EXPR", allow_hyphen_values = true)]
+    expr: String,
+}
+
+#[derive(Debug, Args)]
+struct StepArgs {
+    /// The shorthand expression to step through.
     #[arg(value_name = "EXPR", allow_hyphen_values = true)]
     expr: String,
 }
@@ -220,6 +229,7 @@ fn run(cli: Cli) -> Result<(), i32> {
     }
     match cli.command {
         Some(Command::Parse(ref args)) => run_parse(&cli, args),
+        Some(Command::Step(ref args)) => run_step(&cli, args),
         Some(Command::Test) => run_test(&cli),
         Some(Command::Help) => run_help(&cli),
         Some(Command::Repl(ref args)) => run_repl(&cli, args),
@@ -233,7 +243,7 @@ fn run(cli: Cli) -> Result<(), i32> {
             Some(ref expr) => run_eval(&cli, expr),
             None => {
                 eprintln!(
-                    "nlir: pass -e 'EXPR' to evaluate, or a subcommand (parse|test|help|repl|set|get|append-message|mcp|self-update|feedback). See --help."
+                    "nlir: pass -e 'EXPR' to evaluate, or a subcommand (parse|step|test|help|repl|set|get|append-message|mcp|self-update|feedback). See --help."
                 );
                 Err(2)
             }
@@ -632,6 +642,40 @@ fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
         );
     }
     Ok(())
+}
+
+/// `nlir step 'EXPR'` — small-step "step-through": print the initial expression,
+/// then each reduction one redex at a time, ending at the final value
+/// (bd-9c366d, Harry's learn-the-language ask). The non-interactive companion to
+/// the REPL Tab step-through. Deterministic ops reduce instantly; each LLM op is
+/// one step (one realisation) under `--mode llm`.
+fn run_step(cli: &Cli, args: &StepArgs) -> Result<(), i32> {
+    let cfg = resolve_config(cli)?;
+    let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
+    let mut ctx = open_context(cli)?;
+    match nlir::eval::step_trace(&args.expr, &cfg, &mut ctx, settings.mode) {
+        Ok(steps) => {
+            // Assignments write through during stepping; persist them.
+            if let Err(error) = ctx.save() {
+                eprintln!("nlir: context write-through: {error}");
+                return Err(1);
+            }
+            // The initial expression, then each reduction, arrow-led so the
+            // expansion reads top-to-bottom.
+            for (i, step) in steps.iter().enumerate() {
+                if i == 0 {
+                    println!("    {step}");
+                } else {
+                    println!("  \u{2192} {step}");
+                }
+            }
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("nlir step: {error}");
+            Err(1)
+        }
+    }
 }
 
 fn run_test(cli: &Cli) -> Result<(), i32> {
