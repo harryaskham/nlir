@@ -296,6 +296,18 @@ GRID = [
               "than memory-safety issues, so hardening the existing code is likely more cost-effective than a risky, "
               "time-consuming full rewrite."),
          ]),
+    dict(name="steelman-reply", expr="[~>@^-1, @(!^-1 & '<your grounds>')]", pill="llm · steelman, then declines",
+         claim="[agent] break the monolith into microservices — each team deploys independently, and the hot paths scale separately",
+         cap="the steelman reply \u2014 argue their idea at its STRONGEST first (~>@^-1), THEN give your reasoned no "
+             "(@(!^-1 & '…')). charity before dissent \u2014 the fair-minded twin of the honest yes. reusable when "
+             "you disagree but want to be fair.",
+         cols=1, cells=[
+             ("~>@^-1  their case, fairly", "Migrating from a monolith to microservices enables independent "
+              "deployments and targeted scaling \u2014 boosting development velocity and resource efficiency."),
+             ("@(!^-1 & '…')  your reasoned no", "We recommend against it: with only four engineers, the "
+              "operational overhead of microservices would overwhelm us before any of those benefits \u2014 independent "
+              "deploys, separate scaling \u2014 could be realized."),
+         ]),
 ]
 
 # --- lightweight nlir syntax highlighter --------------------------------------
