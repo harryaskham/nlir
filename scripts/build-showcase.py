@@ -308,6 +308,18 @@ GRID = [
               "operational overhead of microservices would overwhelm us before any of those benefits \u2014 independent "
               "deploys, separate scaling \u2014 could be realized."),
          ]),
+    dict(name="counter-offer", expr="[@(!^-1 & '<grounds>'), @'<the alternative you'd back>']",
+         pill="llm · decline, then offer a path",
+         claim="[agent] rewrite the whole frontend in the new framework — clean slate, modern tooling, no legacy baggage",
+         cap="the counter-offer \u2014 decline on your grounds (@(!^-1 & '…')), THEN put a concrete alternative you'd "
+             "back (@'…'). the constructive no: 'not that, because Y \u2014 here's what I'd do instead.' reusable to "
+             "redirect any proposal without just blocking it.",
+         cols=1, cells=[
+             ("@(!^-1 & '…')  the decline", "We should refrain from a full frontend rewrite: it would halt feature "
+              "development for months and risk reintroducing bugs we have already resolved."),
+             ("@'…'  the alternative", "Migrate incrementally \u2014 one route at a time, behind a feature flag \u2014 so "
+              "features keep shipping throughout the process."),
+         ]),
 ]
 
 # --- lightweight nlir syntax highlighter --------------------------------------
