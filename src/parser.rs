@@ -332,8 +332,13 @@ fn flatten_mixfix(op: String, lhs: Expr, rhs: Expr) -> Expr {
 }
 
 /// Maximum parser recursion depth; deeper nesting returns a clean parse error
-/// instead of overflowing the stack on adversarial input (fuzz-found).
-const MAX_PARSE_DEPTH: usize = 256;
+/// instead of overflowing the stack on adversarial input (fuzz-found). Kept low
+/// enough that `MAX_PARSE_DEPTH` × the parser frame fits a conservative thread
+/// stack (~512KB): a 256-paren input must ERROR, not overflow, on a small-stack
+/// caller (wasm / spawned test threads), not just the 8MB CLI main thread
+/// (bd-… — aur-0's fuzz stack-overflow find). Real nlir expressions never nest
+/// anywhere near this deep.
+const MAX_PARSE_DEPTH: usize = 96;
 
 struct Parser<'a> {
     tokens: &'a [Token],
@@ -772,12 +777,25 @@ mod tests {
             corpus.push(s);
         }
 
-        for input in &corpus {
-            // tokenize must not panic; on Ok, parse_program must not panic.
-            if let Ok(tokens) = tokenize(input, &sigils) {
-                let _ = parse_program(&tokens, &ops);
-            }
-        }
+        // Parse on a thread with an explicit large stack: this corpus
+        // intentionally probes deep nesting (`"(".repeat(500)` etc.), which
+        // recurses to MAX_PARSE_DEPTH before erroring — depth × the parser frame
+        // can exceed the default ~2MB test-thread stack on some targets (aur-0's
+        // fuzz stack-overflow find), so give it headroom to be deterministic
+        // across runners. The depth guard still bounds real callers.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || {
+                for input in &corpus {
+                    // tokenize must not panic; on Ok, parse_program must not panic.
+                    if let Ok(tokens) = tokenize(input, &sigils) {
+                        let _ = parse_program(&tokens, &ops);
+                    }
+                }
+            })
+            .expect("spawn fuzz thread")
+            .join()
+            .expect("fuzz thread must not panic");
     }
 
     #[test]
