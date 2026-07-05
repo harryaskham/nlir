@@ -1059,24 +1059,34 @@ fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
 /// the REPL Tab step-through. Deterministic ops reduce instantly; each LLM op is
 /// one step (one realisation) under `--mode llm`.
 fn run_step(cli: &Cli, args: &StepArgs) -> Result<(), i32> {
+    use std::io::Write;
     let cfg = resolve_config(cli)?;
     let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
     let mut ctx = open_context(cli)?;
-    match nlir::eval::step_trace(&args.expr, &cfg, &mut ctx, settings.mode) {
-        Ok(steps) => {
+    // Stream each step as it is produced — the initial statement, then one per
+    // reduction, arrow-led — rather than collecting the whole trace and dumping it
+    // at the end. In llm mode each reduction is a realiser call, so it now prints
+    // the instant that step resolves (live per-step streaming, bd-89eb89).
+    let mut out = std::io::stdout();
+    let mut idx = 0usize;
+    let result =
+        nlir::eval::step_trace_streaming(&args.expr, &cfg, &mut ctx, settings.mode, |step| {
+            if idx == 0 {
+                let _ = writeln!(out, "    {step}");
+            } else {
+                let _ = writeln!(out, "  \u{2192} {step}");
+            }
+            // Flush per step so llm-mode reductions appear as they resolve, not
+            // buffered until the end.
+            let _ = out.flush();
+            idx += 1;
+        });
+    match result {
+        Ok(()) => {
             // Assignments write through during stepping; persist them.
             if let Err(error) = ctx.save() {
                 eprintln!("nlir: context write-through: {error}");
                 return Err(1);
-            }
-            // The initial expression, then each reduction, arrow-led so the
-            // expansion reads top-to-bottom.
-            for (i, step) in steps.iter().enumerate() {
-                if i == 0 {
-                    println!("    {step}");
-                } else {
-                    println!("  \u{2192} {step}");
-                }
             }
             Ok(())
         }
