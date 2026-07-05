@@ -19,25 +19,40 @@
 
 const LS_KEY = 'nlir.workspace.v1';
 
-const DEFAULT_CONFIG = `# nlir config (excerpt) — the operators the workspace knows.
-# Reset restores this; the real build seeds the full config.example.yaml.
+// The FULL operator set in the real name-keyed schema (operators keyed by NAME,
+// sigil in `op:`) so the wasm evaluator actually parses it — the old sigil-keyed
+// excerpt failed to parse (`unknown field name`), which is why the ops list only
+// showed a few operators (bd-799000). Reset restores this; on the live build the
+// workspace fetches the full config.example.yaml (which also seeds prompts+types).
+// `demo` is a placeholder model so det-mode + the ops list work offline; llm mode
+// uses the fetched config or the Settings BYO endpoint.
+const DEFAULT_CONFIG = `# nlir config (workspace default) — the full operator set, offline-parseable.
+# Reset restores this; the live site fetches the complete config.example.yaml.
+models:
+  demo: { type: command, format: text, command: "echo %" }
+defaults:
+  mode: det
+  model: { small: demo, medium: demo, large: demo }
 operators:
-  "@": { name: formal,   fixity: prefix,  arity: 1, priority: 30, prompt: "Rewrite in a formal register: {NLIR_ARGS}" }
-  "~": { name: summary,  fixity: prefix,  arity: 1, priority: 30, prompt: "Give the essence of: {NLIR_ARGS}" }
-  ":": { name: simplify, fixity: prefix,  arity: 1, priority: 30, prompt: "Strip jargon from: {NLIR_ARGS}" }
-  ">": { name: expand,   fixity: prefix,  arity: 1, priority: 30, prompt: "Elaborate: {NLIR_ARGS}" }
-  "<": { name: shorten,  fixity: prefix,  arity: 1, priority: 30, prompt: "Shorten, keep every fact: {NLIR_ARGS}" }
-  "#": { name: subject,  fixity: prefix,  arity: 1, priority: 30, prompt: "The subject/category of: {NLIR_ARGS}" }
-  "!": { name: not,      fixity: prefix,  arity: 1, priority: 40, template: "not ({NLIR_ARGS})" }
-  "?": { name: question, fixity: postfix, arity: 1, priority: 40, template: "{NLIR_ARGS}?" }
-  "&": { name: and,      fixity: infix,   arity: 2, priority: 10, join: " and " }
-  "|": { name: or,       fixity: infix,   arity: 2, priority: 10, join: " or " }
-  "+": { name: add,      fixity: infix,   arity: 2, priority: 20, reduce: add }
-  "-": { name: subtract, fixity: infix,   arity: 2, priority: 20, reduce: sub }
-  "*": { name: multiply, fixity: infix,   arity: 2, priority: 21, reduce: mul }
-  "/": { name: divide,   fixity: infix,   arity: 2, priority: 21, reduce: div }
-  "**":{ name: power,    fixity: infix,   arity: 2, priority: 22, reduce: pow, assoc: right }
-  "_": { name: echo,     fixity: infix,   arity: 2, priority: 22, command: "for i in $(seq \${NLIR_ARGS[1]}); do echo \${NLIR_ARGS[0]}; done" }
+  subject:  { op: "#",  fixity: prefix,  arity: 1,   model: medium, prompt: "Subject of: %", description: "topic label — folds a list to its shared category" }
+  summary:  { op: "~",  fixity: prefix,  arity: 1,   model: medium, prompt: "Summarise: %", description: "the gist/essence — saturates, folds to consensus" }
+  formal:   { op: "@",  fixity: prefix,  arity: 1,   model: medium, prompt: "Formal register: %", description: "formal register — saturates, distributes over &" }
+  simplify: { op: ":",  fixity: prefix,  arity: 1,   model: medium, prompt: "Plain language: %", description: "plain language — reliably maps over a list" }
+  expand:   { op: ">",  fixity: prefix,  arity: 1,   model: medium, prompt: "Elaborate: %", description: "expand — forks over |, integrates over &" }
+  shorten:  { op: "<",  fixity: prefix,  arity: 1,   model: medium, prompt: "Shorten, keep every fact: %", description: "shorten to the info floor (vs ~ = the gist)" }
+  diff:     { op: "Δ",  fixity: infix,   arity: 2,   model: medium, prompt: "What changed, first to second: %", description: "directional diff — non-commutative" }
+  implies:  { op: "~>", fixity: infix,   arity: 2,   model: medium, prompt: "Does the first imply the second? %", description: "implication check — integrates over &" }
+  imply:    { op: "~>?",fixity: mixfix,  arity: ">0",model: medium, prompt: "What do these imply? %", description: "implication inference — integrates over &" }
+  not:      { op: "!",  fixity: prefix,  arity: 1,   template: "not (%)", description: "negate, clause-wise (involution: !!a = a)" }
+  question: { op: "?",  fixity: postfix, arity: 1,   priority: 40, template: "%?", description: "turn into a question (postfix)" }
+  and:      { op: "&",  fixity: mixfix,  arity: ">0", join: " and ", description: "join as a plan (nullary & folds the stack)" }
+  or:       { op: "|",  fixity: mixfix,  arity: ">0", join: " or ", description: "a genuine choice between options" }
+  add:      { op: "+",  fixity: mixfix,  arity: ">0", priority: 11, operands: number, result: number, reduce: add, description: "numeric addition (variadic)" }
+  subtract: { op: "-",  fixity: infix,   arity: 2,   priority: 11, operands: number, result: number, reduce: sub, description: "numeric subtract (left-assoc: 2-3-4 = -5)" }
+  multiply: { op: "*",  fixity: mixfix,  arity: ">0", priority: 12, operands: number, result: number, reduce: mul, description: "numeric multiply (variadic)" }
+  divide:   { op: "/",  fixity: infix,   arity: 2,   priority: 12, operands: number, result: number, reduce: div, description: "numeric divide (guards /0)" }
+  power:    { op: "**", fixity: infix,   arity: 2,   priority: 13, assoc: right, operands: number, result: number, reduce: pow, description: "power (right-assoc: 2**3**2 = 512)" }
+  echo:     { op: "_",  fixity: infix,   arity: 2,   priority: 14, command: "for i in $(seq \${NLIR_ARGS[1]}); do echo \${NLIR_ARGS[0]}; done", description: "repeat N times (shell-realised)" }
 `;
 
 // operators() mock — mirrors nlir help (aur-2's summary()/is_deterministic()).
@@ -48,6 +63,9 @@ const MOCK_OPERATORS = [
   [':','simplify','strip jargon — reliably maps over a list', false],
   ['>','expand','elaborate — forks over |, integrates over &', false],
   ['<','shorten','shorten but keep every fact (info floor)', false],
+  ['Δ','diff','directional diff — what changed, first → second (non-commutative)', false],
+  ['~>','implication-check','does the first imply the second? — integrates over &', false],
+  ['~>?','implication-infer','the implication of its arguments — integrates over &', false],
   ['!','not','negate, clause-wise (involution: !!a = a)', true],
   ['?','question','turn into a question (postfix)', true],
   ['&','and','join as a plan (nullary & folds the stack)', true],
