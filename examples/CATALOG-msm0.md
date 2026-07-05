@@ -220,6 +220,20 @@ TRANSFORM it three ways along the information axis, list. Real capture on the re
 Where the dual-register brief forks on REGISTER (`@`↔`:`, *who* reads), this forks on DEPTH
 (`~`↔verbatim↔`>`, *how much* they read) — the two independent axes of "one message, many readers".
 
+### THE DRIFT — `^_0 Δ ^_-1`
+Requirement drift in one line: what CHANGED from the user's first ask (`^_0`) to their latest (`^_-1`),
+via the directional-diff `Δ` (first→second: added/removed/shifted; non-commutative). Not "here are both
+asks" — the *delta* between them. Real capture on a spec that pivoted (basic login → OAuth-only):
+> The password field is removed entirely, and the authentication approach shifts from a username/password
+> form to OAuth-only sign-in via Google and GitHub SSO (implicitly dropping the standalone username field
+> as well, since identity now comes from the OAuth providers). A new remember-me option is added that
+> wasn't present before.
+
+The DIFF axis (`Δ`) — orthogonal to register (`@`↔`:`) and depth (`~`↔`>`): those transform ONE text;
+`Δ` reads the *change between two*. Pairs with bare-views for whole-channel drift, and powers
+before/after, changelog, and "did we actually address their pivot?" checks. (Landed grammar: the `Δ`
+operator + `^_` bare-view.)
+
 ## Gotchas (verified with aur-0's QA)
 - **`=` binds an EXPRESSION, so quote string values with operators or spaces.** `_sep=--`
   parse-errors ("operator - not valid in prefix position"); write `_sep='--'` (or escape: `_sep=\-\-`).
