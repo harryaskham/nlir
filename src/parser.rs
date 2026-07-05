@@ -811,10 +811,30 @@ impl Parser<'_> {
                         })
                     }
                 }
-                _ => Err(ParseError {
-                    position: start,
-                    message: format!("operator {op:?} is not valid in prefix position"),
-                }),
+                _ => {
+                    // Negative numeric literal: `-` in prefix (nud) position
+                    // before a number is a signed literal (`-1`, `-5.5`), which
+                    // enables the `$nth%(-1,list)` last-element idiom and general
+                    // negatives. `3-1` is unaffected (there `-` is in led/infix
+                    // position with a left operand).
+                    if op == "-" {
+                        // The lexer emits a digit run as `Token::Bare("1")` in most
+                        // positions (and `Token::Number` in a few), so accept both.
+                        let negated = match self.tokens.get(self.pos) {
+                            Some(Token::Number(n)) => Some(-*n),
+                            Some(Token::Bare(s)) => s.parse::<f64>().ok().map(|n| -n),
+                            _ => None,
+                        };
+                        if let Some(value) = negated {
+                            self.pos += 1;
+                            return Ok(Expr::Number(value));
+                        }
+                    }
+                    Err(ParseError {
+                        position: start,
+                        message: format!("operator {op:?} is not valid in prefix position"),
+                    })
+                }
             },
             other => Err(ParseError {
                 position: start,

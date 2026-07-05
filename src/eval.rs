@@ -2916,7 +2916,11 @@ operators:
     fn value_builtins_if_nth_sort() {
         // basics batch (docs/design/basics-primitives.md §3–4): value builtins
         // dispatched at % like map/fold, operating on evaluated values.
-        let cfg = config::parse_str("operators: {}\n", Path::new("v.yaml")).unwrap();
+        let cfg = config::parse_str(
+            "operators:\n  sub: { op: \"-\", arity: 2, fixity: infix, priority: 11, operands: number, result: number, reduce: sub }\n",
+            Path::new("v.yaml"),
+        )
+        .unwrap();
         let check = |src: &str, expected: &str| {
             let mut ctx = Context::empty(&cfg.context);
             let out = evaluate(src, &cfg, &mut ctx, Mode::Det).expect(src);
@@ -2925,10 +2929,12 @@ operators:
         // $if — short-circuit ternary over a truthy cond.
         check("$if%(true,'yes','no')", "yes");
         check("$if%(false,'yes','no')", "no");
-        // $nth — 0-based (negative-from-end verified via dogfood; `-` lexing
-        // needs a configured `-` op which this minimal config omits).
+        // $nth — 0-based; negative counts from the end (signed literal parse).
         check("$nth%(1,[a,b,c])", "b");
         check("$nth%(0,[a,b,c])", "a");
+        check("$nth%(-1,[a,b,c])", "c");
+        // negative numeric literal parses as a signed number.
+        check("-5", "-5");
         // $sort — numeric when all-numeric, else lexicographic.
         check("$sort%[3,1,2]", "1\n2\n3");
         check("$sort%[banana,apple,cherry]", "apple\nbanana\ncherry");
