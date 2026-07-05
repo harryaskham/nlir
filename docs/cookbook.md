@@ -266,6 +266,60 @@ Your recipes stop being long chains you retype and become verbs you own.
 
 ---
 
+## 8. The composable core — trains, scan, filter
+
+`map` and `fold` are two of a small **composable core** — a handful of primitives
+that combine into powerful programs, the array-language (APL/J) way.
+
+**scan** — a running fold: every partial result, not just the final one.
+
+```
+$scan%({$0+$1}, [1,2,3,4])                  -> 1 / 3 / 6 / 10    (running sums)
+$scan%({$0+$1}, $map%({$0*$0},[1,2,3,4]))   -> 1 / 5 / 14 / 30  (running sum of squares)
+```
+
+**filter** — keep the items a form finds truthy (the *select* that map/fold lacked):
+
+```
+$filter%({$0}, [1,0,2,0,3])                 -> 1 / 2 / 3        (drop the zeros)
+```
+
+Together: the full functional trio — map (transform each), filter (select), fold
+(reduce):
+
+```
+$fold%({$0+$1}, $map%({$0*$0}, $filter%({$0},[1,2,3,0,4])))  -> 30
+```
+(keep truthy `[1,2,3,4]` -> square `[1,4,9,16]` -> sum `30`.)
+
+### Trains — point-free composition
+
+A parenthesised chain of *operators* (no arguments) is a **train**, applied with
+`%` — tacit composition, no `$0` plumbing:
+
+- **atop** `(f g)` = compose, `(f g)x = f(g x)`:
+
+```
+(~ @)%'thanks'      -> summary: formal: thanks     (formalise, then summarise)
+```
+
+- **fork** `(f g h)` = run TWO lenses on ONE input and combine, `(f g h)x = (f x) g (h x)`:
+
+```
+(# & ~)%'x'         -> subject: x and summary: x    (subject AND gist, woven)
+(: & #)%'foo'       -> simple: foo and subject: foo  (explain AND name)
+```
+
+The fork is the multiplier: every pair of lenses becomes a "both, combined" move
+in three glyphs. That's the seed-of-a-few-words → powerful-concept idea — the
+structure is code, and it composes.
+
+(These det examples use the operators' det stubs; in `--mode llm` each lens is a
+real transform — `(~ & @)text` gives the gist *and* the formal rewrite of one
+input, woven.)
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.

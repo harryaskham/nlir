@@ -460,6 +460,13 @@ tests:
   cookbook-map-reduce:  { mode: det, expr: "inc={$0+1};$fold%({$0+$1},$map%($inc,[1,2,3]))", expected: "9" }
   cookbook-fold-map-sq: { mode: det, expr: "$fold%({$0+$1},$map%({$0*$0},[1,2,3]))", expected: "14" }
   cookbook-map-nested:  { mode: det, expr: "$map%({$fold%({$0+$1},$0)},[[1,2],[3,4]])", expected: "3\n7" }
+  # composable core (docs/cookbook.md §8): scan (running fold), filter (select),
+  # the map/filter/fold trio, and trains (atop compose + fork = two-lenses-on-one).
+  cookbook-scan:    { mode: det, expr: "$scan%({$0+$1},[1,2,3,4])", expected: "1\n3\n6\n10" }
+  cookbook-filter:  { mode: det, expr: "$filter%({$0},[1,0,2,0,3])", expected: "1\n2\n3" }
+  cookbook-trio:    { mode: det, expr: "$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3,0,4])))", expected: "30" }
+  cookbook-train-atop: { mode: det, expr: "(~ @)%'thanks'", expected: "summary: formal: thanks" }
+  cookbook-train-fork: { mode: det, expr: "(# & ~)%'x'", expected: "subject: x and summary: x" }
   msg:
     mode: det
     context:
