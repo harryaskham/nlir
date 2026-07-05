@@ -280,7 +280,7 @@ function realisers(){
           headers: Object.assign({ 'Content-Type':'application/json' }, key ? { Authorization:'Bearer '+key } : {}),
           body: JSON.stringify({ model: (state.settings.model || '').trim() || (model && model.model), messages:[{ role:'user', content: vars && vars.NLIR_PROMPT }] }),
         });
-        if (!res.ok) throw new Error('llm endpoint ' + res.status);
+        if (!res.ok){ let d=''; try { d = (await res.text()).slice(0,300).replace(/\s+/g,' ').trim(); } catch (_) {} throw new Error('llm endpoint ' + res.status + (d ? ': ' + d : '')); }
         const j = await res.json();
         return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
       },
