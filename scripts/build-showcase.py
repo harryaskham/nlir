@@ -97,6 +97,15 @@ SIMPLE = [
          cap="the brain-dump \u2014 jot your scattered thoughts onto the stack (one per `;`), fold them together "
              "(`&`), distil to the takeaway (`~$`). think out loud, get the point. `$` is the top of the stack "
              "\u2014 your working memory."),
+    dict(name="fork", expr=">('migrate to Postgres now' | 'stay on MySQL and shard it')",
+         pill="llm · two options → a decision memo",
+         out="We need to decide soon between two paths. Migrate to PostgreSQL now \u2014 take on the full "
+             "platform-switch cost upfront rather than postponing it. Or stay on MySQL and shard it \u2014 split "
+             "the data horizontally to distribute load, but take on the ongoing complexity of a distributed "
+             "database. Delaying only makes whichever path we pick more costly.",
+         cap="the fork \u2014 put two options in an either/or (`|`) and expand (`>`): nlir keeps the paths "
+             "DISTINCT and lays out the case + tradeoff for each, turning 'A or B?' into a clean decision "
+             "memo. (`~>` for a one-liner instead.)"),
     dict(name="grounded-counter",
          expr="@(^-1 & '- but scoped to just the hot 10% of users' & ^_-1)",
          pill="llm · reads your chat",
