@@ -140,7 +140,7 @@ let wasmReal = false;
 // ---- state ----
 const state = load();
 function load(){
-  const defaults = { config: DEFAULT_CONFIG, messages: [{role:'user', text:'Can we ship the auth change on Friday?'}], kv: [], settings:{ mode:'det', baseUrl:'', apiKey:'' } };
+  const defaults = { config: DEFAULT_CONFIG, messages: [{role:'user', text:'Can we ship the auth change on Friday?'}], kv: [], settings:{ mode:'det', baseUrl:'', apiKey:'', model:'' } };
   try {
     const s = JSON.parse(localStorage.getItem(LS_KEY));
     // Deep-merge onto defaults so a state persisted before `settings` (or any
@@ -237,7 +237,7 @@ function realisers(){
         const res = await fetch(base + '/chat/completions', {
           method:'POST',
           headers: Object.assign({ 'Content-Type':'application/json' }, key ? { Authorization:'Bearer '+key } : {}),
-          body: JSON.stringify({ model: model && model.model, messages:[{ role:'user', content: vars && vars.NLIR_PROMPT }] }),
+          body: JSON.stringify({ model: (state.settings.model || '').trim() || (model && model.model), messages:[{ role:'user', content: vars && vars.NLIR_PROMPT }] }),
         });
         if (!res.ok) throw new Error('llm endpoint ' + res.status);
         const j = await res.json();
@@ -332,7 +332,7 @@ function init(){
   renderExamples(); renderOps(); renderMessages(); renderKvs();
   setMode(state.settings.mode);
   $('verBadge').textContent = 'wasm: ' + nlir.version().crate;
-  $('baseUrl').value = state.settings.baseUrl; $('apiKey').value = state.settings.apiKey;
+  $('baseUrl').value = state.settings.baseUrl; $('apiKey').value = state.settings.apiKey; $('model').value = state.settings.model;
 
   $('runBtn').onclick = run;
   $('stepBtn').onclick = step;
@@ -346,5 +346,6 @@ function init(){
   $('addKv').onclick = () => { const k = $('newKey').value.trim(); if(!k) return; state.kv.push({k, v:$('newVal').value}); $('newKey').value=''; $('newVal').value=''; save(); renderKvs(); };
   $('baseUrl').oninput = e => { state.settings.baseUrl = e.target.value; save(); };
   $('apiKey').oninput = e => { state.settings.apiKey = e.target.value; save(); };
+  $('model').oninput = e => { state.settings.model = e.target.value; save(); };
 }
 init();
