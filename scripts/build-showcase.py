@@ -555,6 +555,16 @@ SIMPLE = [
          out="The team agrees to ship a flagged internal beta by Friday, with GA in two weeks "
              "pending full testing and security review.",
          cap="find the common ground \u2014 MERGE both role channels (^_ their side & ^ ours) into the synthesis / where it lands (the flip-side of TWO-SIDES' split)"),
+    # aur-0 — the smart-pipe era: nlir reads code/diffs off stdin ($_stdin, aur-2) + Harry's ~> verdict
+    dict(name="review-pipe", expr="[~$_stdin, $_stdin~>'production-ready']", pill="llm · reads piped code",
+         src="fn avg(xs:&[i32])->i32 { for i in 0..=xs.len() { t+=xs[i] } t/xs.len() as i32 }",
+         out="A Rust function intended to average an i32 slice, but its inclusive range (0..=xs.len()) "
+             "causes an out-of-bounds index panic.     \u00b7     false",
+         cap="cat avg.rs | nlir \u2014 the review pipe: ~ diagnoses the code straight off the pipe (nails the 0..= panic), then Harry's ~> returns a hard production-ready verdict \u2014 false"),
+    dict(name="commit-pipe", expr="~$_stdin", pill="llm · reads a git diff",
+         src="@@ job submit handler @@  + rate_limiter.check(user)  + job.set_priority(user.tier)  + metrics.incr('jobs.submitted')",
+         out="The diff adds rate limiting, tier-based job priority, and submission metrics to the job submission handler.",
+         cap="git diff | nlir -e '~$_stdin' \u2014 the commit message writes itself: the whole diff distilled to one line"),
 ]
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
@@ -740,7 +750,7 @@ GRID = [
 # --- lightweight nlir syntax highlighter --------------------------------------
 STRING_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
 NUM_RE = re.compile(r"\b\d+\b")
-OPS = ["**", "^-", "^*", "^_", "^/", "#", "!", "&", "|", "?", "@", ":", "~",
+OPS = ["**", "^-", "^*", "^_", "^/", "#", "!", "&", "|", "?", "@", ":", "~>?", "~>", "~",
        ">", "<", "+", "-", "*", "/", "^", ";", "=", "$", "[", "]", "(", ")", ",", "%"]
 
 
