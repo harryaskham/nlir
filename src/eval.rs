@@ -713,8 +713,8 @@ impl<'a> Evaluator<'a> {
     /// operator lifted from text-repeat to form-compose.
     fn compose_form(&self, operands: &[Value]) -> Result<Value, EvalError> {
         let sep = self.sep();
-        let (form, count) = match operands {
-            [form @ Value::Form(_), count] => (form, count),
+        let (inner, count) = match operands {
+            [Value::Form(inner), count] => (inner, count),
             _ => {
                 return Err(EvalError::Unsupported(
                     "`{form}_N` needs a form and a numeric repeat count".to_owned(),
@@ -733,10 +733,13 @@ impl<'a> Evaluator<'a> {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let n = n.trunc() as usize;
         // Nest N applications of the form around the composed form's own `$0`.
+        // Build the inner form node as `Expr::Quote` (renders `{…}`) rather than
+        // an `Expr::Value` splice (renders `«…»`), so the COMPOSED form still
+        // round-trips through context persistence — named do-N `g=({f}_N);$g%x`.
         let mut body = Expr::StackIndex(0);
         for _ in 0..n {
             body = Expr::FormApply {
-                form: Box::new(Expr::Value(form.clone())),
+                form: Box::new(Expr::Quote(inner.clone())),
                 args: vec![body],
             };
         }
@@ -1781,6 +1784,9 @@ operators:
         assert_eq!(det("({$0+1}_3)%5"), "8"); // +1 three times: 5->6->7->8
         assert_eq!(det("({$0*2}_2)%3"), "12"); // *2 twice: 3->6->12
         assert_eq!(det("({$0+1}_0)%5"), "5"); // N=0 is the identity form
+        // A COMPOSED form round-trips through context persistence (it renders
+        // with braces, not an `«…»` value splice) — named do-N `g=({f}_N);$g%x`.
+        assert_eq!(det("g=({$0+1}_3);$g%5"), "8");
         // `_` on plain text still repeats text (not lifted).
         assert_eq!(det("x_3"), "x x x");
     }
