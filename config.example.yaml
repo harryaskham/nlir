@@ -122,19 +122,143 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.
 
       %
-  # TODO: Rewrite the below ops into YAML not JSON literals, much easier to read and edit this way. Like 'subject'
-  not: { op: "!", description: "Negates the claim, clause-wise (so !(a&b)=neither); on a lone concept-word, its antonym. Involution: !!x=x.", arity: 1, fixity: prefix, template: "not %", model: sonnet, prompt: "Negate the text inside <text>...</text>, changing nothing else.\n\n%" }
-  and: { op: "&", description: "Joins operands into one 'X and Y' statement (a plan, not boolean AND); nullary & folds the premise stack.", arity: ">0", fixity: mixfix, join: " and ", model: sonnet, prompt: "Combine the <text> items with an \"and\" connective into one text meaning \"t_0 and t_1 and ...\".\n\n%" }
-  or: { op: "|", description: "Joins operands into one 'X or Y' choice, kept as genuine alternatives.", arity: ">0", fixity: mixfix, join: " or ", model: sonnet, prompt: "Combine the <text> items with an \"or\" connective into one text meaning \"t_0 or t_1 or ...\".\n\n%" }
-  question: { op: "?", description: "Turns the text into a question (postfix). A yes/no question is polarity-neutral (!x? is approximately x?).", arity: 1, fixity: postfix, priority: 0, template: "is it the case that %?", model: copilot, prompt: "Convert the text inside <text> into a question, preserving subject and meaning.\n\n%" }
-  summary: { op: "~", description: "The essence in one short sentence — drops specifics for the gist. Saturates (~~x is approximately ~x); folds a list to its consensus.", arity: 1, fixity: prefix, model: sonnet, prompt: "Summarise the text inside <text> in one short sentence. Return only the summary.\n\n%" }
-  formal: { op: "@", description: "Rewrites in a formal, professional register, meaning preserved. Saturates after one pass; distributes over &.", arity: 1, fixity: prefix, model: sonnet, prompt: "Rewrite the text inside <text> in a formal, professional tone, preserving meaning. Return only the rewritten text.\n\n%" }
-  simplify: { op: ":", description: "Rewrites in plain, simple language (strips jargon). The one op that reliably maps per-item over a list.", arity: 1, fixity: prefix, model: sonnet, prompt: "Rewrite the text inside <text> in plain, simple language a child could understand. Return only the rewritten text.\n\n%" }
-  expand: { op: ">", description: "Adds detail and explanation (lengthens). Forks over | (keeps paths distinct), integrates over &.", arity: 1, fixity: prefix, model: sonnet, prompt: "Expand the text inside <text> with more detail and explanation, preserving meaning. Return only the expanded text.\n\n%" }
-  shorten: { op: "<", description: "Tightens to the information floor — fewest words, but keeps EVERY fact and figure (vs ~ = the gist).", arity: 1, fixity: prefix, model: sonnet, prompt: "Make the text inside <text> more concise while preserving meaning. Return only the shortened text.\n\n%" }
-  diff: { op: "Δ", description: "Directional diff: what changed from the first text to the second — added, removed, or shifted. Non-commutative (aΔb ≠ bΔa); powers before/after, drift, changelog.", arity: 2, fixity: infix, model: sonnet, prompt: "Describe what changed from the first <text> to the second <text>: what was added, removed, or shifted. This is directional (first → second), not a symmetric comparison. Return only the description.\n\n%" }
-  implication-check: { op: "~>", description: "Does the LHS imply the RHS? Integrates over &", arity: 2, fixity: infix, model: sonnet, prompt: "Return 'true' if the content of the first <text> implies the content of the second <text>, otherwise return 'false'.\n\n%" }
-  implication-infer: { op: "~>?", description: "Returns the implication of its arguments. Integrates over &.", arity: ">0", fixity: mixfix, model: sonnet, prompt: "Return the primary implication of the pieces of information contained inside <text> tags, preserving style and no extraneous information.\n\n%" }
+  not:
+    op: "!"
+    description: |
+      Negates the claim, clause-wise (so !(a&b)=neither); on a lone concept-word, its antonym. Involution: !!x=x.
+    arity: 1
+    fixity: prefix
+    template: "not %"
+    model: sonnet
+    prompt: |
+      Negate the text inside <text>...</text>, changing nothing else.
+
+      %
+  and:
+    op: "&"
+    description: |
+      Joins operands into one 'X and Y' statement (a plan, not boolean AND); nullary & folds the premise stack.
+    arity: ">0"
+    fixity: mixfix
+    join: " and "
+    model: sonnet
+    prompt: |
+      Combine the <text> items with an "and" connective into one text meaning "t_0 and t_1 and ...".
+
+      %
+  or:
+    op: "|"
+    description: |
+      Joins operands into one 'X or Y' choice, kept as genuine alternatives.
+    arity: ">0"
+    fixity: mixfix
+    join: " or "
+    model: sonnet
+    prompt: |
+      Combine the <text> items with an "or" connective into one text meaning "t_0 or t_1 or ...".
+
+      %
+  question:
+    op: "?"
+    description: |
+      Turns the text into a question (postfix). A yes/no question is polarity-neutral (!x? is approximately x?).
+    arity: 1
+    fixity: postfix
+    priority: 0
+    template: "is it the case that %?"
+    model: copilot
+    prompt: |
+      Convert the text inside <text> into a question, preserving subject and meaning.
+
+      %
+  summary:
+    op: "~"
+    description: |
+      The essence in one short sentence — drops specifics for the gist. Saturates (~~x is approximately ~x); folds a list to its consensus.
+    arity: 1
+    fixity: prefix
+    model: sonnet
+    prompt: |
+      Summarise the text inside <text> in one short sentence. Return only the summary.
+
+      %
+  formal:
+    op: "@"
+    description: |
+      Rewrites in a formal, professional register, meaning preserved. Saturates after one pass; distributes over &.
+    arity: 1
+    fixity: prefix
+    model: sonnet
+    prompt: |
+      Rewrite the text inside <text> in a formal, professional tone, preserving meaning. Return only the rewritten text.
+
+      %
+  simplify:
+    op: ":"
+    description: |
+      Rewrites in plain, simple language (strips jargon). The one op that reliably maps per-item over a list.
+    arity: 1
+    fixity: prefix
+    model: sonnet
+    prompt: |
+      Rewrite the text inside <text> in plain, simple language a child could understand. Return only the rewritten text.
+
+      %
+  expand:
+    op: ">"
+    description: |
+      Adds detail and explanation (lengthens). Forks over | (keeps paths distinct), integrates over &.
+    arity: 1
+    fixity: prefix
+    model: sonnet
+    prompt: |
+      Expand the text inside <text> with more detail and explanation, preserving meaning. Return only the expanded text.
+
+      %
+  shorten:
+    op: "<"
+    description: |
+      Tightens to the information floor — fewest words, but keeps EVERY fact and figure (vs ~ = the gist).
+    arity: 1
+    fixity: prefix
+    model: sonnet
+    prompt: |
+      Make the text inside <text> more concise while preserving meaning. Return only the shortened text.
+
+      %
+  diff:
+    op: "Δ"
+    description: |
+      Directional diff: what changed from the first text to the second — added, removed, or shifted. Non-commutative (aΔb ≠ bΔa); powers before/after, drift, changelog.
+    arity: 2
+    fixity: infix
+    model: sonnet
+    prompt: |
+      Describe what changed from the first <text> to the second <text>: what was added, removed, or shifted. This is directional (first → second), not a symmetric comparison. Return only the description.
+
+      %
+  implication-check:
+    op: "~>"
+    description: |
+      Does the LHS imply the RHS? Integrates over &
+    arity: 2
+    fixity: infix
+    model: sonnet
+    prompt: |
+      Return 'true' if the content of the first <text> implies the content of the second <text>, otherwise return 'false'.
+
+      %
+  implication-infer:
+    op: "~>?"
+    description: |
+      Returns the implication of its arguments. Integrates over &.
+    arity: ">0"
+    fixity: mixfix
+    model: sonnet
+    prompt: |
+      Return the primary implication of the pieces of information contained inside <text> tags, preserving style and no extraneous information.
+
+      %
   echo:
     op: "_"
     arity: 2
@@ -144,11 +268,57 @@ operators: # `%` = operand under replacement; `%%` = literal %
       t="${NLIR_ARGS[0]}"; n="${NLIR_ARGS[1]}"; out="$t"
       for i in $(seq 1 $((n-1))); do out="$out $t"; done
       printf '%s' "$out"
-  add: { op: "+", description: "Sum of the numeric operands (variadic; words/units/bases coerce to numbers first).", arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
-  mul: { op: "*", description: "Product of the numeric operands (variadic).", arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
-  sub: { op: "-", description: "Difference, a minus b (binary, left-associative).", arity: 2, fixity: infix, priority: 11, operands: number, result: number, reduce: sub }
-  div: { op: "/", description: "Quotient, a divided by b (binary; guards divide-by-zero).", arity: 2, fixity: infix, priority: 12, operands: number, result: number, reduce: div }
-  pow: { op: "**", description: "a to the power b — RIGHT-associative, so 2**3**2 = 2**(3**2) = 512 (matches math/Python).", arity: 2, fixity: infix, priority: 13, assoc: right, operands: number, result: number, reduce: pow }
+  add:
+    op: "+"
+    description: |
+      Sum of the numeric operands (variadic; words/units/bases coerce to numbers first).
+    arity: ">0"
+    fixity: mixfix
+    priority: 11
+    operands: number
+    result: number
+    reduce: add
+  mul:
+    op: "*"
+    description: |
+      Product of the numeric operands (variadic).
+    arity: ">0"
+    fixity: mixfix
+    priority: 12
+    operands: number
+    result: number
+    reduce: mul
+  sub:
+    op: "-"
+    description: |
+      Difference, a minus b (binary, left-associative).
+    arity: 2
+    fixity: infix
+    priority: 11
+    operands: number
+    result: number
+    reduce: sub
+  div:
+    op: "/"
+    description: |
+      Quotient, a divided by b (binary; guards divide-by-zero).
+    arity: 2
+    fixity: infix
+    priority: 12
+    operands: number
+    result: number
+    reduce: div
+  pow:
+    op: "**"
+    description: |
+      a to the power b — RIGHT-associative, so 2**3**2 = 2**(3**2) = 512 (matches math/Python).
+    arity: 2
+    fixity: infix
+    priority: 13
+    assoc: right
+    operands: number
+    result: number
+    reduce: pow
 
 tests:
   det-echo: { mode: det, expr: "xxx_2", expected: "xxx xxx" }
