@@ -435,4 +435,44 @@ mod tests {
                 .any(|n| n.kind == NodeKind::ContextRead("user".to_owned()))
         );
     }
+
+    #[test]
+    fn handles_message_ranges_without_panicking() {
+        // A whole-thread summary ~0^*-1: Apply(~) over a MessageRange node, whose
+        // start/end indices are child nodes (real showcase move shape).
+        let g = graph("~0^*-1");
+        assert!(g.nodes.iter().any(|n| n.kind == NodeKind::Message));
+        assert!(
+            g.nodes
+                .iter()
+                .any(|n| matches!(&n.kind, NodeKind::Apply(op) if op == "~"))
+        );
+        assert!(g.edges_of(EdgeKind::Operand).count() >= 1);
+    }
+
+    #[test]
+    fn handoff_dossier_resolves_reused_binding_across_statements() {
+        // The fullest move — k=@~0^*-1;[$k,^_-1,~$k]: bind a formal brief, then a
+        // list reusing $k twice + the live ask. Assign(k) feeds BOTH $k reads
+        // across the ;-statement boundary; message nodes for the range + ^_-1.
+        let g = graph("k=@~0^*-1;[$k,^_-1,~$k]");
+        let bindings: Vec<&Edge> = g.edges_of(EdgeKind::Binding).collect();
+        assert_eq!(bindings.len(), 2, "$k reused twice -> two binding edges");
+        let assign = g
+            .nodes
+            .iter()
+            .find(|n| n.kind == NodeKind::Assign("k".to_owned()))
+            .expect("assign node");
+        for edge in &bindings {
+            assert_eq!(edge.from, assign.id);
+        }
+        assert!(
+            g.nodes
+                .iter()
+                .filter(|n| n.kind == NodeKind::Message)
+                .count()
+                >= 2,
+            "the range brief + the ^_-1 live ask are message nodes"
+        );
+    }
 }
