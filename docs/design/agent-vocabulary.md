@@ -66,6 +66,17 @@ Where the subject is piped in (a diff, code, an error), the same lenses apply to
 | "summarise this PR / diff" | `git diff \| nlir -e '[#$_stdin,~$_stdin]'` | subject + gist of the diff |
 | "review this code" | `<code> \| nlir -e '@&[~$_stdin,‹points›]'` | formal weave of gist + review points |
 | "what's the likely fix?" | `<err> \| nlir -e '~(>"the most likely fix for: $_stdin")'` | expand a fix hypothesis, then distil |
+| "explain this code" | `<code> \| nlir -e ':$_stdin'` | plain-language explanation (verified: catches an `add` that subtracts) |
+| "name this fn/var" | `<code> \| nlir -e '#$_stdin'` | the subject/name |
+| "is this correct?" | `<code> \| nlir -e '$_stdin ~> "correctly does X"'` | → **bool** assertion (verified `false` on a buggy `add`) — the faithful yes/no form §3b notes |
+
+**The correctness-gate** (the coding instance of the det+llm flagship — aur-0-verified live): map a `~>`-check over a module's functions and fold the pass/fails:
+
+```
+$fold%({$0+$1}, $map%({$0 ~> "is a correct implementation of its name"}, [fn1, fn2, fn3])) -> 2
+```
+
+→ the per-function correctness vector is `[true, false, true]` (catches the broken one), summed = "2 of 3 correct". The LLM judges each function, deterministic `+` counts. Card pending.
 
 The exhaustive coding-idiom catalogue + showcase cards live in the coding-pipe
 lane (aur-0 cards/cookbook, aur-2 POWERMOVES); this doc keeps a representative
