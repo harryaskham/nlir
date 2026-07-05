@@ -351,6 +351,79 @@ async fn step_inner(
     }
 }
 
+/// `stepStream(expr, configJson, contextJson, mode, realisers, onStep) -> Promise<{ ok, count | error }>`.
+/// LIVE per-step streaming (bd-89eb89): `onStep(exprString)` fires the MOMENT each
+/// reduction resolves — for llm mode that is right after that step's realisation
+/// completes (true live streaming, not batch-at-end like [`step`]). Drives
+/// `step_trace_streaming(_async)`, bridging each rendered step to the JS callback
+/// per step. Resolves with the final step `count` so the caller can confirm the
+/// stream finished (the steps themselves arrive via `onStep`, not the return).
+#[wasm_bindgen(js_name = stepStream)]
+pub async fn step_stream(
+    expr: String,
+    config_json: String,
+    context_json: String,
+    mode: String,
+    realisers: JsValue,
+    on_step: js_sys::Function,
+) -> JsValue {
+    match step_stream_inner(
+        &expr,
+        &config_json,
+        &context_json,
+        &mode,
+        &realisers,
+        &on_step,
+    )
+    .await
+    {
+        Ok(count) => payload(&serde_json::json!({ "ok": true, "count": count })),
+        Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
+async fn step_stream_inner(
+    expr: &str,
+    config_json: &str,
+    context_json: &str,
+    mode: &str,
+    realisers: &JsValue,
+    on_step: &js_sys::Function,
+) -> Result<usize, String> {
+    let cfg = parse_config(config_json)?;
+    let parsed_mode = parse_mode(mode)?;
+    let mut ctx = parse_context(context_json, &cfg)?;
+    // Cell so the per-arm closures need only a shared borrow (they are `Fn`,
+    // hence valid `impl FnMut`); read back the total after the stream drains.
+    let count = std::cell::Cell::new(0usize);
+    match parsed_mode {
+        Mode::Det => {
+            nlir::eval::step_trace_streaming(expr, &cfg, &mut ctx, Mode::Det, |s: &str| {
+                count.set(count.get() + 1);
+                let _ = on_step.call1(&JsValue::NULL, &JsValue::from_str(s));
+            })
+            .map_err(|e| e.to_string())?;
+        }
+        Mode::Llm => {
+            let realiser = JsRealiser::from_js(realisers);
+            nlir::eval::step_trace_streaming_async(
+                expr,
+                &cfg,
+                &mut ctx,
+                Mode::Llm,
+                &realiser,
+                |s: &str| {
+                    count.set(count.get() + 1);
+                    let _ = on_step.call1(&JsValue::NULL, &JsValue::from_str(s));
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(count.get())
+}
+
 /// `graph(expr, configJson) -> { ok, svg | error }` — the whole program's
 /// dataflow graph rendered to a self-contained SVG string (msm-0's
 /// `Graph::from_program` + aur-1's `graph_svg::render`, graph-viz G5). Inject
