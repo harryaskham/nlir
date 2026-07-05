@@ -106,6 +106,14 @@ SIMPLE = [
          cap="the fork \u2014 put two options in an either/or (`|`) and expand (`>`): nlir keeps the paths "
              "DISTINCT and lays out the case + tradeoff for each, turning 'A or B?' into a clean decision "
              "memo. (`~>` for a one-liner instead.)"),
+    dict(name="plain-english", expr="~:^-1", pill="llm · reads your chat · de-jargon",
+         src="The p99 latency regression is caused by lock contention on the connection-pool mutex during cache-stampede events, so we should implement request coalescing with a singleflight pattern to deduplicate concurrent identical queries.",
+         out="The program slows down when many concurrent requests fetch the same missing data at once, so the "
+             "fix is to deduplicate identical concurrent requests \u2014 compute the result once and share it among "
+             "all of them.",
+         cap="the plain-english \u2014 strip an agent's jargon-dense answer to plain, accurate language: `:` "
+             "simplifies the register, `~` distils it to a crisp sentence. ORDER matters \u2014 `~:` stays "
+             "professional, `:~` goes full ELI5. put anything in plain terms."),
     dict(name="grounded-counter",
          expr="@(^-1 & '- but scoped to just the hot 10% of users' & ^_-1)",
          pill="llm · reads your chat",
