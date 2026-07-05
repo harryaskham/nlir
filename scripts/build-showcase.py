@@ -81,6 +81,14 @@ SIMPLE = [
              "costs later justify it.",
          cap="the decisive close \u2014 read the WHOLE thread (~0^*-1), fold in your decision (& 'decision: ...'), "
              "close it formally (@). end any debate in one line, grounded in what was actually said."),
+    dict(name="reasoned-no", expr="@(!^-1 & '<your grounds>')",
+         pill="llm · reads your chat",
+         src="Let's skip writing tests for the prototype so we can move faster and hit the Friday deadline.",
+         out="We should not forgo writing tests for the prototype merely to expedite progress and meet the "
+             "Friday deadline \u2014 prototypes invariably become the final product.",
+         cap="the reasoned no \u2014 decline a proposal (!^-1) on your stated grounds (& '…'), argued and "
+             "professional (@). the honest counterpart to the yes: say no, and say why. reusable to push "
+             "back on any suggestion."),
     dict(name="grounded-counter",
          expr="@(^-1 & '- but scoped to just the hot 10% of users' & ^_-1)",
          pill="llm · reads your chat",
