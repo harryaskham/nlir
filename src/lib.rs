@@ -21,7 +21,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "native")]
 use feedback_cli::{FeedbackConfig, ReportStrategy, Reporter, WebhookConfig};
+#[cfg(feature = "native")]
 use mcp_cli::{ErrorCategory, StructuredError, ToolRouter};
 
 pub mod config;
@@ -56,6 +58,7 @@ pub const DEFAULT_PARALLELISM: usize = 8;
 // ---------------------------------------------------------------------------
 
 /// Shared, app-agnostic structured error for the command surface.
+#[cfg(feature = "native")]
 #[derive(Debug)]
 pub struct AppError {
     category: ErrorCategory,
@@ -63,6 +66,7 @@ pub struct AppError {
     message: String,
 }
 
+#[cfg(feature = "native")]
 impl AppError {
     #[must_use]
     pub fn validation(code: &str, message: impl Into<String>) -> Self {
@@ -94,14 +98,17 @@ impl AppError {
     }
 }
 
+#[cfg(feature = "native")]
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.code, self.message)
     }
 }
 
+#[cfg(feature = "native")]
 impl std::error::Error for AppError {}
 
+#[cfg(feature = "native")]
 impl StructuredError for AppError {
     fn category(&self) -> ErrorCategory {
         self.category
@@ -162,6 +169,7 @@ pub struct StatusOutput {
 ///
 /// Resolves feedback configuration from the environment; see [`status_with`]
 /// for the pure core that takes an explicit [`FeedbackConfig`].
+#[cfg(feature = "native")]
 #[must_use]
 pub fn status(input: &StatusInput) -> StatusOutput {
     status_with(input, &feedback_config())
@@ -170,6 +178,7 @@ pub fn status(input: &StatusInput) -> StatusOutput {
 /// Pure core of [`status`], testable without depending on the ambient process
 /// environment. Mirrors the `updater_config` / `updater_config_with` split,
 /// which exists because env mutation is `unsafe` under `unsafe_code = forbid`.
+#[cfg(feature = "native")]
 #[must_use]
 pub fn status_with(_input: &StatusInput, feedback_config: &FeedbackConfig) -> StatusOutput {
     let feedback = Reporter::from_config(feedback_config);
@@ -217,6 +226,7 @@ pub struct EvalOutput {
 /// SKELETON (bd-57ad92): this is an identity passthrough — it returns the input
 /// expression unchanged and flags `stub: true`. Downstream beads replace it with
 /// the real tokenise → parse → schedule/eval pipeline from `SPEC.md`.
+#[cfg(feature = "native")]
 pub fn eval(input: &EvalInput) -> Result<EvalOutput, AppError> {
     Ok(EvalOutput {
         result: input.expr.clone(),
@@ -258,6 +268,7 @@ pub struct ParseOutput {
 /// the parser cannot yet handle a construct (list literals, statements, …) the
 /// tokens are still returned with a `parse_error`. An unlexable character is a
 /// hard validation error.
+#[cfg(feature = "native")]
 pub fn parse(
     input: &ParseInput,
     operators: &std::collections::BTreeMap<String, config::OperatorConfig>,
@@ -284,6 +295,7 @@ pub fn parse(
 
 /// The MCP tool context. Stateless for now; downstream beads may thread config
 /// / engine state through it.
+#[cfg(feature = "native")]
 pub struct AppContext;
 
 /// Build the [`ToolRouter`] exposing the CLI's command surface as MCP tools.
@@ -291,6 +303,7 @@ pub struct AppContext;
 /// Wires the domain surfaces (`status` / `eval` / `parse`) plus the
 /// updatable-cli (`self_update_*`) and feedback-cli (`feedback_*`) tool families,
 /// so `nlir mcp stdio` is a valid MCP server for the whole surface.
+#[cfg(feature = "native")]
 #[must_use]
 pub fn build_router() -> ToolRouter<AppContext> {
     let mut router = ToolRouter::new();
@@ -333,6 +346,7 @@ pub fn build_router() -> ToolRouter<AppContext> {
 /// Source a bearer token from `GITHUB_TOKEN` if set, otherwise fall back to the
 /// local `gh` CLI (`gh auth token`). Harmless for a public repo (the header is
 /// just ignored), so this is correct whether or not the release repo is private.
+#[cfg(feature = "native")]
 #[must_use]
 pub fn updater_config() -> updatable_cli::UpdaterConfig {
     updater_config_with(std::env::var("GITHUB_TOKEN").ok())
@@ -340,6 +354,7 @@ pub fn updater_config() -> updatable_cli::UpdaterConfig {
 
 /// Pure core of [`updater_config`], testable without env mutation (which is
 /// `unsafe` under this crate's `unsafe_code = "forbid"`).
+#[cfg(feature = "native")]
 #[must_use]
 pub fn updater_config_with(github_token: Option<String>) -> updatable_cli::UpdaterConfig {
     let cfg =
@@ -361,6 +376,7 @@ pub fn updater_config_with(github_token: Option<String>) -> updatable_cli::Updat
 /// - `FEEDBACK_WEBHOOK_TOKEN_ENV` points at the bearer-token env var,
 /// - `FEEDBACK_COMPONENT` / `FEEDBACK_PROJECT` override the defaults,
 /// - unset means JSON lines to stderr (safe local default).
+#[cfg(feature = "native")]
 #[must_use]
 pub fn feedback_config() -> FeedbackConfig {
     let mut config = FeedbackConfig::from_env();
@@ -393,6 +409,7 @@ pub fn feedback_config() -> FeedbackConfig {
 /// Join a feedback webhook base URL and a project sub-path into the full
 /// endpoint, tolerating a trailing `/` on the base and a leading `/` on the
 /// sub-path.
+#[cfg(feature = "native")]
 #[must_use]
 fn feedback_webhook_url(base: &str, sub_path: &str) -> String {
     format!(
@@ -402,7 +419,7 @@ fn feedback_webhook_url(base: &str, sub_path: &str) -> String {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
 

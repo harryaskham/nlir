@@ -21,18 +21,32 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 schemars = { version = "1", features = ["derive"] }
-ureq = { version = "2", features = ["json"] }
+# ureq (HTTP) is native-only (the llm anthropic backend); optional so the wasm
+# build (nlir-wasm epic bd-360d0c) can drop it via `default-features = false`.
+ureq = { version = "2", features = ["json"], optional = true }
 # Raw-mode terminal input for the interactive REPL step-through (`:step` — Tab
-# expands the next eval step). Only used behind a TTY check; the line-based REPL
-# path (tests, pipes) never enters raw mode. (REPL step-through UX, Harry ask #1.)
-crossterm = "0.28"
+# expands the next eval step). Only used behind a TTY check in the binary; never
+# in the lib, so it is native-only + optional.
+crossterm = { version = "0.28", optional = true }
 
 # Ecosystem crates — pulled from github:harryaskham/* (not vendored) so the whole
 # stack updates together. The flake rewrites these git pins via its flake inputs;
-# `nix flake update` in this project moves them in lockstep.
-mcp-cli = { git = "ssh://git@github.com/harryaskham/mcp-cli", branch = "main" }
-updatable-cli = { git = "ssh://git@github.com/harryaskham/updatable-cli", branch = "main" }
-feedback-cli = { git = "ssh://git@github.com/harryaskham/feedback-cli", branch = "main" }
+# `nix flake update` in this project moves them in lockstep. All three are the
+# native CLI/MCP surface (main.rs + the lib.rs command router) and do not build
+# for wasm32 — optional, behind the default `native` feature.
+mcp-cli = { git = "ssh://git@github.com/harryaskham/mcp-cli", branch = "main", optional = true }
+updatable-cli = { git = "ssh://git@github.com/harryaskham/updatable-cli", branch = "main", optional = true }
+feedback-cli = { git = "ssh://git@github.com/harryaskham/feedback-cli", branch = "main", optional = true }
+
+# `native` (default) = the full CLI/MCP binary: HTTP llm backend (ureq), the REPL
+# raw-mode step view (crossterm), and the MCP/self-update/feedback plumbing
+# (mcp-cli/updatable-cli/feedback-cli). nlir-wasm depends with
+# `default-features = false` to compile the pure evaluator core to wasm32 (the
+# effectful backends are behind msm-0's Realiser seam + native twins). Default
+# on = today's binary + tests are byte-identical.
+[features]
+default = ["native"]
+native = ["dep:ureq", "dep:crossterm", "dep:mcp-cli", "dep:updatable-cli", "dep:feedback-cli"]
 
 [lints.rust]
 unsafe_code = "forbid"
