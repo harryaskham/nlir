@@ -2274,6 +2274,20 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
         return;
     }
 
+    // The step-through view (Ctrl-T) swallows input: navigate the reduction
+    // trace; Esc / Ctrl-C / Ctrl-T close.
+    if wb.is_stepping() {
+        match key.code {
+            KeyCode::Esc => wb.close_steps(),
+            KeyCode::Char('c') if ctrl => wb.close_steps(),
+            KeyCode::Char('t') if ctrl => wb.close_steps(),
+            KeyCode::Up | KeyCode::Char('k') => wb.step_up(),
+            KeyCode::Down | KeyCode::Char('j') => wb.step_down(),
+            _ => {}
+        }
+        return;
+    }
+
     // A pending destructive-session action swallows input until y/n.
     if wb.is_confirming() {
         match key.code {
@@ -2349,6 +2363,20 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
         // Ctrl-P opens the operator palette from any pane.
         KeyCode::Char('p') if ctrl => {
             wb.open_palette(tui_build_operators(cli));
+            return;
+        }
+        // Ctrl-T steps through the current expression's reduction (det preview).
+        KeyCode::Char('t') if ctrl => {
+            let expr = wb.editor.buffer_string();
+            let expr = expr.trim();
+            if expr.is_empty() {
+                wb.set_status("nothing to step \u{2014} type an expression first");
+            } else {
+                match tui_step_trace(cli, expr) {
+                    Ok(lines) => wb.open_steps(lines),
+                    Err(error) => wb.set_status(error),
+                }
+            }
             return;
         }
         _ => {}
@@ -2609,6 +2637,15 @@ fn tui_build_operators(cli: &Cli) -> Vec<tui::OpEntry> {
             deterministic: op.is_deterministic(),
         })
         .collect()
+}
+
+/// Compute the deterministic reduction trace of `expr` for the step-through view.
+/// A read-only preview: the context is opened but not saved, so stepping never
+/// commits `key=RHS` side effects (unlike Enter-eval).
+fn tui_step_trace(cli: &Cli, expr: &str) -> Result<Vec<String>, String> {
+    let cfg = resolve_config(cli).map_err(|_| "config error".to_owned())?;
+    let mut ctx = open_context(cli).map_err(|_| "context error".to_owned())?;
+    nlir::eval::step_trace(expr, &cfg, &mut ctx, nlir::Mode::Det).map_err(|error| error.to_string())
 }
 
 /// Build the workbench context rows: a synthetic `_messages` count plus each

@@ -106,6 +106,13 @@ struct PaletteState {
     selected: usize,
 }
 
+/// The open step-through view (Ctrl-T): the deterministic reduction trace of the
+/// current expression, one rendered line per step, plus the highlighted step.
+struct StepView {
+    lines: Vec<String>,
+    selected: usize,
+}
+
 /// The pure workbench state. `main.rs` mutates it via the methods here and reads
 /// it back to render; it performs no IO itself.
 pub struct Workbench {
@@ -128,6 +135,8 @@ pub struct Workbench {
     confirm: Option<(String, ConfirmAction)>,
     /// The open operator palette (Ctrl-P), if any.
     palette: Option<PaletteState>,
+    /// The open step-through view (Ctrl-T), if any.
+    steps: Option<StepView>,
 }
 
 impl Workbench {
@@ -148,6 +157,7 @@ impl Workbench {
             editing: None,
             confirm: None,
             palette: None,
+            steps: None,
         }
     }
 
@@ -358,6 +368,46 @@ impl Workbench {
     pub fn focus_expr(&mut self) {
         self.focus = Pane::Expr;
     }
+
+    /// Whether the step-through view (Ctrl-T) is open.
+    pub fn is_stepping(&self) -> bool {
+        self.steps.is_some()
+    }
+
+    /// Open the step-through view with a reduction trace (one line per step).
+    pub fn open_steps(&mut self, lines: Vec<String>) {
+        self.steps = Some(StepView { lines, selected: 0 });
+    }
+
+    /// Close the step-through view.
+    pub fn close_steps(&mut self) {
+        self.steps = None;
+    }
+
+    /// Advance to the next reduction step.
+    pub fn step_down(&mut self) {
+        if let Some(view) = self.steps.as_mut()
+            && view.selected + 1 < view.lines.len()
+        {
+            view.selected += 1;
+        }
+    }
+
+    /// Go back to the previous reduction step.
+    pub fn step_up(&mut self) {
+        if let Some(view) = self.steps.as_mut() {
+            view.selected = view.selected.saturating_sub(1);
+        }
+    }
+
+    /// The currently-highlighted step line (test observation helper).
+    #[cfg(test)]
+    pub fn current_step(&self) -> Option<&str> {
+        self.steps
+            .as_ref()
+            .and_then(|view| view.lines.get(view.selected))
+            .map(String::as_str)
+    }
 }
 
 /// Draw the whole workbench for one frame.
@@ -402,6 +452,10 @@ pub fn render(frame: &mut Frame, wb: &Workbench) {
     if wb.is_palette_open() {
         render_palette(frame, area, wb);
     }
+    // The step-through view floats above everything (Ctrl-T).
+    if wb.is_stepping() {
+        render_steps(frame, area, wb);
+    }
 }
 
 fn pane_block(title: &str, focused: bool) -> Block<'_> {
@@ -444,7 +498,7 @@ fn render_help(frame: &mut Frame, area: Rect, wb: &Workbench) {
         Span::raw(" quit"),
     ]);
     let hint = match wb.focus() {
-        Pane::Expr => "Expression: type · Enter evaluates · ↑↓ history · Ctrl-A/E/K/U/W edit",
+        Pane::Expr => "Expression: type · Enter eval · Ctrl-T step · ↑↓ history · Ctrl-A/E/K/U/W",
         Pane::Sessions => "Sessions: ↑↓ select · Enter restore · d delete · p prune",
         Pane::Context => "Context: ↑↓ select · e edit · a add · d delete",
     };
@@ -729,6 +783,84 @@ fn render_palette(frame: &mut Frame, area: Rect, wb: &Workbench) {
     );
 }
 
+/// Draw the step-through overlay (Ctrl-T): the deterministic reduction trace of
+/// the current expression, one line per step, with the current step highlighted.
+fn render_steps(frame: &mut Frame, area: Rect, wb: &Workbench) {
+    let Some(view) = wb.steps.as_ref() else {
+        return;
+    };
+    let height = (view.lines.len() as u16 + 4).clamp(6, area.height.saturating_sub(2).max(6));
+    let modal = centered_fixed(area, 72, height);
+    frame.render_widget(Clear, modal);
+    let title = format!(
+        " Step-through  {}/{} ",
+        (view.selected + 1).min(view.lines.len().max(1)),
+        view.lines.len()
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(modal);
+    frame.render_widget(block, modal);
+    if inner.height < 2 {
+        return;
+    }
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+    let last = view.lines.len().saturating_sub(1);
+    let items: Vec<ListItem> = view
+        .lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            // The final trace line is the value; earlier lines are reductions.
+            let is_value = i == last;
+            let marker = if is_value { "= " } else { "» " };
+            let marker_style = if is_value {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::raw(line.clone()),
+            ]))
+        })
+        .collect();
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▶ ");
+    let mut state = ListState::default();
+    if !view.lines.is_empty() {
+        state.select(Some(view.selected.min(last)));
+    }
+    frame.render_stateful_widget(list, rows[0], &mut state);
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "↑↓ step · Esc close",
+            Style::default().fg(Color::DarkGray),
+        )),
+        rows[1],
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -941,5 +1073,28 @@ mod tests {
         wb.close_palette();
         assert!(!wb.is_palette_open());
         assert!(wb.selected_op_sigil().is_none());
+    }
+
+    #[test]
+    fn step_view_navigate_and_clamp() {
+        let mut wb = sample();
+        assert!(!wb.is_stepping());
+        // navigation is safe with no view open
+        wb.step_down();
+        wb.step_up();
+        wb.open_steps(vec!["2 + 3".into(), "«5»".into(), "5".into()]);
+        assert!(wb.is_stepping());
+        assert_eq!(wb.current_step(), Some("2 + 3"));
+        wb.step_down();
+        assert_eq!(wb.current_step(), Some("«5»"));
+        wb.step_down();
+        assert_eq!(wb.current_step(), Some("5"));
+        wb.step_down(); // clamp at last
+        assert_eq!(wb.current_step(), Some("5"));
+        wb.step_up();
+        assert_eq!(wb.current_step(), Some("«5»"));
+        wb.close_steps();
+        assert!(!wb.is_stepping());
+        assert_eq!(wb.current_step(), None);
     }
 }
