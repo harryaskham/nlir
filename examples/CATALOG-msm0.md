@@ -103,3 +103,11 @@ capture on a 5-turn incident thread (500s after deploy → 2026-expiry bug → r
 > fraud-rule migration, reverting it was considered too risky. Consequently, the team will
 > implement an expedited hotfix to the expiration date validation logic ahead of the upcoming
 > VP briefing.
+
+### THE TICKET — `[#~0^*-1, ~0^*-1]`
+Turn a messy chat into a titled ticket: a subject line + a one-line summary, ready to file as
+an issue/PR/doc header. `#~0^*-1` names the thread (title); `~0^*-1` summarizes it. Real capture
+on a 5-turn scoping thread (fuzzy matching? → latency tradeoff → fallback → "cap at edit-distance 2"):
+> **Fuzzy matching fallback**
+> The team decided to add fuzzy matching only as a fallback when exact search returns no
+> results, capped at edit-distance 2.

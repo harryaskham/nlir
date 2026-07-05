@@ -154,6 +154,11 @@ SIMPLE = [
              "Consequently, the team will implement an expedited hotfix to the expiration date "
              "validation logic ahead of the upcoming VP briefing.",
          cap="brief the VP in 10 minutes \u2014 a messy incident thread becomes one formal, forwardable paragraph"),
+    dict(name="ticket", expr="[#~0^*-1, ~0^*-1]", pill="llm · reads your whole thread",
+         src="a 5-turn scoping chat — fuzzy matching? \u2192 latency tradeoff \u2192 fallback idea \u2192 'cap at edit-distance 2'",
+         out="\u201cFuzzy matching fallback\u201d  \u2014  The team decided to add fuzzy matching only "
+             "as a fallback when exact search returns no results, capped at edit-distance 2.",
+         cap="turn a messy chat into a titled ticket \u2014 subject line (#) + one-line summary (~), ready to file"),
 ]
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
