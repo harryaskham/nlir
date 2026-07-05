@@ -1105,10 +1105,28 @@ fn run_test(cli: &Cli) -> Result<(), i32> {
 }
 
 fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
+    use std::io::IsTerminal;
+
     // Fail fast on a bad config before entering the loop.
     resolve_config(cli)?;
-    let interactive = !args.raw;
-    if interactive {
+
+    // Use the rich rustyline line editor (history, arrow-key line editing,
+    // Ctrl-A/Ctrl-E, Ctrl-C/Ctrl-D) only on a real interactive TTY. `--raw` and
+    // any non-terminal stdin/stdout (pipes, tests, `nlir repl < file`) keep the
+    // plain line-reader path so scripted/piped REPL use is byte-identical
+    // (bd-9d2d46).
+    if !args.raw && io::stdin().is_terminal() && io::stdout().is_terminal() {
+        run_repl_interactive(cli)
+    } else {
+        run_repl_plain(cli, !args.raw)
+    }
+}
+
+/// Plain line-reader REPL: reads submissions from stdin with no line editing.
+/// This is the scripted/piped path (`nlir repl --raw`, pipes, tests). `prompts`
+/// controls whether the `nlir> ` / `  ... ` prompts are echoed to stderr.
+fn run_repl_plain(cli: &Cli, prompts: bool) -> Result<(), i32> {
+    if prompts {
         eprintln!(
             "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:set`/`:get`/`:append-message`/`:quit`); Ctrl-D to exit."
         );
@@ -1117,7 +1135,7 @@ fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
     let mut input = stdin.lock();
     let mut pending = String::new();
     loop {
-        if interactive {
+        if prompts {
             eprint!(
                 "{}",
                 if pending.is_empty() {
@@ -1131,7 +1149,7 @@ fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
         let mut line = String::new();
         match input.read_line(&mut line) {
             Ok(0) => {
-                if interactive {
+                if prompts {
                     eprintln!();
                 }
                 break;
@@ -1164,6 +1182,114 @@ fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
         }
     }
     Ok(())
+}
+
+/// Rich interactive REPL backed by rustyline (bd-9d2d46): command history
+/// (persisted across sessions), full line editing (arrow keys, Ctrl-A/Ctrl-E,
+/// word/kill bindings), and interrupt handling — Ctrl-C abandons the current
+/// (possibly multi-line) input without exiting, Ctrl-D exits cleanly. Line
+/// semantics (`\` continuation, `:cmd` meta-commands, empty-line skip) match the
+/// plain path exactly so only the input surface changes.
+fn run_repl_interactive(cli: &Cli) -> Result<(), i32> {
+    use rustyline::error::ReadlineError;
+
+    let mut editor = match rustyline::DefaultEditor::new() {
+        Ok(editor) => editor,
+        Err(error) => {
+            // Fall back to the plain reader if the terminal can't host rustyline.
+            eprintln!("nlir repl: line editor unavailable ({error}); using plain input.");
+            return run_repl_plain(cli, true);
+        }
+    };
+
+    // Persist command history across sessions (best-effort; a missing file on
+    // first run is expected and ignored).
+    let history_path = repl_history_path(cli);
+    if let Some(path) = history_path.as_deref() {
+        let _ = editor.load_history(path);
+    }
+
+    eprintln!(
+        "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:set`/`:get`/`:append-message`/`:quit`); ↑/↓ history, Ctrl-A/Ctrl-E line edit, Ctrl-C cancels the line, Ctrl-D exits."
+    );
+
+    let mut pending = String::new();
+    let result = loop {
+        let prompt = if pending.is_empty() {
+            "nlir> "
+        } else {
+            "  ... "
+        };
+        match editor.readline(prompt) {
+            Ok(line) => {
+                let trimmed = line.trim_end_matches(['\n', '\r']);
+                // A trailing backslash continues onto the next line (bd-6a0ca8).
+                if let Some(head) = trimmed.strip_suffix('\\') {
+                    pending.push_str(head);
+                    pending.push('\n');
+                    continue;
+                }
+                pending.push_str(trimmed);
+                let submission = std::mem::take(&mut pending);
+                let submission = submission.trim();
+                if submission.is_empty() {
+                    continue;
+                }
+                // Record the full submission (multi-line included) in history
+                // before dispatch so ↑ recalls it even if evaluation exits.
+                let _ = editor.add_history_entry(submission);
+                // `:cmd` meta-command == `nlir cmd` (bd-c2ac59). Intercept the
+                // quit aliases here so history is flushed on the way out instead
+                // of `repl_meta_command`'s bare `std::process::exit(0)`.
+                if let Some(meta) = submission.strip_prefix(':') {
+                    let meta = meta.trim();
+                    if matches!(meta, "quit" | "exit" | "q") {
+                        break Ok(());
+                    }
+                    let _ = repl_meta_command(cli, meta);
+                } else {
+                    // Context is re-opened each time so writes/reloads reflect.
+                    repl_eval(cli, submission);
+                }
+            }
+            // Ctrl-C: abandon the current input, keep the REPL alive.
+            Err(ReadlineError::Interrupted) => {
+                pending.clear();
+                continue;
+            }
+            // Ctrl-D on an empty line: exit cleanly.
+            Err(ReadlineError::Eof) => break Ok(()),
+            Err(error) => {
+                eprintln!("nlir repl: read error: {error}");
+                break Err(1);
+            }
+        }
+    };
+
+    if let Some(path) = history_path.as_deref() {
+        // Ensure the parent dir exists before saving (best-effort).
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = editor.save_history(path);
+    }
+    result
+}
+
+/// Resolve the REPL command-history file. Co-locates with the configured context
+/// store directory when one is set (e.g. `~/.config/nlir/repl_history.txt`),
+/// otherwise falls back to `~/.config/nlir/repl_history.txt`. Returns `None` only
+/// when no home directory is available and no context path is configured.
+fn repl_history_path(cli: &Cli) -> Option<PathBuf> {
+    let home = std::env::var_os("HOME");
+    if let Ok(cfg) = resolve_config(cli) {
+        if let Some(ctx_path) = nlir::context::default_context_path(&cfg.context, home.as_deref()) {
+            if let Some(dir) = ctx_path.parent() {
+                return Some(dir.join("repl_history.txt"));
+            }
+        }
+    }
+    home.map(|home| PathBuf::from(home).join(".config/nlir/repl_history.txt"))
 }
 
 /// Evaluate one REPL submission, re-reading config + context each time (context

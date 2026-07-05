@@ -225,6 +225,8 @@ nlir get KEY
 nlir append-message [--role user] "text"
 
 # interactive REPL (one expr per submission; trailing `\` continues; :cmd == nlir cmd)
+# on a TTY: command history (persisted to ~/.config/nlir/repl_history.txt), arrow-key
+# line editing (Ctrl-A/Ctrl-E, ↑/↓ history), Ctrl-C cancels a line, Ctrl-D exits.
 nlir repl [--context-file F] [--raw]
 
 # computational dataflow graph (the AST with variable bindings resolved into edges)

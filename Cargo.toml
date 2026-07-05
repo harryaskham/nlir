@@ -29,6 +29,13 @@ ureq = { version = "2", features = ["json"], optional = true }
 # in the lib, so it is native-only + optional.
 crossterm = { version = "0.28", optional = true }
 
+# Line-editor / readline for the interactive REPL (`nlir repl`): command history
+# (persisted to `~/.config/nlir/repl_history.txt`), full line editing (arrow
+# keys, Ctrl-A/Ctrl-E/Ctrl-W, …), and Ctrl-C/Ctrl-D interrupt handling
+# (bd-9d2d46). Only used behind a TTY check in the binary; never in the lib, so
+# it is native-only + optional.
+rustyline = { version = "14", optional = true }
+
 # SVG rasterisation for `nlir show` graph PNGs + the kitty animation (graph-viz
 # G4). Pure-Rust (usvg/tiny-skia) SVG->PNG; native-only + optional so it never
 # enters the wasm build (the browser renders the SAME SVG in the DOM directly).
@@ -60,7 +67,7 @@ feedback-cli = { git = "ssh://git@github.com/harryaskham/feedback-cli", branch =
 # on = today's binary + tests are byte-identical.
 [features]
 default = ["native"]
-native = ["dep:ureq", "dep:crossterm", "dep:resvg", "dep:png", "dep:base64", "dep:mcp-cli", "dep:updatable-cli", "dep:feedback-cli"]
+native = ["dep:ureq", "dep:crossterm", "dep:rustyline", "dep:resvg", "dep:png", "dep:base64", "dep:mcp-cli", "dep:updatable-cli", "dep:feedback-cli"]
 
 [lints.rust]
 unsafe_code = "forbid"
