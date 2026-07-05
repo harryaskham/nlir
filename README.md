@@ -209,6 +209,27 @@ operator runs, each operand is coerced to the required type:
 A coercion that cannot produce the target type is a loud error; `list → number`
 is always an error.
 
+## Forms & application — the programmable core
+
+A `{…}` **form** is a quoted expression: `{2+3}` yields the expression *as data*
+(`{(2 + 3)}`), not its value — quoting is **inert**. Forms are first-class
+values: bind one to a name, pass it around, and **apply** it with `%`, binding
+arguments positionally to the holes `$0`, `$1`, …:
+
+```sh
+nlir -e '{2+3}'               # → {(2 + 3)}   (a form — code as data, not run)
+nlir -e '{$0+1}%5'            # → 6           (apply a form to an argument)
+nlir -e '{$0+$1}%(2,3)'       # → 5           (tuple args; %(2,3) ≡ %[2,3])
+nlir -e 'sq={$0*$0};$sq%5'    # → 25          (a named lambda: bind, then apply)
+```
+
+The argument frame is **hygienic** — a form's `$0` is its argument, not whatever
+is on the run stack (`9;{$0}%7` → `7`). Application binds tighter than `,` (pass a
+tuple with `%(a,b)`). A **macro** is just a form whose body is a transform,
+applied to text, so the same quote+apply machinery gives you reusable moves.
+Quote + apply is the substrate the rest of the functional layer rides on
+(do-something-N-times, map/fold over forms).
+
 ## CLI surface
 
 ```sh
