@@ -61,6 +61,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | decision record | `[@&[DECISION], 'OPEN'?, ...]` | the call you're making + the questions it leaves open | aur-2 |
 | myth-buster | `@&[!'MISCONCEPTION', 'REALITY']` | correct the record: reject the myth, state the truth | aur-2 |
 | FAQ entry | `['QUESTION'?, :'ANSWER', ...]` | jot Q + raw answer → a customer-ready Q&A pair | aur-2 |
+| glossary entry | `[~>'TERM', :'TERM']` | a term's crisp definition + a plain analogy, together | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |

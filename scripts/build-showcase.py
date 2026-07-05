@@ -265,6 +265,15 @@ SIMPLE = [
              "copy away after thirty days.",
          cap="the FAQ entry — jot a question ('x'?) and its raw answer (:); get a customer-ready Q&A "
              "pair. Repeat the pair for a whole mini-FAQ (@ for a formal answer)"),
+    dict(name="glossary-entry",
+         expr="[~>'idempotency',:'idempotency']",
+         pill="llm · claude-sonnet-5",
+         out="[definition] Idempotency means an operation produces the same result no matter how many "
+             "times it's performed, essential for safely handling retries in distributed systems and "
+             "APIs.  [analogy] Like pressing an elevator button five times — it still only sends it to "
+             "one floor.",
+         cap="the glossary entry — [~>'TERM', :'TERM'] gives both halves of a good definition: a crisp "
+             "precise meaning (~> keeps > from overshooting) and a plain analogy. Rigor + intuition"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
