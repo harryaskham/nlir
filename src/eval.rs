@@ -667,6 +667,93 @@ impl<'a> Evaluator<'a> {
             .await
         })
     }
+
+    /// Async mirror of [`step_once`](Self::step_once) (bd-9dd22d): reduce the
+    /// leftmost-innermost redex by one step, `await`ing the injected realiser at
+    /// effectful redexes. Powers [`step_async`] (the wasm step view).
+    async fn step_once_async<R: crate::realiser::Realiser>(
+        &mut self,
+        expr: &Expr,
+        realiser: &R,
+    ) -> Result<Step, EvalError> {
+        if let Some(value) = as_value(expr) {
+            return Ok(Step::Done(value));
+        }
+        Ok(Step::Reduced(self.reduce_async(expr, realiser).await?))
+    }
+
+    /// Async mirror of [`reduce`](Self::reduce): one reduction that `await`s the
+    /// realiser when the redex is an all-operands-value effectful
+    /// [`Expr::Apply`] (via [`eval_apply_async`](Self::eval_apply_async)). Pure
+    /// reductions (reads, literals, assignment write-through) reuse the sync
+    /// [`eval`](Self::eval); deterministic reductions never await.
+    fn reduce_async<'e, R: crate::realiser::Realiser>(
+        &'e mut self,
+        expr: &'e Expr,
+        realiser: &'e R,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Expr, EvalError>> + 'e>> {
+        Box::pin(async move {
+            match expr {
+                // Reads / interpolating quotes resolve to a value in one step (pure).
+                Expr::ContextRead(_)
+                | Expr::StackPeek
+                | Expr::StackIndex(_)
+                | Expr::Message { .. }
+                | Expr::MessageRange { .. }
+                | Expr::Quoted {
+                    interpolate: true, ..
+                } => Ok(Expr::Value(self.eval(expr)?)),
+                Expr::Group(inner) => Ok(Expr::Group(Box::new(
+                    self.reduce_async(inner, realiser).await?,
+                ))),
+                Expr::Serial(inner) => Ok(Expr::Serial(Box::new(
+                    self.reduce_async(inner, realiser).await?,
+                ))),
+                Expr::List(items) => {
+                    let mut items = items.clone();
+                    if let Some(i) = items.iter().position(|it| as_value(it).is_none()) {
+                        let item = items[i].clone();
+                        items[i] = self.reduce_async(&item, realiser).await?;
+                    }
+                    Ok(Expr::List(items))
+                }
+                Expr::Assign { key, value } => {
+                    if as_value(value).is_some() {
+                        Ok(Expr::Value(self.eval(expr)?))
+                    } else {
+                        Ok(Expr::Assign {
+                            key: key.clone(),
+                            value: Box::new(self.reduce_async(value, realiser).await?),
+                        })
+                    }
+                }
+                Expr::Apply {
+                    op,
+                    fixity,
+                    operands,
+                } => {
+                    if let Some(i) = operands.iter().position(|o| as_value(o).is_none()) {
+                        let mut operands = operands.clone();
+                        let operand = operands[i].clone();
+                        operands[i] = self.reduce_async(&operand, realiser).await?;
+                        Ok(Expr::Apply {
+                            op: op.clone(),
+                            fixity: *fixity,
+                            operands,
+                        })
+                    } else {
+                        // All operands are values: realise this node (may await).
+                        Ok(Expr::Value(
+                            self.eval_apply_async(op, operands, realiser).await?,
+                        ))
+                    }
+                }
+                Expr::Value(_) | Expr::Bare(_) | Expr::Number(_) | Expr::Quoted { .. } => {
+                    Ok(Expr::Value(self.eval(expr)?))
+                }
+            }
+        })
+    }
 }
 
 /// Coerce one operand to `target`: deterministic first, then (in llm mode) the
@@ -902,6 +989,44 @@ pub async fn evaluate_async<R: crate::realiser::Realiser>(
         last = Some(value);
     }
     last.ok_or(EvalError::EmptyProgram)
+}
+
+/// Parse `expr` and return its small-step reduction TRACE through the injected
+/// [`crate::realiser::Realiser`] (bd-9dd22d): the async, serial counterpart to
+/// [`step_trace`], for the wasm step view (P1 `step()` / P2 workspace). Each
+/// entry is the rendered expression at that step (reduced nodes as «text»),
+/// mapping 1:1 to the JS contract `step(...) -> {steps:[{expr}]}`. Deterministic
+/// reductions never await; each effectful redex is one realiser call.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub async fn step_async<R: crate::realiser::Realiser>(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    realiser: &R,
+) -> Result<Vec<String>, EvalError> {
+    let sigils = crate::config::operator_sigils(config);
+    let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
+        EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
+    })?;
+    let program = parser::parse_program(&tokens, &config.operators)
+        .map_err(|error| EvalError::Parse(error.to_string()))?;
+    let mut evaluator = Evaluator::new(config, context, mode);
+    let mut steps = Vec::new();
+    for statement in &program.statements {
+        let mut current = statement.clone();
+        steps.push(current.render_step());
+        while let Step::Reduced(next) = evaluator.step_once_async(&current, realiser).await? {
+            current = next;
+            steps.push(current.render_step());
+        }
+        if let Some(value) = as_value(&current) {
+            evaluator.stack.push(value);
+        }
+    }
+    Ok(steps)
 }
 
 /// [`realise`] with per-run memoisation (bd-1d078c) shared across
@@ -1353,7 +1478,7 @@ operators:
         // The async entry (bd-bec201) reaches the SAME command backend through
         // the injected NativeRealiser (coerce_operand_async -> realiser.llm):
         // 'five'+'five' -> 5+5 -> 10, identical to the sync path.
-        use crate::realiser::{block_on_ready, NativeRealiser};
+        use crate::realiser::{NativeRealiser, block_on_ready};
         let mut ctx = Context::empty(&cfg.context);
         let out = block_on_ready(evaluate_async(
             "'five'+'five'",
@@ -1631,6 +1756,29 @@ operators:
             ))
             .expect("async eval");
             assert_eq!(sync, asynced, "async/sync mismatch for `{src}`");
+        }
+    }
+
+    #[test]
+    fn step_async_matches_step_trace_in_det_mode() {
+        // The async step trace (bd-9dd22d) must match sync step_trace when no
+        // effectful reduction is reached. Driven with the NativeRealiser via
+        // block_on_ready.
+        use crate::realiser::{NativeRealiser, block_on_ready};
+        for src in ["2+3*4", "x='ship'; $x"] {
+            let cfg = config();
+            let mut ctx_sync = Context::empty(&cfg.context);
+            let sync = step_trace(src, &cfg, &mut ctx_sync, Mode::Det).expect("sync step_trace");
+            let mut ctx_async = Context::empty(&cfg.context);
+            let asynced = block_on_ready(step_async(
+                src,
+                &cfg,
+                &mut ctx_async,
+                Mode::Det,
+                &NativeRealiser,
+            ))
+            .expect("async step");
+            assert_eq!(sync, asynced, "async/sync step mismatch for `{src}`");
         }
     }
 
