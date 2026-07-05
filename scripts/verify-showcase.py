@@ -79,11 +79,39 @@ def needs_input(expr: str) -> str | None:
     return None
 
 
+def run_examples(patterns, timeout):
+    """Actually EXECUTE the example proof scripts (idiom-*.sh / move-*.sh) end to end.
+    They carry the message context the ^-cards need, so running them closes the gap
+    where verify only *deferred* those cards. Each script uses `set -euo pipefail`, so
+    a non-zero exit means its nlir execution failed. Returns (ran_ok, [failures])."""
+    ex_dir = ROOT / "examples"
+    scripts = sorted({p for pat in patterns for p in ex_dir.glob(pat.strip())})
+    ran_ok, fails = 0, []
+    for s in scripts:
+        try:
+            p = subprocess.run(["bash", str(s)], capture_output=True, text=True,
+                               timeout=timeout, cwd=str(ROOT), env=os.environ.copy())
+        except subprocess.TimeoutExpired:
+            fails.append(s.name); print(f"  ✗ FAIL  {s.name:34s} <timeout>"); continue
+        if p.returncode == 0 and p.stdout.strip():
+            ran_ok += 1
+            print(f"  ✓ RAN   {s.name:34s} exit 0")
+        else:
+            fails.append(s.name)
+            tail = ((p.stderr or p.stdout).strip().splitlines() or ["<empty>"])[-1]
+            print(f"  ✗ FAIL  {s.name:34s} exit {p.returncode}: {tail[:60]}")
+    return ran_ok, fails
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Verify showcase cards are real nlir executions.")
     ap.add_argument("--nlir", default=os.environ.get("NLIR", str(ROOT / "target" / "release" / "nlir")))
     ap.add_argument("--det-only", action="store_true", help="skip LLM cards even if a key is present")
     ap.add_argument("--timeout", type=int, default=120)
+    ap.add_argument("--examples", action="store_true",
+                    help="also execute the example proof scripts end-to-end (verifies ^-context cards)")
+    ap.add_argument("--examples-glob", default="idiom-*.sh,move-*.sh",
+                    help="comma-separated globs under examples/ for --examples (default idiom-*.sh,move-*.sh)")
     args = ap.parse_args()
 
     if not pathlib.Path(args.nlir).exists():
@@ -134,10 +162,27 @@ def main() -> int:
     print(f"\n  {exact_ok} exact-verified · {ran_ok} ran-non-empty · {skipped} skipped · {len(fails)} failed")
     if grid:
         print(f"  ({len(grid)} grid cards not auto-verified — multi-cell llm; see examples/)")
-    if fails:
-        print("\nFAILURES (fabricated or stale card outputs must be fixed):", file=sys.stderr)
-        for name, expr, exp, got in fails:
-            print(f"  · {name}: {expr}", file=sys.stderr)
+
+    ex_fails = []
+    if args.examples:
+        if not do_llm:
+            why = "no LITELLM_MASTER_KEY" if not have_key else "--det-only set"
+            print(f"\n  --examples skipped ({why}): the proof scripts call the model")
+        else:
+            pats = [g for g in args.examples_glob.split(",") if g.strip()]
+            print(f"\nexecuting example proof scripts ({', '.join(pats)}) — the ^-context cards run end to end:")
+            ex_ran, ex_fails = run_examples(pats, args.timeout)
+            print(f"  {ex_ran} scripts ran clean · {len(ex_fails)} failed")
+
+    if fails or ex_fails:
+        if fails:
+            print("\nFAILURES (fabricated or stale card outputs must be fixed):", file=sys.stderr)
+            for name, expr, exp, got in fails:
+                print(f"  · {name}: {expr}", file=sys.stderr)
+        if ex_fails:
+            print("\nEXAMPLE SCRIPT FAILURES (a ^-context card's execution broke):", file=sys.stderr)
+            for n in ex_fails:
+                print(f"  · examples/{n}", file=sys.stderr)
         return 1
     print("\n✓ every checked showcase card is a real, reproducible nlir execution.")
     return 0
