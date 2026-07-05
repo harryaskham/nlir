@@ -102,12 +102,17 @@ So:
 ### 3.3 `nlir-wasm` crate
 
 A new crate (`crates/nlir-wasm` or a `wasm` feature) depending on the nlir lib:
-- `#[wasm_bindgen]` exports: `evaluate(expr, config_yaml, context_json, mode) → Promise<Result>`,
+- `#[wasm_bindgen]` exports: `evaluate(expr, config_json, context_json, mode) → Promise<Result>`,
   `step(expr, …) → Promise<Step[]>` (mirrors `nlir step`), `parse(expr) → Ast`,
-  `operators(config_yaml) → Op[]` (the `nlir help` data for a live grammar panel),
+  `operators(config_json) → Op[]` (the `nlir help` data for a live grammar panel),
   `version() → {crate, git}` (the co-build stamp).
+- **Config crosses the wasm boundary as JSON, not YAML** (resolved, see §6): the
+  JS workspace parses the YAML config editor with `js-yaml` → JSON before calling
+  in, so the wasm crate does **not** depend on `serde_yaml`/libyaml (leaner binary,
+  dodges the libyaml-on-wasm risk). The native CLI keeps YAML; only the wasm seam
+  is JSON.
 - Accepts JS realiser callbacks (LLM + command) wired through the `Realiser` trait.
-- Built with `wasm-pack build --target web`.
+- Built with `wasm-pack build --target web` (see §3.9 for *where* it builds).
 
 ### 3.4 The workspace widget (site, aur-1 lane)
 
@@ -182,10 +187,38 @@ on-device + commands layer on without reworking the seam.
 
 ## 6. Open questions
 
-- WASM binary size (the lib + serde + yaml) — measure; `wasm-opt`/feature-trim if heavy.
-- `serde_yaml` in WASM (config editor parses YAML) — confirm it compiles to wasm32; else a JS YAML parse → JSON bridge.
-- On-device model availability is browser-gated (Chrome flags) — treat as progressive enhancement, det + BYO-key as the baseline.
+### Resolved
+- **`serde_yaml` on wasm32** → *avoided.* The wasm crate takes **config as JSON**;
+  JS does YAML→JSON (`js-yaml`). No `serde_yaml` in the wasm dependency tree.
+- **Where does wasm build?** (§3.9) → *CI is the canonical co-build home* (rustup +
+  `wasm32-unknown-unknown` + `wasm-pack`, from the same commit — P7); *local dev via
+  the nix devshell* (add a wasm-capable rust toolchain + `wasm-pack` +
+  `wasm-bindgen-cli`). Source-built-rustc nodes without rustup (e.g. aurora) are
+  **authoring-only** — they write + native-verify the crate source; a wasm node/CI
+  builds + browser-smokes. So P1's build/smoke acceptance runs in CI or the devshell,
+  **not** on the author's node.
+
+### Still open
+- WASM binary size (the lib + serde_json) — measure; `wasm-opt`/feature-trim if heavy.
+- On-device model availability is browser-gated (Chrome flags) — progressive
+  enhancement; det + BYO-key stay the baseline.
 - Which wasm-sh for the command-VM (size vs coverage) — spike in P6.
+
+### 3.9 Build environment (added)
+- **CI (canonical, P7):** a GitHub Actions job installs rustup +
+  `wasm32-unknown-unknown` + `wasm-pack` and builds the crate from the *same commit*
+  as the native binary on every push. This is both the anti-drift co-build **and**
+  the toolchain-independent build home (no dev node needs a local wasm toolchain for
+  the shipped artifact). Stand up a minimal version **early** so P1 has a build+smoke
+  home before P7's full version.
+- **Local dev (nix devshell):** add a wasm-capable rust toolchain (the flake uses
+  nixpkgs `cargo`/`rustc`, which lack the wasm32 target + rustup — so bring
+  `rust-overlay`/`fenix` with `targets = ["wasm32-unknown-unknown"]`, plus
+  `pkgs.wasm-pack` + `pkgs.wasm-bindgen-cli`) to `devShells.default`. Reproducible on
+  any nix node (ms-mac, or nix on Linux).
+- **Author/build split:** on a source-rustc node the crate source is authored +
+  the shared eval logic native-verified; the wasm-pack build + browser smoke runs in
+  CI or the devshell.
 
 ## 7. Bead breakdown
 
