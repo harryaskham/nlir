@@ -212,7 +212,11 @@ on-device + commands layer on without reworking the seam.
 - WASM binary size (the lib + serde_json) — measure; `wasm-opt`/feature-trim if heavy.
 - On-device model availability is browser-gated (Chrome flags) — progressive
   enhancement; det + BYO-key stay the baseline.
-- Which wasm-sh for the command-VM (size vs coverage) — spike in P6.
+- Which wasm-sh for the command-VM (size vs coverage) — **spiked (bd-89bcb7): see
+  `nlir-wasm-p6-command-vm.md`.** Lean **brush** (Rust bash-compat shell →
+  `wasm32-unknown-unknown`, runs `_` echo verbatim, sandboxed by target), with a
+  minimal Rust sh-subset as the MVP fallback; busybox/dash rejected (POSIX-only →
+  no bash arrays without a native contract change).
 
 ### 3.9 Build environment (added)
 - **CI (canonical, P7):** a GitHub Actions job installs rustup +
