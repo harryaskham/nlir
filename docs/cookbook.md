@@ -226,6 +226,46 @@ where you want it.
 
 ---
 
+## 7. Glyph operators — bind a form or builtin to your own symbol
+
+Config operators can be realised by a **form** or a **builtin**, alongside the
+usual `command:`/`prompt:` — so any saved recipe becomes a one-symbol operator,
+and map/fold get glyphs. Multibyte sigils lex for free (like `Δ`), so you spend
+zero of the scarce ASCII set — pick any glyph in *your* config
+(config.example.yaml ships these as commented demos):
+
+```yaml
+square:   { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
+steelman: { op: "⇑", arity: 1, fixity: prefix, form: "{~(>@$0)}" }
+mapop:    { op: "↦", arity: 2, fixity: infix, builtin: map }
+foldop:   { op: "⊘", arity: 2, fixity: infix, builtin: fold }
+```
+
+`form:` applies the form to the operands (`$0, $1, …`); `builtin:` binds the
+glyph to the map/fold engine. Verified:
+
+```
+□5                     -> 25          (a form-op: {$0*$0})
+□(3+1)                 -> 16
+{$0*$0}↦[1,2,3]        -> 1 / 4 / 9   (↦ = map)
+{$0+$1}⊘[1,2,3,4]      -> 10          (⊘ = fold)
+```
+
+The payoff is a **personal terse vocabulary**. `⇑` bundles the steelman chain
+`{~(>@$0)}` (formalise → expand → distil) into one symbol — in `--mode llm`:
+
+```
+⇑'we should just ship it friday'
+  -> Based on review status and testing outcomes, the team recommends
+     proceeding with the planned Friday release as scheduled, with no
+     significant issues warranting delay.
+```
+
+And the map glyph runs a lens over a list — `{~$0}↦[…]` summarises each item.
+Your recipes stop being long chains you retype and become verbs you own.
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.
