@@ -157,6 +157,10 @@ struct ShowArgs {
     /// Encode the per-step graph frames as an animated PNG (APNG) at this path.
     #[arg(long, value_name = "PATH")]
     save_animation: Option<PathBuf>,
+    /// Display the graph in-terminal via the kitty graphics protocol (auto-on
+    /// when a kitty terminal is detected; this forces it, e.g. through tmux).
+    #[arg(long)]
+    kitty: bool,
     /// Write one graph SVG per evaluation step (the animation frames) to a
     /// directory (--out DIR, default a temp dir) instead of the single static
     /// graph. The frame source G4's kitty animation / --save-animation consume.
@@ -712,6 +716,57 @@ fn save_animation_apng(
     Ok(())
 }
 
+/// Whether stdout is a TTY (kitty display only makes sense to a terminal).
+fn stdout_is_tty() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdout().is_terminal()
+}
+
+/// Whether the terminal is (or is very likely) kitty, from the environment.
+/// Under tmux this is usually false even inside kitty, so `--kitty` forces it.
+fn kitty_supported() -> bool {
+    std::env::var_os("KITTY_WINDOW_ID").is_some()
+        || std::env::var("TERM")
+            .map(|t| t.contains("kitty"))
+            .unwrap_or(false)
+}
+
+/// Emit a PNG to the terminal via the kitty graphics protocol (graph-viz G4):
+/// chunked base64 direct transmission (`a=T,f=100`). Inside tmux the escape is
+/// wrapped in a DCS passthrough (every ESC doubled) so the image reaches the
+/// outer terminal (requires tmux `allow-passthrough on`).
+fn emit_kitty_png(png: &[u8]) -> std::io::Result<()> {
+    use base64::Engine;
+    use std::io::Write;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(png);
+    let tmux = std::env::var_os("TMUX").is_some();
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    let chunk = 4096usize;
+    let n = b64.len().div_ceil(chunk).max(1);
+    for i in 0..n {
+        let start = i * chunk;
+        let end = (start + chunk).min(b64.len());
+        let piece = &b64[start..end];
+        let m = u8::from(i + 1 < n);
+        let ctrl = if i == 0 {
+            format!("a=T,f=100,m={m}")
+        } else {
+            format!("m={m}")
+        };
+        let esc = format!("\x1b_G{ctrl};{piece}\x1b\\");
+        if tmux {
+            // tmux passthrough: DCS-wrap and double every ESC in the payload.
+            let escaped = esc.replace('\x1b', "\x1b\x1b");
+            write!(out, "\x1bPtmux;{escaped}\x1b\\")?;
+        } else {
+            write!(out, "{esc}")?;
+        }
+    }
+    writeln!(out)?;
+    out.flush()
+}
+
 /// `nlir show 'EXPR'` — render EXPR's computational dataflow graph as a
 /// self-contained SVG (graph-viz epic bd-8ac9ad, G3). The graph is the AST with
 /// variable-binding references RESOLVED into edges (an `Assign` node feeds every
@@ -832,9 +887,25 @@ fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
                 path.display()
             );
         }
-    } else {
-        println!("{svg}");
+        return Ok(());
     }
+    // No file output: display in the terminal via the kitty graphics protocol
+    // when kitty is detected (or forced with --kitty), else print the SVG.
+    if args.kitty || (kitty_supported() && stdout_is_tty()) {
+        let png = match svg_to_png(&svg) {
+            Ok(png) => png,
+            Err(error) => {
+                eprintln!("nlir show: {error}");
+                return Err(1);
+            }
+        };
+        if let Err(error) = emit_kitty_png(&png) {
+            eprintln!("nlir show: kitty: {error}");
+            return Err(1);
+        }
+        return Ok(());
+    }
+    println!("{svg}");
     Ok(())
 }
 

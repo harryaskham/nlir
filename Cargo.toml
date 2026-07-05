@@ -39,6 +39,10 @@ resvg = { version = "0.45", optional = true }
 # it never enters the wasm build.
 png = { version = "0.17", optional = true }
 
+# base64 for the kitty graphics-protocol payload (`nlir show --kitty`, graph-viz
+# G4). Already in the tree transitively; native-only + optional.
+base64 = { version = "0.22", optional = true }
+
 # Ecosystem crates — pulled from github:harryaskham/* (not vendored) so the whole
 # stack updates together. The flake rewrites these git pins via its flake inputs;
 # `nix flake update` in this project moves them in lockstep. All three are the
@@ -56,7 +60,7 @@ feedback-cli = { git = "ssh://git@github.com/harryaskham/feedback-cli", branch =
 # on = today's binary + tests are byte-identical.
 [features]
 default = ["native"]
-native = ["dep:ureq", "dep:crossterm", "dep:resvg", "dep:png", "dep:mcp-cli", "dep:updatable-cli", "dep:feedback-cli"]
+native = ["dep:ureq", "dep:crossterm", "dep:resvg", "dep:png", "dep:base64", "dep:mcp-cli", "dep:updatable-cli", "dep:feedback-cli"]
 
 [lints.rust]
 unsafe_code = "forbid"
