@@ -30,6 +30,7 @@ pub mod config;
 pub mod context;
 pub mod eval;
 pub mod graph;
+pub mod graph_svg;
 pub mod index;
 pub mod lexer;
 pub mod llm;
