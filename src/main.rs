@@ -15,6 +15,9 @@
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
+mod line_editor;
+mod tui;
+
 use clap::{Args, Parser, Subcommand};
 
 use feedback_cli::{FeedbackEvent, FeedbackKind, Reporter, Severity};
@@ -112,6 +115,8 @@ enum Command {
     Show(ShowArgs),
     /// Interactive REPL: one expression per submission (`:cmd` == `nlir cmd`).
     Repl(ReplArgs),
+    /// Full-screen workbench: session browser + context manager + live eval.
+    Tui(TuiArgs),
     /// Replace context keys: `set KEY VALUE` or `set '{"k":"v",...}'`.
     Set(SetArgs),
     /// Read a context key: `get KEY`.
@@ -275,6 +280,7 @@ fn run(cli: Cli) -> Result<(), i32> {
         Some(Command::Help) => run_help(&cli),
         Some(Command::Show(ref args)) => run_show(&cli, args),
         Some(Command::Repl(ref args)) => run_repl(&cli, args),
+        Some(Command::Tui(ref args)) => run_tui(&cli, args),
         Some(Command::Set(ref args)) => run_set(&cli, args),
         Some(Command::Get(ref args)) => run_get(&cli, args),
         Some(Command::AppendMessage(ref args)) => run_append_message(&cli, args),
@@ -285,7 +291,7 @@ fn run(cli: Cli) -> Result<(), i32> {
             Some(ref expr) => run_eval(&cli, expr),
             None => {
                 eprintln!(
-                    "nlir: pass -e 'EXPR' to evaluate, or a subcommand (parse|step|test|help|repl|set|get|append-message|mcp|self-update|feedback). See --help."
+                    "nlir: pass -e 'EXPR' to evaluate, or a subcommand (parse|step|test|help|repl|tui|set|get|append-message|mcp|self-update|feedback). See --help."
                 );
                 Err(2)
             }
@@ -2074,6 +2080,254 @@ fn run_feedback_report(args: &FeedbackArgs) -> Result<(), i32> {
             Err(1)
         }
     }
+}
+
+/// `nlir tui` arguments. The workbench uses the global `--config` /
+/// `--context-file` flags; no subcommand-specific args yet.
+#[derive(Debug, Args)]
+struct TuiArgs {}
+
+/// Full-screen workbench (bd-ae1730): a session browser + context manager +
+/// live deterministic expression eval, the terminal sibling of the browser
+/// workspace. Shares the REPL's on-disk session pool (aur-0's
+/// `sessions_dir`/`list_sessions`/`restore_session`/`archive_session`): it lists
+/// the same `sessions/<ts>.json` snapshots and archives the context on exit, so
+/// `nlir repl` `:resume`/`--continue` and the workbench see each other's work.
+/// Evaluation runs in deterministic [`Mode::Det`] so the live pane never blocks
+/// on an LLM call or needs a key.
+fn run_tui(cli: &Cli, _args: &TuiArgs) -> Result<(), i32> {
+    use crossterm::event::{self, Event, KeyEventKind};
+    use std::io::IsTerminal;
+
+    // Validate config before we take over the screen (clear error, cooked mode).
+    resolve_config(cli)?;
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        eprintln!("nlir tui: requires an interactive terminal (stdin + stdout must be a TTY).");
+        return Err(2);
+    }
+
+    let mut wb = tui::Workbench::new(tui_build_sessions(cli), tui_build_context(cli));
+
+    // ratatui::init enters the alternate screen + raw mode and installs a
+    // panic-restore hook; ratatui::restore undoes it on every exit path.
+    let mut terminal = ratatui::init();
+    let outcome = (|| -> Result<(), i32> {
+        loop {
+            terminal
+                .draw(|frame| tui::render(frame, &wb))
+                .map_err(|_| 1i32)?;
+            let Ok(ev) = event::read() else {
+                break;
+            };
+            let Event::Key(key) = ev else {
+                continue;
+            };
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            handle_tui_key(cli, &mut wb, key);
+            if wb.should_quit() {
+                break;
+            }
+        }
+        Ok(())
+    })();
+    ratatui::restore();
+
+    // Participate in the shared session pool: archive the (possibly mutated)
+    // context on exit exactly like `nlir repl` (best-effort; dedup handled by
+    // archive_session), so the workbench's work is resumable from either surface.
+    if let Ok(cfg) = resolve_config(cli)
+        && let Some(path) = effective_context_path(cli, &cfg)
+        && let Some(dest) = archive_session(&path)
+    {
+        eprintln!("nlir: session saved \u{2192} {}", dest.display());
+    }
+    outcome
+}
+
+/// Route one key press to the focused pane, mutating the workbench (and running
+/// the eval / session-restore side effects).
+fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::KeyEvent) {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use tui::Pane;
+
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+
+    // Global: Esc quits; Tab / Shift-Tab cycle panes. (Ctrl-C is handled
+    // per-pane so it can clear a non-empty expression line first, shell-style.)
+    match key.code {
+        KeyCode::Esc => {
+            wb.quit();
+            return;
+        }
+        KeyCode::Tab => {
+            wb.focus_next();
+            return;
+        }
+        KeyCode::BackTab => {
+            wb.focus_prev();
+            return;
+        }
+        _ => {}
+    }
+
+    match wb.focus() {
+        Pane::Expr => match key.code {
+            KeyCode::Enter => {
+                let expr = wb.editor.submit();
+                let expr = expr.trim().to_owned();
+                if expr.is_empty() {
+                    return;
+                }
+                let result = tui_eval(cli, &expr);
+                let ok = result.is_ok();
+                wb.set_output(result);
+                // Eval may have written context keys (`key=RHS`); refresh the pane.
+                wb.set_context(tui_build_context(cli));
+                wb.set_status(if ok {
+                    format!("evaluated  » {expr}")
+                } else {
+                    format!("error  » {expr}")
+                });
+            }
+            KeyCode::Char('d') if ctrl && wb.editor.is_empty() => wb.quit(),
+            // Ctrl-C clears a non-empty line (shell-style), else quits.
+            KeyCode::Char('c') if ctrl => {
+                if wb.editor.is_empty() {
+                    wb.quit();
+                } else {
+                    wb.editor.discard();
+                }
+            }
+            KeyCode::Char('a') if ctrl => wb.editor.home(),
+            KeyCode::Char('e') if ctrl => wb.editor.end(),
+            KeyCode::Char('k') if ctrl => wb.editor.kill_to_end(),
+            KeyCode::Char('u') if ctrl => wb.editor.kill_to_start(),
+            KeyCode::Char('w') if ctrl => wb.editor.delete_word_before(),
+            KeyCode::Char('d') if ctrl => wb.editor.delete(),
+            KeyCode::Char('b') if alt => wb.editor.word_left(),
+            KeyCode::Char('f') if alt => wb.editor.word_right(),
+            KeyCode::Char(c) if !ctrl && !alt => wb.editor.insert_char(c),
+            KeyCode::Left if ctrl || alt => wb.editor.word_left(),
+            KeyCode::Right if ctrl || alt => wb.editor.word_right(),
+            KeyCode::Left => wb.editor.left(),
+            KeyCode::Right => wb.editor.right(),
+            KeyCode::Home => wb.editor.home(),
+            KeyCode::End => wb.editor.end(),
+            KeyCode::Up => wb.editor.history_prev(),
+            KeyCode::Down => wb.editor.history_next(),
+            KeyCode::Backspace => wb.editor.backspace(),
+            KeyCode::Delete => wb.editor.delete(),
+            _ => {}
+        },
+        Pane::Sessions => match key.code {
+            KeyCode::Char('c') if ctrl => wb.quit(),
+            KeyCode::Up | KeyCode::Char('k') => wb.list_up(),
+            KeyCode::Down | KeyCode::Char('j') => wb.list_down(),
+            KeyCode::Char('q') => wb.quit(),
+            KeyCode::Enter => {
+                if let Some(sel) = wb.selected_session() {
+                    let path = sel.path.clone();
+                    match tui_restore_session_silent(cli, &path) {
+                        Ok(()) => {
+                            wb.set_context(tui_build_context(cli));
+                            wb.set_sessions(tui_build_sessions(cli));
+                            wb.set_status(format!("restored session {}", path.display()));
+                        }
+                        Err(error) => wb.set_status(format!("restore failed: {error}")),
+                    }
+                }
+            }
+            _ => {}
+        },
+        Pane::Context => match key.code {
+            KeyCode::Char('c') if ctrl => wb.quit(),
+            KeyCode::Up | KeyCode::Char('k') => wb.list_up(),
+            KeyCode::Down | KeyCode::Char('j') => wb.list_down(),
+            KeyCode::Char('q') => wb.quit(),
+            _ => {}
+        },
+    }
+}
+
+/// Build the workbench session-browser rows from the shared pool.
+fn tui_build_sessions(cli: &Cli) -> Vec<tui::SessionEntry> {
+    let Ok(cfg) = resolve_config(cli) else {
+        return Vec::new();
+    };
+    let Some(path) = effective_context_path(cli, &cfg) else {
+        return Vec::new();
+    };
+    list_sessions(&sessions_dir(&path))
+        .into_iter()
+        .map(|path| {
+            let summary = session_summary(&path);
+            tui::SessionEntry { path, summary }
+        })
+        .collect()
+}
+
+/// Build the workbench context rows: a synthetic `_messages` count plus each
+/// non-system context key with a single-line rendered-value preview.
+fn tui_build_context(cli: &Cli) -> Vec<tui::ContextEntry> {
+    let Ok(ctx) = open_context(cli) else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    let msg_count = ctx.messages().len();
+    if msg_count > 0 {
+        entries.push(tui::ContextEntry {
+            key: "_messages".to_owned(),
+            value: format!("{msg_count} message(s)"),
+        });
+    }
+    for key in ctx.data().keys() {
+        if nlir::context::Context::is_system_key(key) {
+            continue;
+        }
+        let rendered = ctx.render_key(key).unwrap_or_default();
+        let preview: String = rendered
+            .replace(['\n', '\r'], " ")
+            .chars()
+            .take(80)
+            .collect();
+        entries.push(tui::ContextEntry {
+            key: key.clone(),
+            value: preview,
+        });
+    }
+    entries
+}
+
+/// Evaluate `expr` in deterministic mode for the live Output pane, persisting any
+/// `key=RHS` writes to the context (mirrors `repl_eval`). Returns the rendered
+/// value or an error string; never panics/aborts the TUI.
+fn tui_eval(cli: &Cli, expr: &str) -> Result<String, String> {
+    let cfg = resolve_config(cli).map_err(|_| "config error".to_owned())?;
+    let mut ctx = open_context(cli).map_err(|_| "context error".to_owned())?;
+    let sep = ctx.sep();
+    match nlir::eval::evaluate(expr, &cfg, &mut ctx, nlir::Mode::Det) {
+        Ok(value) => {
+            let _ = ctx.save();
+            Ok(value.render(&sep))
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Restore a pool session into the active context WITHOUT printing (a bare
+/// `restore_session` writes to stderr, which would corrupt the alternate
+/// screen). Mirrors `restore_session`'s copy, surfacing errors to the status bar.
+fn tui_restore_session_silent(cli: &Cli, session: &std::path::Path) -> Result<(), String> {
+    let cfg = resolve_config(cli).map_err(|_| "config error".to_owned())?;
+    let path = effective_context_path(cli, &cfg).ok_or_else(|| "no context store".to_owned())?;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::copy(session, &path).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]

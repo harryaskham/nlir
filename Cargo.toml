@@ -36,6 +36,12 @@ crossterm = { version = "0.28", optional = true }
 # it is native-only + optional.
 rustyline = { version = "14", optional = true }
 
+# ratatui — full-screen workbench UI for `nlir tui` (bd-ae1730): session
+# browser + context manager + live expression eval. Native-only + optional; its
+# default backend is the SAME crossterm the step-view/rustyline already pull, so
+# it adds no second terminal backend and never enters the wasm build.
+ratatui = { version = "0.29", optional = true }
+
 # SVG rasterisation for `nlir show` graph PNGs + the kitty animation (graph-viz
 # G4). Pure-Rust (usvg/tiny-skia) SVG->PNG; native-only + optional so it never
 # enters the wasm build (the browser renders the SAME SVG in the DOM directly).
@@ -67,7 +73,7 @@ feedback-cli = { git = "ssh://git@github.com/harryaskham/feedback-cli", branch =
 # on = today's binary + tests are byte-identical.
 [features]
 default = ["native"]
-native = ["dep:ureq", "dep:crossterm", "dep:rustyline", "dep:resvg", "dep:png", "dep:base64", "dep:mcp-cli", "dep:updatable-cli", "dep:feedback-cli"]
+native = ["dep:ureq", "dep:crossterm", "dep:rustyline", "dep:ratatui", "dep:resvg", "dep:png", "dep:base64", "dep:mcp-cli", "dep:updatable-cli", "dep:feedback-cli"]
 
 [lints.rust]
 unsafe_code = "forbid"
