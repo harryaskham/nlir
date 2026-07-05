@@ -514,7 +514,7 @@ impl<'a> Evaluator<'a> {
     fn read_context(&self, name: &str) -> Result<Value, EvalError> {
         self.context
             .get(name)
-            .map(json_to_value)
+            .map(|json| json_to_value_forms(json, self.config))
             .ok_or_else(|| EvalError::UnknownContextKey(name.to_owned()))
     }
 
@@ -1341,7 +1341,7 @@ fn eval_parallel_safe(
         Expr::Quote(inner) => Ok(Value::form((**inner).clone())),
         Expr::ContextRead(name) => context
             .get(name)
-            .map(json_to_value)
+            .map(|json| json_to_value_forms(json, config))
             .ok_or_else(|| EvalError::UnknownContextKey(name.to_owned())),
         Expr::Message { role, index } => {
             let sep = context.sep();
@@ -1557,11 +1557,54 @@ fn value_to_json(value: &Value) -> Json {
         }
         Value::Bool(flag) => Json::Bool(*flag),
         Value::List(items) => Json::Array(items.iter().map(value_to_json).collect()),
-        // A form persists as its braced source string (v1): it reloads as a
-        // String, not a Form. Form round-trip through context is a follow-up
-        // (a tagged JSON representation) once forms are commonly bound/persisted.
-        Value::Form(inner) => Json::String(format!("{{{}}}", inner.render())),
+        // A form persists as a TAGGED JSON object carrying its body source, so
+        // it round-trips back to a Value::Form on read (bd-5dd86f) — this is what
+        // makes named lambdas/macros work (`f={form};$f%args`). The read side
+        // (`Evaluator::json_to_value_forms`) reparses the source with the config
+        // grammar.
+        Value::Form(inner) => {
+            let mut map = serde_json::Map::new();
+            map.insert(FORM_TAG.to_owned(), Json::String(inner.render()));
+            Json::Object(map)
+        }
     }
+}
+
+/// The context-JSON key tagging a persisted [`Value::Form`] (bd-5dd86f), so an
+/// assigned form round-trips back to a form on read rather than a bare string.
+const FORM_TAG: &str = "__nlir_form__";
+
+/// If `json` is a tagged persisted-form object (`{FORM_TAG: "<source>"}`),
+/// return the carried body source.
+fn form_tag_source(json: &Json) -> Option<&str> {
+    match json {
+        Json::Object(map) if map.len() == 1 => map.get(FORM_TAG).and_then(Json::as_str),
+        _ => None,
+    }
+}
+
+/// Convert a stored context JSON value to a [`Value`], reconstructing a
+/// [`Value::Form`] from the tagged persisted-form object (bd-5dd86f) by
+/// reparsing its source with the config grammar; all other JSON falls through to
+/// [`json_to_value`]. This is what lets a named form round-trip
+/// (`f={form};$f%args`).
+fn json_to_value_forms(json: &Json, config: &Config) -> Value {
+    if let Some(source) = form_tag_source(json) {
+        if let Some(expr) = parse_stored_form(source, config) {
+            return Value::form(expr);
+        }
+    }
+    json_to_value(json)
+}
+
+/// Reparse a persisted form's body source into its [`Expr`] using the config's
+/// operator grammar. `None` if it does not tokenise/parse (a corrupt/foreign
+/// store) — then it reads back as a plain string.
+fn parse_stored_form(source: &str, config: &Config) -> Option<Expr> {
+    let sigils = crate::config::operator_sigils(config);
+    let tokens = crate::lexer::tokenize(source, &sigils).ok()?;
+    let program = crate::parser::parse_program(&tokens, &config.operators).ok()?;
+    program.statements.into_iter().next()
 }
 
 /// Build the per-run realisation cache key (bd-1d078c): the operator sigil,
@@ -1666,6 +1709,17 @@ operators:
         let cfg = config();
         let mut ctx = Context::empty(&cfg.context);
         assert!(evaluate("5%3", &cfg, &mut ctx, Mode::Det).is_err());
+    }
+
+    #[test]
+    fn named_form_round_trips_through_context() {
+        // A form assigned to a name round-trips through context persistence and
+        // applies as a form — named lambdas/macros `f={…};$f%args` (bd-5dd86f).
+        assert_eq!(det("f={$0+$1};$f%(2,3)"), "5");
+        assert_eq!(det("sq={$0*$0};$sq%5"), "25");
+        // A plain assigned string still reads back as a string (only the tagged
+        // form object reconstructs to a Value::Form).
+        assert_eq!(det("k=hello;$k"), "hello");
     }
 
     #[test]
