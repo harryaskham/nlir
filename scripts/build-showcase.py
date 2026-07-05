@@ -72,6 +72,15 @@ SIMPLE = [
              "in alignment with our Q3 security-first roadmap.",
          cap="the considered reply \u2014 take an agent's suggestion (^-1), fold in your amendment (& ...), "
              "make it formal (@). one move: reply to any proposal with your own twist."),
+    dict(name="decisive-close", expr="@(~0^*-1 & 'decision: start with Auth0, reassess at 50k MAU')",
+         pill="llm · reads the whole thread",
+         src="a 4-turn debate \u2014 build our own auth vs use Auth0 (control & in-house expertise vs speed, compliance, recurring cost & lock-in)",
+         out="After weighing building our own auth against adopting Auth0 \u2014 control and in-house expertise "
+             "versus speed, compliance, and recurring cost \u2014 the decision is to start with Auth0 and "
+             "reassess upon reaching 50,000 monthly active users, keeping the option to move in-house if "
+             "costs later justify it.",
+         cap="the decisive close \u2014 read the WHOLE thread (~0^*-1), fold in your decision (& 'decision: ...'), "
+             "close it formally (@). end any debate in one line, grounded in what was actually said."),
     dict(name="grounded-counter",
          expr="@(^-1 & '- but scoped to just the hot 10% of users' & ^_-1)",
          pill="llm · reads your chat",
