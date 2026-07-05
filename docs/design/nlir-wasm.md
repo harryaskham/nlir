@@ -103,7 +103,7 @@ So:
 
 A new crate (`crates/nlir-wasm` or a `wasm` feature) depending on the nlir lib:
 - `#[wasm_bindgen]` exports: `evaluate(expr, config_json, context_json, mode) → Promise<Result>`,
-  `step(expr, …) → Promise<Step[]>` (mirrors `nlir step`), `parse(expr) → Ast`,
+  `step(expr, …) → Promise<Step[]>` (mirrors `nlir step`), `parse(expr, config_json) → Ast`,
   `operators(config_json) → Op[]` (the `nlir help` data for a live grammar panel),
   `version() → {crate, git}` (the co-build stamp).
 - **Config crosses the wasm boundary as JSON, not YAML** (resolved, see §6): the

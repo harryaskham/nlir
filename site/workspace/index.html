@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nlir · workspace</title>
+<link rel="stylesheet" href="workspace.css">
+</head>
+<body>
+<nav>
+  <span class="brand">nlir<span class="dot">·</span><span class="sub">workspace</span></span>
+  <span id="modeBadge" class="badge">det · key-free</span>
+  <span id="verBadge" class="badge" title="co-build stamp">wasm: (mock)</span>
+  <a href="../index.html">← site</a>
+  <a href="https://github.com/harryaskham/nlir">GitHub ↗</a>
+</nav>
+
+<div class="wrap">
+  <!-- LEFT: run + step -->
+  <div class="col">
+    <section class="panel">
+      <h2>Expression <span class="hint">— type nlir shorthand, run or step it</span></h2>
+      <div class="exprbar">
+        <input id="expr" spellcheck="false" autocomplete="off" placeholder="e.g.  2**3**2   ·   @'lmk if any Qs'   ·   'a';'b';&amp;;~$">
+        <div class="seg" id="modeSeg">
+          <button data-mode="det" class="on">det</button>
+          <button data-mode="llm">llm</button>
+        </div>
+        <button class="run" id="runBtn">Run ▸</button>
+        <button class="step" id="stepBtn">Step ↓</button>
+      </div>
+      <div class="chips" id="examples"></div>
+      <div class="output" id="output">
+        <span class="placeholder">Output appears here. Deterministic expressions (numbers, templates, joins, echo) run fully in-browser, key-free.</span>
+      </div>
+      <div class="steps" id="steps"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Operators <span class="hint">— the live grammar (from your config)</span></h2>
+      <div class="ops" id="ops"></div>
+    </section>
+  </div>
+
+  <!-- RIGHT: config + context + settings -->
+  <div class="col">
+    <section class="panel">
+      <h2>Config <span class="hint">— YAML, seeds the operators</span></h2>
+      <textarea id="config" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:.6rem">
+        <button class="ghost" id="applyCfg">Apply</button>
+        <button class="ghost" id="resetCfg">Reset to default</button>
+      </div>
+      <small class="note" id="cfgNote"></small>
+    </section>
+
+    <section class="panel">
+      <h2>Context <span class="hint">— messages feed ^ / ^_ / ^*</span></h2>
+      <div id="messages"></div>
+      <div class="row">
+        <select class="role" id="newRole"><option>user</option><option>assistant</option><option>system</option></select>
+        <input class="txt" id="newMsg" placeholder="message text" spellcheck="false">
+        <button class="ghost" id="addMsg">+ add</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Values <span class="hint">— $name bindings</span></h2>
+      <div id="kvs"></div>
+      <div class="row">
+        <input class="k" id="newKey" placeholder="name" spellcheck="false">
+        <input class="v" id="newVal" placeholder="value" spellcheck="false">
+        <button class="ghost" id="addKv">+ set</button>
+      </div>
+    </section>
+
+    <section class="panel" id="llmPanel" hidden>
+      <h2>LLM <span class="hint">— llm-mode realiser (P3)</span></h2>
+      <div class="row"><input class="v" id="baseUrl" placeholder="base URL (OpenAI-compatible)" spellcheck="false"></div>
+      <div class="row"><input class="v" id="apiKey" placeholder="API key" type="password"></div>
+      <small class="note">Stored only in your browser (localStorage); sent only to your endpoint. On-device (window.ai / Gemma) lands in P5.</small>
+    </section>
+  </div>
+</div>
+
+<script src="workspace.js"></script>
+</body>
+</html>
