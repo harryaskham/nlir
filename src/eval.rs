@@ -2734,6 +2734,7 @@ operators:
   sq:   { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
   inc:  { op: "†", arity: 1, fixity: prefix, form: "{$0+1}" }
   plus: { op: "⊕", arity: 2, fixity: infix,  priority: 11, operands: number, result: number, reduce: add }
+  amp:  { op: "&", arity: ">0", fixity: mixfix, priority: 5, join: " & " }
   add:  { op: "+", arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
   mul:  { op: "*", arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
 "##;
@@ -2745,8 +2746,10 @@ operators:
         };
         // atop 2-train: (□ †) = {□(†($0))} — inc then square, R-to-L.
         check("(□ †)%5", "36"); // □(†(5)) = □(6) = 36
-        // fork: (□ ⊕ †) = {(□$0) ⊕ (†$0)} — two lenses on one input.
+        // fork with INFIX combiner: (□ ⊕ †) = {(□$0) ⊕ (†$0)} — two lenses on one input.
         check("(□ ⊕ †)%5", "31"); // (□5) ⊕ (†5) = 25 ⊕ 6 = 31
+        // fork with MIXFIX combiner (bd-57f470): `&`/`|` are mixfix, arity >0.
+        check("(□ & †)%5", "25 & 6"); // (□5) & (†5) = 25 & 6 (join)
         // atop 3-chain (all prefix): (□ † □) = {□(†(□($0)))}.
         check("(□ † □)%2", "25"); // □(†(□2)) = □(†4) = □5 = 25
     }

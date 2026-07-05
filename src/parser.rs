@@ -638,9 +638,12 @@ impl Parser<'_> {
         }
         if ops.len() == 3
             && ops[0].1 == Fixity::Prefix
-            && ops[1].1 == Fixity::Infix
+            && matches!(ops[1].1, Fixity::Infix | Fixity::Mixfix)
             && ops[2].1 == Fixity::Prefix
         {
+            // The combiner g may be infix OR mixfix — the natural fork combiners
+            // `&`/`|` are mixfix (arity >0). Emit it with its OWN fixity so a
+            // mixfix `&` reads as the normal binary `(f $0) & (h $0)` (bd-57f470).
             let arm = |op: &str| Expr::Apply {
                 op: op.to_owned(),
                 fixity: Fixity::Prefix,
@@ -648,14 +651,14 @@ impl Parser<'_> {
             };
             return Ok(Expr::Quote(Box::new(Expr::Apply {
                 op: ops[1].0.clone(),
-                fixity: Fixity::Infix,
+                fixity: ops[1].1,
                 operands: vec![arm(&ops[0].0), arm(&ops[2].0)],
             })));
         }
         Err(ParseError {
             position: at,
             message:
-                "unsupported train: use an all-prefix chain `(f g …)` (atop) or a 3-op fork `(f g h)` with prefix f/h and infix g"
+                "unsupported train: use an all-prefix chain `(f g …)` (atop) or a 3-op fork `(f g h)` with prefix f/h and an infix-or-mixfix combiner g"
                     .to_owned(),
         })
     }
