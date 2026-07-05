@@ -123,20 +123,33 @@ dbl={$0*2};((($dbl)_3)%1)+((($dbl)_2)%1)     → 12
 
 ---
 
-## 5. Coming soon — map/fold over a list
+## 5. Map over a list — manual today, a builtin soon
 
-The one thing you **cannot** do yet is map a form over each element of a list.
-`{$0+1}%[1,2,3]` is **not** a map — the list is an *argument frame*
-(`$0=1, $1=2, $2=3`), so it returns `2`. Per-item map is the designed next
-functional primitive (tracked in **bd-14af74**); today only the fixed `:`
-(simplify) op maps per item. The intended shape (syntax pending a ruling):
+Lists are **first-class values** and render **sep-joined** — `[1,4,9]` evaluates
+to the three-line result `1` / `4` / `9`, not a single number. (If you ever see
+`-> 9`, you're looking at the *last line* of a multi-line result — the
+`nlir: EXPR -> RESULT` summary prints it inline; use `--quiet`, don't
+`tail -1`.)
+
+So you can **map by hand today** — spell out the form applied to each element,
+and you get a real list back:
 
 ```
-$map%({$0*$0},[1,2,3])        → [1,4,9]     # NOT YET — bd-14af74
-$fold%({$0+$1},[1,2,3,4])     → 10          # NOT YET — bd-14af74
+sq={$0*$0};[$sq%1,$sq%2,$sq%3]        -> 1 / 4 / 9   (a three-element list)
 ```
 
-This pairs with making **lists first-class results** — see the last gotcha.
+What's *not* built yet is applying a form over a **dynamic** list without
+writing out each element — a true `map`. Note `{$0+1}%[1,2,3]` is **not** it:
+there the list is an *argument frame* (`$0=1, $1=2, $2=3`), so it returns `2`.
+The per-item map is tracked in **bd-14af74**; the team-settled shape needs **no
+new syntax** — `map`/`fold` are builtin forms called through the usual apply:
+
+```
+$map%({$0*$0},[1,2,3])        -> 1 / 4 / 9   # NOT YET — bd-14af74
+$fold%({$0+$1},[1,2,3,4])     -> 10          # NOT YET — bd-14af74
+```
+
+Today the fixed `:` (simplify) op is the one op that maps per item over a list.
 
 ---
 
@@ -146,10 +159,10 @@ This pairs with making **lists first-class results** — see the last gotcha.
 - **Repeat a named form with parens: `($f)_N`.** `$f_N` lexes as a single
   identifier `f_N` (underscore is an identifier char), giving *"unknown context
   key"*. Inline forms are fine: `({…}_N)`.
-- **A bare list collapses to its last element.** `[1,4,9]` evaluates to `9`
-  today — lists are only consumed by spreading ops (`&[a,b,c] ≡ a&b&c`), not
-  yet surfaced as standalone values. First-class list results land with
-  map/fold (bd-14af74).
+- **Lists are first-class and render sep-joined.** `[1,4,9]` -> `1` / `4` / `9`
+  (three lines), *not* `9`. The `nlir: EXPR -> RESULT` summary prints a
+  multi-line result inline, so `… | tail -1` grabs only the last line — use
+  `--quiet` to see the clean list.
 
 ---
 

@@ -390,6 +390,10 @@ tests:
   cookbook-poly:       { mode: det, expr: "poly={($0*$0)+(2*$0)+1};$poly%5", expected: "36" }
   cookbook-repeat-named: { mode: det, expr: "inc={$0+1};(($inc)_10)%0", expected: "10" }
   cookbook-iterated:   { mode: det, expr: "inc={$0+1};sq={$0*$0};$sq%($inc%($inc%($inc%2)))", expected: "25" }
+  # lists are first-class + render sep-joined (NOT collapsed): a manual map by
+  # spelling out the form per element yields a real 3-element list.
+  cookbook-list-firstclass: { mode: det, expr: "[1,4,9]", expected: "1\n4\n9" }
+  cookbook-manual-map:      { mode: det, expr: "sq={$0*$0};[$sq%1,$sq%2,$sq%3]", expected: "1\n4\n9" }
   msg:
     mode: det
     context:
