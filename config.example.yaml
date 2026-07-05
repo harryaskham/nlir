@@ -373,6 +373,12 @@ tests:
   lambda-square:    { mode: det, expr: "sq={$0*$0};$sq%5",         expected: "25" }
   lambda-inc:       { mode: det, expr: "inc={$0+1};$inc%9",        expected: "10" }
   lambda-compose:   { mode: det, expr: "dbl={$0*2};$dbl%($dbl%3)", expected: "12" }
+  # quote-eval do-N-times (bd-5dd86f): `{form}_N` composes a form N times (the `_`
+  # repeat lifted from text-repeat to form-compose). Apply binds tighter than `_`,
+  # so the compose needs parens before `%`: `({form}_N)%seed`.
+  do-n-inc3: { mode: det, expr: "({$0+1}_3)%5", expected: "8" }
+  do-n-dbl2: { mode: det, expr: "({$0*2}_2)%3", expected: "12" }
+  do-n-id0:  { mode: det, expr: "({$0+1}_0)%5", expected: "5" }
   msg:
     mode: det
     context:
