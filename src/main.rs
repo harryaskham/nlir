@@ -2230,22 +2230,47 @@ fn run_tui(cli: &Cli, _args: &TuiArgs) -> Result<(), i32> {
     // panic-restore hook; ratatui::restore undoes it on every exit path.
     let mut terminal = ratatui::init();
     let outcome = (|| -> Result<(), i32> {
+        use std::time::{Duration, Instant};
+        // bd-970e05: debounced deterministic live preview. Track the buffer + when
+        // it last changed; ~350ms after the user stops typing, det-eval the buffer
+        // (non-persisting) and show the result-so-far in the Output pane.
+        let debounce = Duration::from_millis(350);
+        let mut prev_buffer = wb.expr_buffer();
+        let mut dirty_since: Option<Instant> = None;
         loop {
             terminal
                 .draw(|frame| tui::render(frame, &wb))
                 .map_err(|_| 1i32)?;
-            let Ok(ev) = event::read() else {
-                break;
-            };
-            let Event::Key(key) = ev else {
-                continue;
-            };
-            if key.kind != KeyEventKind::Press {
-                continue;
+            // Wake at least every ~120ms so the debounce can fire with no input.
+            if event::poll(Duration::from_millis(120)).unwrap_or(false) {
+                let Ok(ev) = event::read() else {
+                    break;
+                };
+                if let Event::Key(key) = ev
+                    && key.kind == KeyEventKind::Press
+                {
+                    handle_tui_key(cli, &mut wb, key);
+                    if wb.should_quit() {
+                        break;
+                    }
+                }
             }
-            handle_tui_key(cli, &mut wb, key);
-            if wb.should_quit() {
-                break;
+            // Detect edits and drive the debounced preview.
+            let cur = wb.expr_buffer();
+            if cur != prev_buffer {
+                prev_buffer.clone_from(&cur);
+                dirty_since = Some(Instant::now());
+            }
+            if let Some(since) = dirty_since
+                && since.elapsed() >= debounce
+            {
+                dirty_since = None;
+                let trimmed = cur.trim();
+                wb.set_preview(if trimmed.is_empty() {
+                    None
+                } else {
+                    tui_eval_preview(cli, trimmed)
+                });
             }
         }
         Ok(())
@@ -2421,6 +2446,9 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
                 } else {
                     format!("error  » {expr}")
                 });
+                // The committed result now owns the Output pane; drop the live
+                // preview so it doesn't briefly shadow the committed value.
+                wb.set_preview(None);
             }
             KeyCode::Char('d') if ctrl && wb.editor.is_empty() => wb.quit(),
             // Ctrl-C clears a non-empty line (shell-style), else quits.
@@ -2806,6 +2834,20 @@ fn tui_eval(cli: &Cli, expr: &str) -> Result<String, String> {
             Ok(value.render(&sep))
         }
         Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Deterministic, NON-persisting evaluation of `expr` for the live preview
+/// (bd-970e05). Returns the rendered result, or `None` if the expression is
+/// currently unparseable / errors (so a mid-edit expression shows no preview
+/// rather than a flickering error). The context is opened but never saved.
+fn tui_eval_preview(cli: &Cli, expr: &str) -> Option<String> {
+    let cfg = resolve_config(cli).ok()?;
+    let mut ctx = open_context(cli).ok()?;
+    let sep = ctx.sep();
+    match nlir::eval::evaluate(expr, &cfg, &mut ctx, nlir::Mode::Det) {
+        Ok(value) => Some(value.render(&sep)),
+        Err(_) => None,
     }
 }
 

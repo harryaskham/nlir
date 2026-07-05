@@ -140,6 +140,10 @@ pub struct Workbench {
     palette: Option<PaletteState>,
     /// The open step-through view (Ctrl-T), if any.
     steps: Option<StepView>,
+    /// A live deterministic preview of the in-progress expression (bd-970e05):
+    /// the debounced result-so-far, shown until Enter commits. `None` when the
+    /// buffer is empty or currently unparseable.
+    preview: Option<String>,
 }
 
 impl Workbench {
@@ -161,6 +165,7 @@ impl Workbench {
             confirm: None,
             palette: None,
             steps: None,
+            preview: None,
         }
     }
 
@@ -244,6 +249,18 @@ impl Workbench {
     /// Set the transient status-line message.
     pub fn set_status(&mut self, status: impl Into<String>) {
         self.status = status.into();
+    }
+
+    /// Set (or clear) the live deterministic preview of the in-progress
+    /// expression (bd-970e05).
+    pub fn set_preview(&mut self, preview: Option<String>) {
+        self.preview = preview;
+    }
+
+    /// The current expression buffer, for the debounced-preview driver to detect
+    /// edits.
+    pub fn expr_buffer(&self) -> String {
+        self.editor.buffer_string()
     }
 
     /// The context row currently selected in the Context pane, if any.
@@ -591,22 +608,38 @@ fn render_expr(frame: &mut Frame, area: Rect, wb: &Workbench) {
 
 fn render_output(frame: &mut Frame, area: Rect, wb: &Workbench) {
     let focused = wb.focus == Pane::Expr; // output tracks the expr pane
-    let style = if wb.output_is_error {
-        Style::default().fg(Color::Red)
-    } else {
-        Style::default().fg(Color::White)
-    };
-    let body = if wb.output.is_empty() {
-        Span::styled(
-            "(evaluate an expression — deterministic mode)",
-            Style::default().fg(Color::DarkGray),
+    // A live deterministic preview of the in-progress expression (bd-970e05)
+    // takes precedence over the last committed result: shown italic-cyan under a
+    // "live" title, so it reads as speculative and uncommitted.
+    let (title, body) = if let Some(preview) = wb.preview.as_ref() {
+        (
+            "Output · live",
+            Span::styled(
+                preview.clone(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::ITALIC),
+            ),
+        )
+    } else if wb.output.is_empty() {
+        (
+            "Output",
+            Span::styled(
+                "(type to preview · Enter commits · deterministic)",
+                Style::default().fg(Color::DarkGray),
+            ),
         )
     } else {
-        Span::styled(wb.output.clone(), style)
+        let style = if wb.output_is_error {
+            Style::default().fg(Color::Red)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        ("Output", Span::styled(wb.output.clone(), style))
     };
     frame.render_widget(
         Paragraph::new(Line::from(body))
-            .block(pane_block("Output", focused))
+            .block(pane_block(title, focused))
             .wrap(Wrap { trim: false }),
         area,
     );
