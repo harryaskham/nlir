@@ -1344,6 +1344,90 @@ fn run_resume(cli: &Cli, sel: Option<&str>) -> Result<(), i32> {
 /// recent) / `--resume` (interactive picker or a direct id). Runs in the
 /// dispatcher, before either loop takes the stdin lock, so `--resume`'s picker
 /// can read a choice safely. bd-ff485a / bd-2275f6.
+/// Delete one session file (used by `:sessions rm` + the TUI browser). bd-37efc1.
+fn delete_session(session: &std::path::Path) -> std::io::Result<()> {
+    std::fs::remove_file(session)
+}
+
+/// Keep the `keep_n` most-recent sessions in `dir`, delete the rest; returns the
+/// number deleted (used by `:sessions prune` + the TUI). bd-37efc1.
+fn prune_sessions(dir: &std::path::Path, keep_n: usize) -> usize {
+    list_sessions(dir)
+        .iter()
+        .skip(keep_n)
+        .filter(|stale| delete_session(stale).is_ok())
+        .count()
+}
+
+/// `:sessions` lists saved sessions; `:sessions rm <n|ts|path>` deletes one;
+/// `:sessions prune [N]` keeps the N most-recent (default 20). bd-37efc1.
+fn run_sessions(cli: &Cli, args: &[&str]) -> Result<(), i32> {
+    let Ok(cfg) = resolve_config(cli) else {
+        return Err(1);
+    };
+    let Some(path) = effective_context_path(cli, &cfg) else {
+        eprintln!("nlir: no context store configured");
+        return Err(1);
+    };
+    let dir = sessions_dir(&path);
+    match args {
+        [] => {
+            let sessions = list_sessions(&dir);
+            if sessions.is_empty() {
+                eprintln!("nlir: no saved sessions");
+            } else {
+                print_sessions(&sessions);
+                eprintln!(
+                    "nlir: `:sessions rm <n>` deletes one \u{b7} `:sessions prune [N]` keeps the N most recent"
+                );
+            }
+            Ok(())
+        }
+        ["rm", sel] => {
+            let sessions = list_sessions(&dir);
+            match resolve_session_selector(sel, &dir, &sessions) {
+                Some(session) => match delete_session(&session) {
+                    Ok(()) => {
+                        eprintln!("nlir: deleted session {}", session.display());
+                        Ok(())
+                    }
+                    Err(error) => {
+                        eprintln!("nlir: delete session {}: {error}", session.display());
+                        Err(1)
+                    }
+                },
+                None => {
+                    eprintln!("nlir: no session matching '{sel}'");
+                    Err(2)
+                }
+            }
+        }
+        ["prune", rest @ ..] => {
+            let keep = match rest {
+                [] => 20,
+                [n] => match n.parse::<usize>() {
+                    Ok(keep) => keep,
+                    Err(_) => {
+                        eprintln!("nlir: :sessions prune [N] \u{2014} N must be a number");
+                        return Err(2);
+                    }
+                },
+                _ => {
+                    eprintln!("nlir: :sessions prune [N]");
+                    return Err(2);
+                }
+            };
+            let deleted = prune_sessions(&dir, keep);
+            eprintln!("nlir: pruned {deleted} session(s), kept the {keep} most recent");
+            Ok(())
+        }
+        _ => {
+            eprintln!("nlir: :sessions | :sessions rm <n|ts> | :sessions prune [N]");
+            Err(2)
+        }
+    }
+}
+
 fn restore_session_at_startup(cli: &Cli, args: &ReplArgs) {
     if !args.continue_session && args.resume.is_none() {
         return;
@@ -1410,7 +1494,7 @@ fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
 fn run_repl_plain(cli: &Cli, prompts: bool) -> Result<(), i32> {
     if prompts {
         eprintln!(
-            "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:resume`/`:set`/`:get`/`:append-message`/`:quit`); Ctrl-D to exit."
+            "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:resume`/`:sessions`/`:set`/`:get`/`:append-message`/`:quit`); Ctrl-D to exit."
         );
     }
     let stdin = io::stdin();
@@ -1493,7 +1577,7 @@ fn run_repl_interactive(cli: &Cli) -> Result<(), i32> {
     }
 
     eprintln!(
-        "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:resume`/`:set`/`:get`/`:append-message`/`:quit`); ↑/↓ history, Ctrl-A/Ctrl-E line edit, Ctrl-C cancels the line, Ctrl-D exits."
+        "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:resume`/`:sessions`/`:set`/`:get`/`:append-message`/`:quit`); ↑/↓ history, Ctrl-A/Ctrl-E line edit, Ctrl-C cancels the line, Ctrl-D exits."
     );
 
     let mut pending = String::new();
@@ -1778,6 +1862,7 @@ fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
         ["new"] => run_new(cli),
         ["resume"] => run_resume(cli, None),
         ["resume", sel] => run_resume(cli, Some(sel)),
+        ["sessions", rest @ ..] => run_sessions(cli, rest),
         ["set", tail @ ..] if !tail.is_empty() => run_set(
             cli,
             &SetArgs {
@@ -1807,7 +1892,7 @@ fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
         ["step", tail @ ..] if !tail.is_empty() => run_step_view(cli, &tail.join(" ")),
         _ => {
             eprintln!(
-                "nlir repl: unknown meta-command ':{meta}' (try :new, :resume [n], :step EXPR, :set KEY VALUE, :get KEY, :append-message [--role R] TEXT, :quit)"
+                "nlir repl: unknown meta-command ':{meta}' (try :new, :resume [n], :sessions [rm N|prune N], :step EXPR, :set KEY VALUE, :get KEY, :append-message [--role R] TEXT, :quit)"
             );
             Err(2)
         }
