@@ -183,18 +183,33 @@ pub fn extract_result(
 /// `"love and <text>hate</text>"`.
 ///
 /// This runs at the per-call output seam (before any join), where a leaked wrapper is always
-/// the WHOLE response, so it strips only an OUTER wrapper: a trimmed value that both opens with
+/// the WHOLE response, so it strips only OUTER wrappers: a trimmed value that both opens with
 /// a `<text>`/`<text n=DIGITS>` tag and ends with `</text>`. Mid-string `<text>` (e.g. a model
 /// that echoes a prompt fragment) and look-alikes such as `<textarea>` are deliberately left
 /// untouched — no false positives.
-fn strip_text_tags(s: &str) -> String {
-    let trimmed = s.trim();
-    if let Some(open_len) = text_open_tag_len(trimmed) {
-        if let Some(inner) = trimmed[open_len..].strip_suffix("</text>") {
-            return inner.trim().to_owned();
-        }
+///
+/// It peels **nested** outer wrappers in a loop (bd-cb761e): a single call may echo more than
+/// one, and — crucially in the browser, where a BYO model is less reliable about omitting the
+/// delimiter — an operand can already carry a leaked wrapper that the next op's prompt delimiter
+/// re-wraps, so `!(!(…))` would otherwise accumulate `<text><text>…</text></text>`. It is
+/// `pub(crate)` so the async realiser seam ([`crate::eval`]) can apply it to EVERY realiser's
+/// output — the native backend already strips via [`extract_result`], but the browser
+/// `JsRealiser` returns raw fetched text, so the shared seam is the realiser-agnostic guard.
+pub(crate) fn strip_text_tags(s: &str) -> String {
+    let mut cur = s.trim().to_owned();
+    loop {
+        let trimmed = cur.trim();
+        let Some(open_len) = text_open_tag_len(trimmed) else {
+            break;
+        };
+        let Some(inner) = trimmed[open_len..].strip_suffix("</text>") else {
+            break;
+        };
+        // Each pass removes a `<text>`+`</text>` pair (>= 13 chars), so `cur` strictly
+        // shrinks and the loop terminates.
+        cur = inner.trim().to_owned();
     }
-    s.to_owned()
+    cur
 }
 
 /// If `s` begins with a `<text>` or `<text n=DIGITS>` open tag, return its byte length.
@@ -1291,6 +1306,20 @@ mod tests {
         assert_eq!(
             extract_result("<text n=0>a</text>", ModelFormat::Text, None),
             Ok("a".to_owned())
+        );
+        // bd-cb761e: NESTED wrappers are all peeled (a multi-wrapper echo, or an
+        // operand that already carried a leaked wrapper re-wrapped by the next op).
+        assert_eq!(
+            extract_result("<text><text>hate</text></text>", ModelFormat::Text, None),
+            Ok("hate".to_owned())
+        );
+        assert_eq!(
+            extract_result(
+                "<text><text><text>x</text></text></text>",
+                ModelFormat::Text,
+                None
+            ),
+            Ok("x".to_owned())
         );
         // Whitespace from a newline-wrapped echo is trimmed away.
         assert_eq!(

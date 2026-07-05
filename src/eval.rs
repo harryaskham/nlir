@@ -1147,7 +1147,10 @@ async fn realise_async<R: crate::realiser::Realiser>(
             realiser
                 .llm(&call)
                 .await
-                .map(Value::string)
+                // Strip any `<text>…</text>` wrapper the model echoed, at the shared
+                // realiser seam so EVERY backend (incl. the browser JsRealiser, which
+                // returns raw fetched text) is guarded, not just native run_llm (bd-cb761e).
+                .map(|s| Value::string(crate::llm::strip_text_tags(&s)))
                 .map_err(|error| EvalError::Llm(error.to_string()))
         }
     }
@@ -1183,6 +1186,8 @@ async fn coerce_operand_async<R: crate::realiser::Realiser>(
                     .llm(&call)
                     .await
                     .map_err(|error| EvalError::Llm(error.to_string()))?;
+                // Same seam-level wrapper strip for the llm type-coercion path (bd-cb761e).
+                let answer = crate::llm::strip_text_tags(&answer);
                 return Value::string(answer)
                     .coerce(target, sep)
                     .map_err(EvalError::Coerce);
@@ -2226,6 +2231,47 @@ operators:
         let out = evaluate("!foo", &cfg, &mut ctx, Mode::Llm).expect("llm realisation");
         // aur-2's substitute_operands wraps the single operand in a <text> tag.
         assert_eq!(out.render(&ctx.sep()), "negate: <text>foo</text>");
+    }
+
+    /// A browser-style mock realiser that echoes a fixed string (ignoring the
+    /// call). Unlike [`crate::realiser::NativeRealiser`] (which strips via
+    /// `run_llm`/`extract_result`), it returns raw text — so it exercises the
+    /// shared realise_async seam strip (bd-cb761e).
+    struct EchoRealiser(String);
+
+    impl crate::realiser::Realiser for EchoRealiser {
+        fn llm<'a>(&'a self, _call: &'a crate::llm::LlmCall) -> crate::realiser::RealiseFuture<'a> {
+            let s = self.0.clone();
+            Box::pin(async move { Ok(s) })
+        }
+        fn command<'a>(
+            &'a self,
+            _command: &'a str,
+            _operands: &'a [String],
+        ) -> crate::realiser::RealiseFuture<'a> {
+            Box::pin(async move { Ok(String::new()) })
+        }
+    }
+
+    #[test]
+    fn async_seam_strips_echoed_text_tags_incl_nested() {
+        // bd-cb761e: the browser realiser returns raw fetched text (no strip), so a
+        // model that echoes the <text> input delimiter — and re-wraps across nested
+        // ops (the !(!(…)) accumulation Harry caught) — must be stripped at the shared
+        // realise_async seam, not just in the native run_llm path.
+        let yaml = r##"
+models:
+  any: { type: command, format: text, command: "true" }
+operators:
+  neg: { op: "!", arity: 1, fixity: prefix, model: any, prompt: "negate: %" }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("llm.yaml")).unwrap();
+        let mut ctx = Context::empty(&cfg.context);
+        let realiser = EchoRealiser("<text><text>flipped</text></text>".to_owned());
+        use crate::realiser::block_on_ready;
+        let out = block_on_ready(evaluate_async("!x", &cfg, &mut ctx, Mode::Llm, &realiser))
+            .expect("async llm realisation");
+        assert_eq!(out.render(&ctx.sep()), "flipped");
     }
 
     #[test]
