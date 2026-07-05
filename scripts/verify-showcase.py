@@ -128,6 +128,10 @@ def main() -> int:
     for c in simple:
         name, expr, pill = c["name"], c["expr"], c.get("pill", "")
         out = c.get("out", "")
+        if c.get("config_op"):
+            print(f"  ~ SKIP  {name:22s} (user-config glyph-op — proven by config.example.yaml demos)")
+            skipped += 1
+            continue
         reason = needs_input(expr)
         if reason:
             print(f"  ~ SKIP  {name:22s} ({reason} — proven by examples/*.sh)")
