@@ -494,6 +494,16 @@ SIMPLE = [
          cap="respectful dissent — @&[!THE_PROPOSAL, MY_REASONING, WHAT_ID_SUPPORT]: a principled NO "
              "done well. The ! rejects the proposal (give it the POSITIVE claim — ! does the 'no'), then "
              "your reasoning + a constructive alternative you'd back. Disagreement that moves forward"),
+    dict(name="clarifying-reframe",
+         expr="[:'so what you need is a weekly summary email of the top three support issues, sent "
+              "every friday morning to the leadership list','have I got that right'?]",
+         pill="llm · claude-sonnet-5",
+         out="Every Friday morning, send an email to the leaders that shows the three biggest problems "
+             "customers had that week.\nDid I get that right?",
+         cap="the clarifying reframe — [:RESTATE_THEIR_ASK_PLAINLY, 'IS_THAT_RIGHT'?]: before you build "
+             "the wrong thing, play the request back in plain terms (the : strips the jargon) and ask if "
+             "you got it (the postfix ? makes it a real question). Restating plainly surfaces a "
+             "misunderstanding fast"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",

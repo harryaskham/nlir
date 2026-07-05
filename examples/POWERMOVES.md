@@ -60,6 +60,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | descope proposal | `@&[SQUEEZE, WHAT_TO_CUT, WHAT_TO_PROTECT, PAYOFF]` | trade scope for a date, argued well | aur-2 |
 | the retro | `@&[WHAT_WORKED, WHAT_DIDNT, WHAT_TO_CHANGE]` | a sprint retrospective, ending on the change | aur-2 |
 | respectful dissent | `@&[!THE_PROPOSAL, MY_REASONING, WHAT_ID_SUPPORT]` | a principled no + a constructive alternative | aur-2 |
+| clarifying reframe | `[:RESTATE_THEIR_ASK, 'IS_THAT_RIGHT'?]` | confirm you understood before you act | aur-2 |
 | postmortem note | `@&[OWN_THE_MISS, ROOT_CAUSE, PREVENTION]` | own a mistake gracefully | aur-2 |
 | meeting recap | `@&[DECIDED, STILL_OPEN, ACTION_ITEMS]` | decision + open questions + owners | aur-2 |
 | the nudge | `:&[REMINDER, WHY_IT_MATTERS, LOW_PRESSURE_ASK]` | a warm follow-up, not a pushy chase | aur-2 |
