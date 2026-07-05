@@ -63,7 +63,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | FAQ entry | `['QUESTION'?, :'ANSWER', ...]` | jot Q + raw answer → a customer-ready Q&A pair | aur-2 |
 | glossary entry | `[~>'TERM', :'TERM']` | a term's crisp definition + a plain analogy, together | aur-2 |
 | compare-and-contrast | `~>'the difference between X and Y'` | the one crisp sentence on how two things differ | aur-2 |
-| the changelog | `:['ITEM', 'ITEM', ...]` | terse notes → one polished release-note line each (no & = map; & weaves) | aur-2 |
+| the changelog | `:['ITEM', 'ITEM', ...]` | terse notes → one polished release-note line each (LLM per-line tendency; `&` weaves structurally) | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |
@@ -106,6 +106,14 @@ empathetic redirect · briefed handoff · review verdict · terse status ping ·
 scoped commitment · risk heads-up · postmortem note · meeting recap · the nudge.
 Slot rule: a slot takes plain content or ONE transform (`:`/`!`/`~`) — a full train in a slot
 (e.g. `:>'term'`) breaks the weave.
+List algebra (aur-0/aur-1 verified): `op[list]` = the op applied to the list *rendered as text* — NOT
+a structural map (in DET, `!['a','b','c']` prepends "not " ONCE to the whole multi-line render, not
+per item). In practice only
+`:[list]` reliably maps per-item (the changelog); `@[list]`/`>[list]` are non-deterministic (bloom-last
+or weave); reductive `#`/`~`/`<[list]` FOLD to one; `&[list]` WEAVES structurally. The proposed MAP
+`↦` would be the true structural per-item map. (msm-0: message RANGES are the SAME algebra — `op^*`
+is likewise op-on-rendered-text: `:^*` maps in practice, `@^*` weaves, `~^*` folds; so `↦` would also
+enable per-message ops like `@↦^_` = formalise EACH of their turns.)
 → `examples/CATALOG-aur2.md` · `examples/move-aur2-*.sh` · cards `nlir-composer-reply`, `nlir-empathetic-redirect`
 
 ### REPLY / AMEND — answer a live suggestion (aur-1)
