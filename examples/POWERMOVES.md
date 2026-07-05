@@ -50,10 +50,14 @@ whole ask, my amendment, my caveat] into one formal reply.
 | scoped commitment | `@&[DELIVERABLE, BY_WHEN, DEPENDENCY]` | a promise + its fine print | aur-2 |
 | risk heads-up | `@&[RISK, WHY_NOW, RECOMMENDATION]` | flag a risk, unprompted, with a fix | aur-2 |
 | postmortem note | `@&[OWN_THE_MISS, ROOT_CAUSE, PREVENTION]` | own a mistake gracefully | aur-2 |
+| meeting recap | `@&[DECIDED, STILL_OPEN, ACTION_ITEMS]` | decision + open questions + owners | aur-2 |
+| the nudge | `:&[REMINDER, WHY_IT_MATTERS, LOW_PRESSURE_ASK]` | a warm follow-up, not a pushy chase | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |
 | steelman reply | `[~>@^-1, @(!^-1 & 'GROUNDS')]` | their case at its best, then your reasoned no | aur-1 |
+| counter-offer | `[@(!^-1 & 'GROUNDS'), @'ALTERNATIVE']` | decline, then offer the path you'd back | aur-1 |
+| weighed decision | `[~>@^-1, ~>!^-1, @(^-1 & 'decision: CALL')]` | weigh a proposal both ways, then rule | aur-1 |
 | grounded counter | `@(^-1 & 'CHANGE' & ^_-1)` | reply grounded in an earlier point | aur-0 |
 | cited synthesis | `@~(0^_-1)` | your whole ask, distilled into one formal line | aur-0 |
 | full layered reply | `k=@(^-1 & 'CHANGE' & ^_-1 & 'CAVEAT');[$k,~$k]` | the whole considered response + self-reflection | aur-0 |
@@ -80,14 +84,17 @@ claim · `~` digest a long reference). Gotcha: flag a *gap* plainly, don't `!` i
 meaning); keep slots consistent.
 Moves: diplomatic counter-reply · weighed recommendation · partial-accept counter-offer ·
 empathetic redirect · briefed handoff · review verdict · terse status ping · crisp proposal ·
-scoped commitment · risk heads-up · postmortem note.
+scoped commitment · risk heads-up · postmortem note · meeting recap · the nudge.
+Slot rule: a slot takes plain content or ONE transform (`:`/`!`/`~`) — a full train in a slot
+(e.g. `:>'term'`) breaks the weave.
 → `examples/CATALOG-aur2.md` · `examples/move-aur2-*.sh` · cards `nlir-composer-reply`, `nlir-empathetic-redirect`
 
 ### REPLY / AMEND — answer a live suggestion (aur-1)
 `@(^-1 & '<your amendment>')` — take the agent's last suggestion, fold in your twist, make it formal
 (the grouping is load-bearing).
 Moves: considered reply (agree+amend) · honest yes (amend + auto devil's-advocate `~>!^-1`) ·
-reasoned no (`@(!^-1 & grounds)`) · steelman reply (their best case, then your no) · decisive close
+reasoned no (`@(!^-1 & grounds)`) · steelman reply (their best case, then your no) · counter-offer
+(decline, then offer a path) · weighed decision (weigh both ways, then rule) · decisive close
 (end a thread with a decision).
 → `examples/CATALOG-aur1.md` · cards `nlir-considered-reply`, `nlir-honest-yes`, `nlir-reasoned-no`, `nlir-decisive-close`
 
