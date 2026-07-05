@@ -480,6 +480,20 @@ SIMPLE = [
          cap="the retro — @&[WHAT_WORKED, WHAT_DIDNT, WHAT_TO_CHANGE]: a sprint retrospective in one "
              "note — keep what worked, name what didn't plainly, and end on the concrete change. A retro "
              "without a change is just venting"),
+    dict(name="respectful-dissent",
+         expr="@&['!we should rewrite the billing system from scratch this quarter','the current one "
+              "is ugly but it works and handles years of edge cases we would have to rediscover the hard "
+              "way','I would support carving out the worst module and refactoring it behind the existing "
+              "interface instead']",
+         pill="llm · claude-sonnet-5",
+         out="I would advise against undertaking a complete rewrite of the billing system this "
+             "quarter. While the current system is inelegant, it remains functional and accounts for "
+             "years of accumulated edge cases that we would otherwise need to rediscover through a "
+             "difficult and time-consuming process. I would instead support isolating the most "
+             "problematic module and refactoring it while preserving the existing interface.",
+         cap="respectful dissent — @&[!THE_PROPOSAL, MY_REASONING, WHAT_ID_SUPPORT]: a principled NO "
+             "done well. The ! rejects the proposal (give it the POSITIVE claim — ! does the 'no'), then "
+             "your reasoning + a constructive alternative you'd back. Disagreement that moves forward"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
