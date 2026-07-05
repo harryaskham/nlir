@@ -561,6 +561,10 @@ SIMPLE = [
          out="A Rust function intended to average an i32 slice, but its inclusive range (0..=xs.len()) "
              "causes an out-of-bounds index panic.     \u00b7     false",
          cap="cat avg.rs | nlir \u2014 the review pipe: ~ diagnoses the code straight off the pipe (nails the 0..= panic), then Harry's ~> returns a hard production-ready verdict \u2014 false"),
+    dict(name="debug-pipe", expr="[~$_stdin, ~(>'the most likely fix for: $_stdin')]", pill="llm · pipe an error, get the fix",
+         src="error[E0502]: cannot borrow `v` as mutable because it is also borrowed as immutable  —  let first = &v[0];  v.push(4);",
+         out="Rust compilation fails: `v` needs `mut`, and the mutable borrow for `push` conflicts with `first`'s still-live immutable borrow.     ·     Add `mut` to `v` and end `first`'s borrow — move the `println!` before `v.push(4)`.",
+         cap="cat err.txt | nlir \u2014 the debug pipe: ~ names the root cause, then ~(>\u2026) derives the actual fix (add mut, reorder the borrow) \u2014 diagnosis + remedy straight off the pipe (aur-0 triage ∘ aur-2 fix-it)"),
     dict(name="code-concept", expr="#^!", pill="llm \u00b7 reads the agent's code stream",
          src="\u2039tool result\u203a  def fib(n):  if n<2: return n  return fib(n-1)+fib(n-2)",
          out="Recursive Fibonacci function",

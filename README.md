@@ -46,8 +46,12 @@ your own summary. Six communicative moves, a handful of sigils, reading your liv
 | `@'lmk if any Qs'` → a polished professional line | `'sixty'+'sixty'*'a fifth'` → `72` (a $60 bill + a 20% tip) |
 | ![right-associative pow](showcase/nlir-pow.png) | ![the executive summary](showcase/nlir-exec-summary.png) |
 | `2**3**2` → `512` (exponentiation, done right) | `@~x` → a rambling update becomes one crisp line |
-| ![the review pipe](showcase/nlir-review-pipe.png) | ![the distiller](showcase/nlir-distiller.png) |
-| `cat foo.rs \| nlir -e '[~$_stdin, $_stdin~>"production-ready"]'` → a code diagnosis + a hard verdict | `‹any› \| nlir -e '~$_stdin'` → a diff, a compiler error, or a stack trace — distilled to one line |
+| ![the review pipe](showcase/nlir-review-pipe.png) | ![the debug pipe](showcase/nlir-debug-pipe.png) |
+| `cat foo.rs \| nlir -e '[~$_stdin, $_stdin~>"production-ready"]'` → a code diagnosis + a hard verdict | `cat err.txt \| nlir -e '[~$_stdin, ~(>"fix for: $_stdin")]'` → the root cause + the actual fix |
+
+The smart pipe distils whatever you feed it — a git diff, a compiler error, or a stack trace — all through one sigil:
+
+![the distiller — one sigil (~$_stdin) distils any pipe to a single line](showcase/nlir-distiller.png)
 
 The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
 [`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
