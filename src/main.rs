@@ -500,6 +500,7 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
     for (sig, desc) in special {
         println!("  {:<w$}  {}", sig, dim(desc), w = sw2);
     }
+    print_help_examples(color);
     println!();
     println!(
         "{}",
@@ -516,6 +517,185 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
         );
     }
     Ok(())
+}
+
+/// One group of `nlir help` examples: a heading and its `(input, output, note)`
+/// rows. Factored out to keep the table literal readable (clippy::type_complexity).
+type HelpExampleGroup = (
+    &'static str,
+    &'static [(&'static str, &'static str, &'static str)],
+);
+
+/// The curated "examples" section of `nlir help` (bd-5c19c4): input → output
+/// pairs per language feature, a learning resource on top of the config-derived
+/// operator reference table. Every det example here is lifted from a verified
+/// `nlir test` case (the `tests:` block in config.example.yaml), so the help
+/// text stays consistent with the cookbook and is guaranteed runnable.
+fn print_help_examples(color: bool) {
+    let bold = |s: &str| {
+        if color {
+            format!("\x1b[1m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
+    };
+    let dim = |s: &str| {
+        if color {
+            format!("\x1b[2m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
+    };
+    // (group, [(input, output, note)]). Every det output is a verified
+    // config.example.yaml `tests:` case, so `nlir help` ≡ `nlir test`.
+    let groups: &[HelpExampleGroup] = &[
+        (
+            "numbers — arithmetic",
+            &[
+                ("1+2+3", "6", "variadic +"),
+                ("1+2*3", "7", "* binds tighter than +"),
+                ("2+3*4-1", "13", "full precedence"),
+                ("12/3", "4", ""),
+                ("2**3**2", "512", "** is right-associative: 2**(3**2)"),
+            ],
+        ),
+        (
+            "text — join, concat, repeat, split",
+            &[
+                (
+                    "'ship'&'test'&'review'",
+                    "ship and test and review",
+                    "& joins with \" and \"",
+                ),
+                ("\"foo\"++\"bar\"", "foobar", "++ concatenates"),
+                ("'ab'_3", "ab ab ab", "_ repeats N times"),
+                ("_sep=\\ ;\"a,b,c\"//\",\"", "a b c", "// splits"),
+            ],
+        ),
+        (
+            "forms — code as data ({…}) + apply (%)",
+            &[
+                ("{2+3}", "{(2 + 3)}", "a form is inert until applied"),
+                ("{$0+1}%5", "6", "% applies; $0 is the first argument"),
+                ("{$0+$1}%(2,3)", "5", "two args: $0=2, $1=3"),
+                ("{$0*$1}%(3,4)", "12", ""),
+            ],
+        ),
+        (
+            "named forms — reusable functions",
+            &[
+                ("sq={$0*$0};$sq%5", "25", "bind a form, apply it"),
+                ("inc={$0+1};$inc%9", "10", ""),
+                ("dbl={$0*2};$dbl%($dbl%3)", "12", "compose by nesting"),
+                (
+                    "poly={($0*$0)+(2*$0)+1};$poly%5",
+                    "36",
+                    "a polynomial in one form",
+                ),
+            ],
+        ),
+        (
+            "do-N — repeat a form N times",
+            &[
+                ("({$0+1}_3)%5", "8", "add 1 three times"),
+                ("({$0*2}_2)%3", "12", "double twice"),
+                ("({$0+1}_0)%5", "5", "zero times = identity"),
+            ],
+        ),
+        (
+            "map / fold — higher-order over lists",
+            &[
+                ("$map%({$0*$0},[1,2,3])", "1 4 9", "transform each item"),
+                ("$fold%({$0+$1},[1,2,3,4])", "10", "reduce (sum)"),
+                ("$fold%({$0*$1},[1,2,3,4])", "24", "reduce (product)"),
+                (
+                    "$fold%({$0+$1},$map%({$0*$0},[1,2,3]))",
+                    "14",
+                    "sum of squares (fold ∘ map)",
+                ),
+            ],
+        ),
+        (
+            "scan / filter — running fold + select",
+            &[
+                ("$scan%({$0+$1},[1,2,3,4])", "1 3 6 10", "running totals"),
+                (
+                    "$filter%({$0},[1,0,2,0,3])",
+                    "1 2 3",
+                    "keep the truthy items",
+                ),
+                (
+                    "$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3,0,4])))",
+                    "30",
+                    "filter → map → fold",
+                ),
+            ],
+        ),
+        (
+            "trains — tacit (point-free) composition",
+            &[
+                (
+                    "(~ @)%'thanks'",
+                    "summary: formal: thanks",
+                    "atop: compose right-to-left",
+                ),
+                (
+                    "(# & ~)%'x'",
+                    "subject: x and summary: x",
+                    "fork: two lenses on one input",
+                ),
+            ],
+        ),
+        (
+            "bind + reuse — assignment and context",
+            &[
+                ("k=foo;$k", "foo", "bind a value, read it back as $k"),
+                ("k=2+3;$k*2", "10", "the RHS computes; reuse the result"),
+            ],
+        ),
+        (
+            "language ops — fuzzy realisers (shown: det test-stub)",
+            &[
+                (
+                    "@'x'",
+                    "formal: x",
+                    "formalise — with a model: a polished formal line",
+                ),
+                ("~'x'", "summary: x", "summarise / gist"),
+                ("#'x'", "subject: x", "name the topic"),
+                ("'x'?", "is it the case that x?", "turn into a question"),
+            ],
+        ),
+    ];
+
+    println!();
+    println!(
+        "{}",
+        bold("examples — input → output (det mode; run with  nlir -e 'EXPR'  or in the repl):")
+    );
+    println!(
+        "{}",
+        dim(
+            "  every det example is a verified `nlir test` case; lists render one item per line (shown space-joined)."
+        )
+    );
+    for (group, items) in groups {
+        println!();
+        println!("  {}", bold(group));
+        let iw = items
+            .iter()
+            .map(|(input, _, _)| input.chars().count())
+            .max()
+            .unwrap_or(0);
+        for (input, output, note) in *items {
+            let tail = if note.is_empty() {
+                String::new()
+            } else {
+                format!("   {}", dim(note))
+            };
+            println!("    {input:<iw$}  \u{2192}  {output}{tail}");
+        }
+    }
 }
 
 /// A human-readable group header for a fixity class.
