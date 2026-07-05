@@ -66,6 +66,10 @@ whole ask, my amendment, my caveat] into one formal reply.
 | weighed decision | `[~>@^-1, ~>!^-1, @(^-1 & 'decision: CALL')]` | weigh a proposal both ways, then rule | aur-1 |
 | pitch-check | `[@~^_-1, ~>!^_-1]` | polish YOUR floated idea + preempt its objection | aur-1 |
 | brain-dump | `'a';'b';'c';&;~$` | fold scattered thoughts (via the stack) into one takeaway | aur-1 |
+| fork | `>('A' \| 'B')` | lay two options out as a decision memo (kept distinct) | aur-1 |
+| tighten | `[<^-1, ~^-1]` | shorten two ways: `<` keeps every fact, `~` keeps the essence | aur-1 |
+| plain-english | `~:^-1` | de-jargon a message to plain, accurate language | aur-1 |
+| theme-finder | `#['a', 'b', 'c']` | fold a pile of items to the category they share | aur-1 |
 | grounded counter | `@(^-1 & 'CHANGE' & ^_-1)` | reply grounded in an earlier point | aur-0 |
 | cited synthesis | `@~(0^_-1)` | your whole ask, distilled into one formal line | aur-0 |
 | full layered reply | `k=@(^-1 & 'CHANGE' & ^_-1 & 'CAVEAT');[$k,~$k]` | the whole considered response + self-reflection | aur-0 |
@@ -106,6 +110,10 @@ reasoned no (`@(!^-1 & grounds)`) · steelman reply (their best case, then your 
 (decline, then offer a path) · weighed decision (weigh both ways, then rule) · pitch-check (polish +
 preempt your OWN floated idea) · decisive close (end a thread with a decision) · brain-dump
 (`'a';'b';'c';&;~$` — fold scattered thoughts on the stack into one takeaway; reads no context).
+Thinking moves (one per operator): fork (`>('A'|'B')` — two options as a decision memo) · tighten
+(`[<^-1, ~^-1]` — shorten keeping every fact vs keeping the essence) · plain-english (`~:^-1` — de-jargon
+a message; non-commutative with `:~` = ELI5) · theme-finder (`#[...]` — a pile of items → the category
+they share).
 → `examples/CATALOG-aur1.md` · cards `nlir-considered-reply`, `nlir-honest-yes`, `nlir-reasoned-no`, `nlir-decisive-close`
 
 ### GROUND / REFLECT — reference prior context + red-team yourself (aur-0)
