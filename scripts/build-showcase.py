@@ -317,6 +317,12 @@ SIMPLE = [
              "initiating the renewal process today.",
          cap="the risk heads-up — @&[RISK, WHY_NOW, RECOMMENDATION] raises a risk before it bites: what's "
              "at risk, why it's urgent now, and the concrete action you recommend"),
+    dict(name="reality-check",
+         expr="@&['does','12'*'2500','dollars a month fit our infra budget'?]",
+         pill="llm · claude-sonnet-5",
+         out="Does an expenditure of $30,000 per month align with our infrastructure budget?",
+         cap="the reality-check — @&['LEAD', <a live calc>, 'CLAUSE'?] does the maths AND poses it as a "
+             "question: the calc slot computes ($30,000), the trailing ? makes it the question to ask"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",

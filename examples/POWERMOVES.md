@@ -64,6 +64,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | glossary entry | `[~>'TERM', :'TERM']` | a term's crisp definition + a plain analogy, together | aur-2 |
 | compare-and-contrast | `~>'the difference between X and Y'` | the one crisp sentence on how two things differ | aur-2 |
 | the changelog | `:['ITEM', 'ITEM', ...]` | terse notes → one polished release-note line each (LLM per-line tendency; `&` weaves structurally) | aur-2 |
+| reality-check | `@&['LEAD', <a live calc>, 'CLAUSE'?]` | a pointed question carrying a live computed figure | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |
