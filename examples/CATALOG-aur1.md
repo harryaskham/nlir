@@ -4,9 +4,11 @@ My lane is **cognition, composition, and the reply idioms** — what the sigils
 *mean* when you compose them, and the reusable "moves" you can retype yourself.
 Two layers:
 
-- **The reply idioms** (§0) — the showcase moves: a small, learnable family for
-  replying to an agent, all sharing the same ~7 sigils recombined. This is what
-  the phrasebook ([`POWERMOVES.md`](./POWERMOVES.md)) links here for.
+- **The moves** (§0) — the showcase idioms: 13 reusable "moves" you retype
+  yourself. The *reply family* (agree / decline / decide, sharing ~7 sigils) plus
+  the *thinking moves* (one per operator: the stack, the role knob, OR, shorten,
+  simplify, `#`-over-a-list). This is what the phrasebook
+  ([`POWERMOVES.md`](./POWERMOVES.md)) links here for.
 - **The operator algebra** (§1–§6) — the laws underneath: *why* the moves compose
   the way they do (repetition-dynamics, commutativity, the `?`-projection, the
   stack, the `?`-target palette, and the honest rejects).
@@ -19,7 +21,9 @@ Run any example directly: `./examples/idiom-aur1-NN-*.sh` (or the older
 
 ---
 
-## 0. The reply idioms — the showcase moves
+## 0. The moves — the showcase idioms
+
+### 0a. The reply family — answer a live suggestion
 
 A learnable vocabulary for replying to an agent's message (`^-1` = the agent's
 last turn · `^_-1` = yours · `0^*-1` = the whole thread). Learn the pieces once,
@@ -46,6 +50,27 @@ either in `~>…` to argue it, pair them in a `[…]` list to weigh two beats, a
 prefix `@`/`:`/`~` to set the register. Cards: `nlir-{considered-reply,
 decisive-close, honest-yes, reasoned-no, steelman-reply, counter-offer,
 weighed-decision}.png`. Runnable proofs: `examples/idiom-aur1-01..07-*.sh`.
+
+### 0b. The thinking moves — one per operator
+
+Beyond replying, a move for each core operator — so nearly the whole sigil set
+(`@ ~ ! & | : > < # ^ ^_ $ ;`) is now something you can *type*, not look up.
+
+| move | say it | what it does |
+|---|---|---|
+| brain-dump | `'a'; 'b'; 'c'; &; ~$` | jot scattered thoughts onto the **stack**, fold (`&`), distil to the takeaway (`~$`) |
+| pitch-check | `[@~^_-1, ~>!^_-1]` | **role knob** `^_` — polish your OWN floated idea + surface the objection to preempt |
+| fork | `>('A' \| 'B')` | **OR** `\|` — two options in an either/or, expanded into a decision memo (paths kept distinct) |
+| tighten | `[<^-1, ~^-1]` | **shorten** `<` — two ways to compress: `<` keeps every fact, `~` keeps the gist |
+| plain-english | `~:^-1` | **simplify** `:` — de-jargon an answer to crisp plain English (order: `~:` pro, `:~` ELI5) |
+| theme-finder | `#['a','b','c']` | `#` **over a list** — fold several scattered items to the one category/theme they share |
+
+Each mines a different feature (the stack `; & $` · the role knob `^_` · OR `|` ·
+shorten `<` · simplify `:` · `#`-over-a-list), and several teach a law: the
+tighten shows `<` vs `~` (info-floor vs essence), the plain-english shows
+non-commutativity (`~:` ≠ `:~`), the fork shows `>` FORKS over `|`. Cards:
+`nlir-{brain-dump, pitch-check, fork, tighten, plain-english, theme-finder}.png`.
+Runnable proofs: `examples/idiom-aur1-08..13-*.sh`.
 
 ---
 
