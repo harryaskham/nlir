@@ -262,11 +262,12 @@ pub fn format_number(n: f64) -> String {
 
 /// Parse a string into a number using only **deterministic**, offline rules —
 /// the number forms nlir coerces without a model round-trip. Tries, in order:
-/// a plain float (`"42"`, `"3.5"`, `"-5"`, `"1e3"`, `"+3"`); a hex (`"0xFF"`) or
-/// binary (`"0b101"`) integer literal (optional sign); a comma-grouped integer
-/// (`"1,000"`); a percentage (`"50%"` → `0.5`); and a simple fraction
-/// (`"1/2"` → `0.5`). Returns `None` for anything else, so richer text (spelled
-/// numbers, ranges, …) still defers to the LLM coercion / loud-error layer.
+/// a plain float (`"42"`, `"3.5"`, `"-5"`, `"1e3"`, `"+3"`); a currency amount
+/// (`"$0.25"`, `"$1,000"`); a hex (`"0xFF"`) or binary (`"0b101"`) integer
+/// literal (optional sign); a comma-grouped integer (`"1,000"`); a percentage
+/// (`"50%"` → `0.5`); and a simple fraction (`"1/2"` → `0.5`). Returns `None` for
+/// anything else, so richer text (spelled numbers, ranges, …) still defers to the
+/// LLM coercion / loud-error layer.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
 fn parse_number_str(raw: &str) -> Option<f64> {
@@ -277,6 +278,11 @@ fn parse_number_str(raw: &str) -> Option<f64> {
     // Plain float: ints, decimals, signs, scientific notation.
     if let Ok(n) = s.parse::<f64>() {
         return Some(n);
+    }
+    // Currency: "$1", "$0.25", "$1,000" -> strip the leading currency mark and
+    // re-parse the amount (so its decimals / thousands separators are handled).
+    if let Some(rest) = s.strip_prefix('$') {
+        return parse_number_str(rest);
     }
     // Hex / binary integer literals, with an optional leading sign.
     let (sign, body) = if let Some(rest) = s.strip_prefix('-') {
@@ -629,6 +635,10 @@ mod tests {
             ("5%", 0.05),
             ("1/2", 0.5),
             ("3/4", 0.75),
+            // Currency amounts (strip the mark, decimals / thousands handled).
+            ("$1", 1.0),
+            ("$0.25", 0.25),
+            ("$1,000", 1000.0),
             // Plain forms are unaffected.
             ("42", 42.0),
             ("1e3", 1000.0),
