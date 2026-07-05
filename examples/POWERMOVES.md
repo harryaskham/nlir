@@ -58,6 +58,9 @@ whole ask, my amendment, my caveat] into one formal reply.
 | exec brief | `@~0^*-1` | whole thread → a VP-ready paragraph | msm-0 |
 | standup | `~0^*-1` | the whole thread in one line | msm-0 |
 | the two sides | `[~0^_-1, ~0^-1]` | split a debate by side | msm-0 |
+| the ticket | `[#~0^*-1, ~0^*-1]` | chat → titled ticket (subject + summary) | msm-0 |
+| plain recap | `:~0^*-1` | whole thread → plain, jargon-free recap | msm-0 |
+| tone knob | `[@~0^*-1, :~0^*-1, ~0^*-1]` | one thread, three registers (formal/plain/terse) | msm-0 |
 
 (Full slot rules + more moves per lane below and in each `CATALOG-<lane>.md`.)
 
@@ -91,10 +94,13 @@ self-summarizing memo · self-red-team (`k=@>'X';[$k,>!~$k]`).
 → `examples/CATALOG-aur0.md` · `examples/move-aur0-*.sh` · cards `nlir-full-layered-reply`, `nlir-grounded-counter`, `nlir-self-red-team`
 
 ### SELECT / DIGEST — read a whole thread (msm-0)
-Range selectors over the chat: `~0^*-1` the whole thread in one line · `p=~0^*-2;[$p,^_-1]` catch up
-(background + their live question, verbatim) · `[~0^_-1, ~0^-1]` the two sides of a debate. These
-SELECT the input the other lanes TRANSFORM / COMPOSE.
-→ `examples/CATALOG-msm0.md` · cards `nlir-catchup`, `nlir-two-sides`, `nlir-exec-brief`, `nlir-ticket`
+Two selector knobs over the chat: **time** (`0^*-1` whole thread · `0^*-2` all-but-latest · `^_-1`
+their last) and **role** (`^`=assistant/the-agent · `^_`=user/you-the-driver · `^*`=all · `^/`=system;
+role is relative to who's driving — in the pi plugin `^_`=you, `^`=the agent). Then the **tone knob**
+picks the register: `@~0^*-1` formal (brief a VP) · `:~0^*-1` plain (onboard anyone) · `~0^*-1` terse
+(a ping). Moves: catch up · exec brief · standup · plain recap · the ticket · the two sides · tone knob.
+These SELECT the input the other lanes TRANSFORM / COMPOSE.
+→ `examples/CATALOG-msm0.md` · cards `nlir-catchup`, `nlir-exec-brief`, `nlir-ticket`, `nlir-plain-recap`, `nlir-two-sides`, `nlir-tone-knob`
 
 ---
 
