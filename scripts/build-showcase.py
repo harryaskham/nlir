@@ -292,6 +292,13 @@ SIMPLE = [
              "complexity, we recommend approving a one-week spike to prototype the solution.",
          cap="the crisp proposal — a mini-RFC in one line: @&[:PROBLEM, FIX, TRADEOFF, ASK]. The : "
              "plainly frames the problem, then the fix, the honest tradeoff, and the concrete ask"),
+    dict(name="changelog",
+         expr=":['fixed a crash on large uploads','sped up search 3x','added keyboard shortcuts']",
+         pill="llm · claude-sonnet-5",
+         out="Fixed a problem that made big file uploads stop working  ·  Made searching much, much "
+             "faster  ·  Added shortcut keys you can press on the keyboard",
+         cap="the changelog — a tone op on a list WITHOUT & MAPS over each item (one polished line each); "
+             ": = friendly release notes, @ = formal. Add & to weave into one sentence instead"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
