@@ -64,10 +64,12 @@ EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval
 ## Types & coercion
 
 Every value has a type: **`string`** (default), **`number`**, **`bool`**,
-**`list`**.
+**`list`**, **`form`** (a quoted `{…}` expression — see metaprogramming below).
 
 - Operators declare `operands:` / `result:` types (default `string`). `^` indices
   and arithmetic want `number`; `#`/`!`/`&` want `string`.
+- A **`form`** coerces to `string` as its **inner source** (no braces), so an op over
+  a form reads its code as text (`@{a+b}` → "a+b"); `%`-application takes `operands:[form]`.
 - Before an operator runs, each operand is **coerced** to the required type:
   1. already that type → use as-is;
   2. **deterministic** parse — `"1"`↔`1`, `number→string`, `list→string` (join
@@ -130,7 +132,23 @@ transformations differ by mode.
   subexpression** to evaluate **serially**; the marked subtree still runs in
   parallel with respect to its siblings.
 
-Reserved builtin sigils: `; $ ^ = [ ] , ( ) \` `` ` `` , the quote chars `" '`,
+### Forms, application & macros (metaprogramming)
+- **`{EXPR}`** — a **quoted form**: `EXPR` as an unevaluated first-class value (a
+  `Form`), *not* run. `{2+3}` → the form `{(2 + 3)}`, not `5`. Braces = code-as-data;
+  parens `(…)` = the evaluated value.
+- **`%`** — **application** (infix): applies a form to arguments, binding them to the
+  positional holes `$0 $1 …` in a fresh **argument frame**, then evaluates the body.
+  `{$0+$1}%(2,3)` → `5`; single arg `{$0+1}%5` → `6`. `%` binds **tighter than `,`**
+  (`f%a,b` = `(f%a),b`; pass a tuple with `f%(a,b)`).
+- **Argument holes `$0 $1 …`** — positional parameters inside a form, bound at apply
+  time. **Hygienic**: a form's `$0` is its *argument*, not the run stack (`9;{$0}%7` → `7`).
+- **Named macros** — assign a form to a name and call it by name (forms persist in
+  context): `steelman={~(>@$0)}; $steelman%'we should rewrite it in Rust'`. The whole
+  idiom phrasebook becomes a named, reusable library.
+- Building/applying forms is deterministic (structural); only the realisation of the
+  *expanded* body hits the model.
+
+Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
 the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
 After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
 
