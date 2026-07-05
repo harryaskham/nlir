@@ -26,8 +26,8 @@ const LS_KEY = 'nlir.workspace.v1';
 // workspace fetches the full config.example.yaml (which also seeds prompts+types).
 // `demo` is a placeholder model so det-mode + the ops list work offline; llm mode
 // uses the fetched config or the Settings BYO endpoint.
-const DEFAULT_CONFIG_FALLBACK = `# nlir config (workspace default) — the full operator set, offline-parseable.
-# Reset restores this; the live site fetches the complete config.example.yaml.
+const DEFAULT_CONFIG = `# nlir config (workspace default) — the full operator set, offline-parseable.
+# Reset restores this; the live site uses the evaluator's own bundled config.
 models:
   demo: { type: command, format: text, command: "echo %" }
 defaults:
@@ -54,11 +54,6 @@ operators:
   power:    { op: "**", fixity: infix,   arity: 2,   priority: 13, assoc: right, operands: number, result: number, reduce: pow, description: "power (right-assoc: 2**3**2 = 512)" }
   echo:     { op: "_",  fixity: infix,   arity: 2,   priority: 14, command: "for i in $(seq \${NLIR_ARGS[1]}); do echo \${NLIR_ARGS[0]}; done", description: "repeat N times (shell-realised)" }
 `;
-// Build-time anti-drift (bd-ca518b): P7/build-docs.sh generates default-config.js setting
-// window.__NLIR_DEFAULT_CONFIG__ from the canonical config.example.yaml, so the workspace
-// default can never drift from it. The inline literal above is the local-dev fallback
-// (used when default-config.js isn't built/served).
-const DEFAULT_CONFIG = (typeof window !== 'undefined' && window.__NLIR_DEFAULT_CONFIG__) || DEFAULT_CONFIG_FALLBACK;
 
 // operators() mock — mirrors nlir help (aur-2's summary()/is_deterministic()).
 const MOCK_OPERATORS = [
@@ -129,6 +124,7 @@ const MOCK = {
   ] }; },
   async graphFramesAsync(){ return this.graphFrames(); },
   version(){ return { crate:'mock', git:'—' }; },
+  defaultConfigYaml(){ return DEFAULT_CONFIG; },
 };
 
 // Real nlir-wasm loads when ./pkg/ is present (CI-built + embedded by P7); else MOCK.
@@ -150,10 +146,14 @@ let wasmReal = false;
       graphFrames(e,c,md){ const r = O(m.graphFrames(e,c,md)); if (r.frames) r.frames = A(r.frames); return r; },
       async graphFramesAsync(e,c,x,md,r){ const rr = O(await m.graphFramesAsync(e,c,x,md,r)); if (rr.frames) rr.frames = A(rr.frames); return rr; },
       version(){ return O(m.version()); },
+      defaultConfigYaml(){ return m.defaultConfigYaml(); },
     };
     wasmReal = true;
     const v = nlir.version() || {};
     $('verBadge').textContent = 'wasm: ' + (v.crate || 'live') + (v.git && v.git!=='unknown' ? ' · '+String(v.git).slice(0,7) : '');
+    // Anti-drift (bd-ca518b): the config is the wasm's own include_str! copy of config.example.yaml
+    // (single source of truth, always in lockstep with the parser). Adopt it as the default.
+    try { const cfg = nlir.defaultConfigYaml(); if (cfg && state.config === DEFAULT_CONFIG){ state.config = cfg; if ($('config')) $('config').value = cfg; save(); } } catch {}
     renderOps();
   } catch (err) {
     console.info('nlir-wasm pkg/ not present — using mock evaluator.', err && err.message);
@@ -426,12 +426,6 @@ function setMode(m){
 function init(){
   $('config').value = state.config;
   $('cfgNote').textContent = 'Operators below reflect this config.';
-  // best-effort: seed from the full shipped config if served alongside (P7 copies config.example.yaml)
-  if (state.config === DEFAULT_CONFIG){
-    fetch('config.example.yaml').then(r => r.ok ? r.text() : null).then(t => {
-      if (t && state.config === DEFAULT_CONFIG){ state.config = t; $('config').value = t; save(); renderOps(); }
-    }).catch(()=>{});
-  }
   renderExamples(); renderOps(); renderMessages(); renderKvs();
   setMode(state.settings.mode);
   initEditor();

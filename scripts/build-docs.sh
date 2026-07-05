@@ -183,12 +183,6 @@ if [ -d "$root/site/workspace" ]; then
   if ! [ "$out/workspace" -ef "$root/site/workspace" ]; then
     rm -rf "$out/workspace"
     cp -a "$root/site/workspace" "$out/workspace"
-    # Anti-drift (bd-ca518b): generate the workspace default config from the canonical
-    # config.example.yaml so DEFAULT_CONFIG can never drift from it. workspace.js + the
-    # live hero use window.__NLIR_DEFAULT_CONFIG__ when present, else an inline fallback.
-    if [ -f "$root/config.example.yaml" ]; then
-      python3 -c "import json,sys; sys.stdout.write('window.__NLIR_DEFAULT_CONFIG__ = ' + json.dumps(open(sys.argv[1]).read()) + ';\n')" "$root/config.example.yaml" > "$out/workspace/default-config.js"
-    fi
   fi
   if [ -d "$root/site/workspace/pkg" ]; then
     sed -i 's#<a href="showcase.html">Showcase</a>#<a href="workspace/">Workspace</a>\n  <a href="showcase.html">Showcase</a>#' "$out/.nav.html"

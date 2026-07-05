@@ -18,7 +18,6 @@
   </div>
 </section>
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
-<script src="workspace/default-config.js"></script>
 <script type="module">
   const $ = id => document.getElementById(id);
   const out = $('hout'), hx = $('hx');
@@ -33,7 +32,7 @@
     // failure (offline/CDN/js-yaml), fall back to a config-free keystone so the hero
     // stays live rather than showing an error on the homepage.
     try {
-      const y = window.__NLIR_DEFAULT_CONFIG__ || await (await fetch('workspace/config.example.yaml')).text();
+      const y = m.defaultConfigYaml ? m.defaultConfigYaml() : await (await fetch('workspace/config.example.yaml')).text();
       cfgJson = JSON.stringify(window.jsyaml.load(y));
     } catch (_) { hx.value = "'draft'; 'revise'; 'final'"; }
   } catch (e) {
