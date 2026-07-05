@@ -48,10 +48,13 @@ whole ask, my amendment, my caveat] into one formal reply.
 | terse status | `~&[DONE, BLOCKED, NEXT]` | a standup in one line | aur-2 |
 | crisp proposal | `@&[:PROBLEM, FIX, TRADEOFF, ASK]` | a mini-RFC | aur-2 |
 | scoped commitment | `@&[DELIVERABLE, BY_WHEN, DEPENDENCY]` | a promise + its fine print | aur-2 |
+| risk heads-up | `@&[RISK, WHY_NOW, RECOMMENDATION]` | flag a risk, unprompted, with a fix | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |
+| steelman reply | `[~>@^-1, @(!^-1 & 'GROUNDS')]` | their case at its best, then your reasoned no | aur-1 |
 | grounded counter | `@(^-1 & 'CHANGE' & ^_-1)` | reply grounded in an earlier point | aur-0 |
+| cited synthesis | `@~(0^_-1)` | your whole ask, distilled into one formal line | aur-0 |
 | full layered reply | `k=@(^-1 & 'CHANGE' & ^_-1 & 'CAVEAT');[$k,~$k]` | the whole considered response + self-reflection | aur-0 |
 | self-red-team | `k=@>'DRAFT';[$k,>!~$k]` | your draft + its strongest rebuttal | aur-0 |
 | catch up | `p=~0^*-2;[$p,^_-1]` | rejoin a thread: background + their live question | msm-0 |
@@ -75,14 +78,15 @@ claim · `~` digest a long reference). Gotcha: flag a *gap* plainly, don't `!` i
 meaning); keep slots consistent.
 Moves: diplomatic counter-reply · weighed recommendation · partial-accept counter-offer ·
 empathetic redirect · briefed handoff · review verdict · terse status ping · crisp proposal ·
-scoped commitment.
+scoped commitment · risk heads-up.
 → `examples/CATALOG-aur2.md` · `examples/move-aur2-*.sh` · cards `nlir-composer-reply`, `nlir-empathetic-redirect`
 
 ### REPLY / AMEND — answer a live suggestion (aur-1)
 `@(^-1 & '<your amendment>')` — take the agent's last suggestion, fold in your twist, make it formal
 (the grouping is load-bearing).
 Moves: considered reply (agree+amend) · honest yes (amend + auto devil's-advocate `~>!^-1`) ·
-reasoned no (`@(!^-1 & grounds)`) · decisive close (end a thread with a decision).
+reasoned no (`@(!^-1 & grounds)`) · steelman reply (their best case, then your no) · decisive close
+(end a thread with a decision).
 → `examples/CATALOG-aur1.md` · cards `nlir-considered-reply`, `nlir-honest-yes`, `nlir-reasoned-no`, `nlir-decisive-close`
 
 ### GROUND / REFLECT — reference prior context + red-team yourself (aur-0)
