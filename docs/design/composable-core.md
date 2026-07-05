@@ -69,6 +69,9 @@ _sep=\ ;$map%({$fold%({$0+$1}, $map%({1}, $0//""))}, "the cat sat"//" ")  => 3 3
 
 # P7 — TRAINS (atop, landed @d903823): compose lenses point-free, no $0.
 (: ~ @)%"hi"                                                  => simple: summary: formal: hi
+
+# P8 — TRAINS (fork, @bbe15c2): two lenses on one input, mapped over a split.
+_sep=" || ";$map%({(# & ~)%$0}, "a,b"//",")  => subject: a and summary: a || subject: b and summary: b
 ```
 
 P5 is the flagship: **length is not a primitive** — it *falls out* of
@@ -99,7 +102,7 @@ scan LANDED @d7f6f6c** (msm-0, word-builtins, no new sigils); **trains** are in
 progress (msm-0's parser, §4/§5); **zip** remains a candidate. The remaining
 *point-free* gap is trains (§3.1).
 
-### 3.1 Trains / point-free composition (#1) — LANDED @d903823 (partial)
+### 3.1 Trains / point-free composition (#1) — LANDED @d903823 + @bbe15c2
 
 The category-theory core: compose lenses *without spelling `$0`*. aur-1's grammar
 (§5): a **parser desugar** on operator-only parenthesised groups, on msm-0's
@@ -109,11 +112,12 @@ stack-implicit foundation — zero new glyphs, applied via `%`.
   `(: ~ @)%"hi"` → `simple: summary: formal: hi` (compose right-to-left).
 - **FORK works with an INFIX combiner** (verified): `(# Δ ~)%"hello"` →
   `diff: subject: hello -> summary: hello` (two lenses on one input, combined).
-- **FORK with a MIXFIX combiner is BROKEN** (bd-57f470): the headline
-  `(# & ~)` = "subject & gist" doesn't parse ("unsupported train") because
-  `&`/`|` are `fixity: mixfix`, not `infix`. Fix: accept a mixfix op as a binary
-  combiner in fork position. Until then the `&`/`|` fork cards are non-runnable;
-  use an infix combiner, or the desugared form `{(#$0)&(~$0)}` (which works).
+- **FORK with a MIXFIX combiner** — FIXED @bbe15c2 (bd-57f470): the headline
+  `(# & ~)%"hello world"` → `subject: hello world and summary: hello world`
+  (subject AND gist — two lenses on one input); `(: & #)%"fn add"` =
+  explain-and-name. The fork now accepts `&`/`|` (mixfix) as the combiner, so
+  Harry's #1 (two lenses woven with "and"/"or") is live. The mixfix-rejection
+  diagnosis was found independently by aur-0 + msm-1 + msm-2.
 
 Follow-up (msm-0): tacit application without `%` (juxtaposition `(# & ~)doc`).
 Full design §4 (msm-1) + §5 (aur-1). Biggest unlock: forks multiply every lens.
