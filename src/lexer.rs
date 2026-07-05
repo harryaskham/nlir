@@ -316,6 +316,7 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
                     | Token::Number(_)
                     | Token::RParen
                     | Token::RBracket
+                    | Token::RBrace
                     | Token::ContextRead(_)
                     | Token::StackPeek
                     | Token::StackIndex(_)

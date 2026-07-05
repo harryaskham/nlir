@@ -677,6 +677,14 @@ impl<'a> Evaluator<'a> {
             }
         };
 
+        // do-N-times (`{form}_N`, bd-5dd86f): the repeat operator `_` lifts from
+        // text to forms — a Form first operand COMPOSES the form N times instead
+        // of coercing it to source text. `{$0+1}_3 % 5` -> 8. Intercept before
+        // operand coercion (which would otherwise flatten the form to source).
+        if op == "_" && matches!(operands.first(), Some(Value::Form(_))) {
+            return self.compose_form(&operands);
+        }
+
         let sep = self.sep();
         // Coerce each operand to the operator's operand type (bd-dd7b5e).
         let coerced = operands
@@ -696,6 +704,43 @@ impl<'a> Evaluator<'a> {
             cache_on,
             &self.realise_cache,
         )
+    }
+
+    /// do-N-times: `{form}_N` composes `form` N times into a new form (bd-5dd86f).
+    /// `operands` = `[Value::Form, count]`; the result is a form whose body is
+    /// `form % (form % (… % $0))` (N nested applications), so applying it runs
+    /// the form N times. N=0 is the identity form `{$0}`. This is the `_` repeat
+    /// operator lifted from text-repeat to form-compose.
+    fn compose_form(&self, operands: &[Value]) -> Result<Value, EvalError> {
+        let sep = self.sep();
+        let (form, count) = match operands {
+            [form @ Value::Form(_), count] => (form, count),
+            _ => {
+                return Err(EvalError::Unsupported(
+                    "`{form}_N` needs a form and a numeric repeat count".to_owned(),
+                ));
+            }
+        };
+        let n = count
+            .coerce_deterministic(TypeName::Number, &sep)
+            .and_then(|value| value.as_number())
+            .filter(|n| n.is_finite() && *n >= 0.0)
+            .ok_or_else(|| {
+                EvalError::Unsupported(
+                    "`{form}_N` repeat count must be a non-negative number".to_owned(),
+                )
+            })?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let n = n.trunc() as usize;
+        // Nest N applications of the form around the composed form's own `$0`.
+        let mut body = Expr::StackIndex(0);
+        for _ in 0..n {
+            body = Expr::FormApply {
+                form: Box::new(Expr::Value(form.clone())),
+                args: vec![body],
+            };
+        }
+        Ok(Value::form(body))
     }
 
     /// Async mirror of [`eval`](Self::eval) (bd-bec201, nlir-wasm P0): the same
@@ -815,6 +860,12 @@ impl<'a> Evaluator<'a> {
                     (operands, grouped)
                 }
             };
+
+            // do-N-times (`{form}_N`, bd-5dd86f): a Form first operand of `_`
+            // composes the form N times (sync — no realiser await needed).
+            if op == "_" && matches!(operands.first(), Some(Value::Form(_))) {
+                return self.compose_form(&operands);
+            }
 
             let sep = self.sep();
             let mut coerced = Vec::with_capacity(operands.len());
@@ -1720,6 +1771,18 @@ operators:
         // A plain assigned string still reads back as a string (only the tagged
         // form object reconstructs to a Value::Form).
         assert_eq!(det("k=hello;$k"), "hello");
+    }
+
+    #[test]
+    fn do_n_times_composes_a_form() {
+        // `{form}_N` composes the form N times (do-N-times, bd-5dd86f): the `_`
+        // repeat operator lifted from text-repeat to form-compose. Apply binds
+        // tighter than `_`, so the compose needs parens before `%`.
+        assert_eq!(det("({$0+1}_3)%5"), "8"); // +1 three times: 5->6->7->8
+        assert_eq!(det("({$0*2}_2)%3"), "12"); // *2 twice: 3->6->12
+        assert_eq!(det("({$0+1}_0)%5"), "5"); // N=0 is the identity form
+        // `_` on plain text still repeats text (not lifted).
+        assert_eq!(det("x_3"), "x x x");
     }
 
     #[test]
