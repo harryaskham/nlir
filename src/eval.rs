@@ -745,13 +745,12 @@ impl<'a> Evaluator<'a> {
         }
         if name == "filter" {
             // keep items whose predicate body ($0 = item) is truthy (APL compress).
-            let sep = self.sep();
             let mut out = Vec::new();
             for item in items {
                 self.arg_frames.push(vec![item.clone()]);
                 let verdict = self.eval(body);
                 self.arg_frames.pop();
-                if verdict?.coerce(TypeName::Bool, &sep)?.as_bool() == Some(true) {
+                if value_is_truthy(&verdict?) {
                     out.push(item);
                 }
             }
@@ -840,13 +839,12 @@ impl<'a> Evaluator<'a> {
                 return Ok(Value::list(out));
             }
             if name == "filter" {
-                let sep = self.sep();
                 let mut out = Vec::new();
                 for item in items {
                     self.arg_frames.push(vec![item.clone()]);
                     let verdict = self.eval_async(&body, realiser).await;
                     self.arg_frames.pop();
-                    if verdict?.coerce(TypeName::Bool, &sep)?.as_bool() == Some(true) {
+                    if value_is_truthy(&verdict?) {
                         out.push(item);
                     }
                 }
@@ -2046,6 +2044,31 @@ fn parse_stored_form(source: &str, config: &Config) -> Option<Expr> {
     program.statements.into_iter().next()
 }
 
+/// Truthiness for `$filter` (bd-44c294 family): a predicate body's verdict keeps
+/// the item when truthy. `Bool` is itself; `Number` is nonzero; `List` is
+/// non-empty; a `Form` is truthy; a `String` is truthy unless empty or `false`
+/// (case-insensitive). Filter-local — the global coercion rules stay strict.
+fn value_is_truthy(v: &Value) -> bool {
+    match v {
+        Value::Bool(b) => *b,
+        Value::Number(n) => *n != 0.0,
+        Value::List(items) => !items.is_empty(),
+        Value::Form(_) => true,
+        Value::String(s) => {
+            let t = s.trim();
+            if t.is_empty() || t.eq_ignore_ascii_case("false") {
+                false
+            } else if let Ok(n) = t.parse::<f64>() {
+                // arg-frame reads render items to text, so a numeric item arrives
+                // as its string — use numeric truthiness (`"0"` is falsy).
+                n != 0.0
+            } else {
+                true
+            }
+        }
+    }
+}
+
 /// Extract the `(form-body, items)` for a `builtin:` map/fold glyph operator from
 /// its two already-evaluated operands (bd-44c294): first must be a `{…}` form, the
 /// second a list (a lone non-list value becomes a one-element list).
@@ -2691,6 +2714,12 @@ operators:
         check("$scan%({$0+$1},[1,2,3,4])", "1\n3\n6\n10");
         // filter: keep truthy items (identity predicate over a bool list).
         check("$filter%({$0},[true,false,true,false])", "true\ntrue");
+        // filter truthiness on numbers (0 = falsy, nonzero = truthy) + the trinity.
+        check("$filter%({$0},[1,0,2,0,3])", "1\n2\n3");
+        check(
+            "$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3])))",
+            "14",
+        );
         // scan composes over a map result (running sum of squares).
         check("$scan%({$0+$1},$map%({$0*$0},[1,2,3]))", "1\n5\n14");
     }

@@ -1876,7 +1876,10 @@ context:
             .expect("subject present");
         assert_eq!(subject.op, "#");
         assert_eq!(subject.fixity, "prefix");
-        assert!(!subject.det, "subject is prompt-only -> model-only (llm)");
+        assert!(
+            subject.det,
+            "subject now has a det template stub (aur-2 det-stubs @145e43d): template in det, model in llm"
+        );
 
         let and = refs.iter().find(|r| r.name == "and").expect("and present");
         assert_eq!(and.arity, ">0", "variadic arity stringifies to >0");
