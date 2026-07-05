@@ -176,6 +176,22 @@ GRID = [
              ("~$k  a reflection on its own gist", "The legacy billing API must be fully decommissioned "
               "and all dependent consumers migrated before Q3 begins."),
          ]),
+    dict(name="self-red-team",
+         expr="k=@>'freeze all hiring until Q3';[$k, >!~$k]",
+         pill="llm · drafts, then argues against itself",
+         claim="we should freeze all hiring until Q3",
+         cap="the self-red-team — write your proposal, then have nlir build the strongest DEVELOPED case "
+             "against its own gist. pressure-test your thinking before you send. >!~$k = expand · negate · "
+             "summarise your own draft — the steelmanned rebuttal, in three sigils.",
+         cols=1, cells=[
+             ("$k  your proposal", "It is recommended that the organization institute an immediate and "
+              "complete suspension of all hiring until Q3 — no new requisitions, no further offers, and "
+              "existing vacancies (including backfills) held in abeyance, uniformly across all departments…"),
+             (">!~$k  its own strongest rebuttal", "The organization should refrain from a complete, blanket "
+              "freeze. Rather than halting all recruitment company-wide, hold off until the Q3 review — "
+              "avoiding a premature, overly broad action that could disrupt hiring, stall growth, or leave "
+              "critical positions unfilled…"),
+         ]),
 ]
 
 # --- lightweight nlir syntax highlighter --------------------------------------
