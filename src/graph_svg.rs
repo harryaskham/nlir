@@ -154,6 +154,7 @@ fn empty_svg() -> String {
 fn palette(kind: &NodeKind) -> (&'static str, &'static str, &'static str) {
     match kind {
         NodeKind::Apply(_) => ("#241a45", "#a855f7", "#e879f9"),
+        NodeKind::FormApply => ("#241a45", "#a855f7", "#e879f9"),
         NodeKind::Assign(_) | NodeKind::ContextRead(_) => ("#2c2210", "#e0b23a", "#fde68a"),
         NodeKind::Message => ("#0e2420", "#34d399", "#a7f3d0"),
         NodeKind::Number => ("#1c0f2a", "#6a3a5a", "#fca5a5"),

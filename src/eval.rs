@@ -284,6 +284,11 @@ pub struct Evaluator<'a> {
     /// identical subcalls when `_cache` is on (bd-1d078c). Behind a `Mutex` so
     /// concurrently-evaluated operand subtrees share one cache (bd-780dbf).
     realise_cache: std::sync::Mutex<std::collections::HashMap<String, Value>>,
+    /// Positional argument frames for form application (`%`, bd-5dd86f). Applying
+    /// a form pushes its evaluated args as a frame; inside the body a
+    /// non-negative `$N` resolves to `args[N]`, shadowing the run stack
+    /// (argument-frame hygiene). Popped when the application returns.
+    arg_frames: Vec<Vec<Value>>,
 }
 
 /// The outcome of a single small-step reduction ([`Evaluator::step_once`],
@@ -337,6 +342,7 @@ impl<'a> Evaluator<'a> {
             mode,
             stack: Stack::new(),
             realise_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
+            arg_frames: Vec::new(),
         }
     }
 
@@ -432,11 +438,13 @@ impl<'a> Evaluator<'a> {
             }
             // Literals / already-reduced values are caught by `as_value` before
             // `reduce` is reached; evaluate defensively for exhaustiveness.
+            // Form application reduces in one visible step (bd-5dd86f).
             Expr::Value(_)
             | Expr::Bare(_)
             | Expr::Number(_)
             | Expr::Quoted { .. }
-            | Expr::Quote(_) => Ok(Expr::Value(self.eval(expr)?)),
+            | Expr::Quote(_)
+            | Expr::FormApply { .. } => Ok(Expr::Value(self.eval(expr)?)),
         }
     }
 
@@ -468,16 +476,13 @@ impl<'a> Evaluator<'a> {
                 .peek()
                 .cloned()
                 .ok_or_else(|| EvalError::Stack("`$` peek of an empty stack".to_owned())),
-            Expr::StackIndex(index) => self
-                .stack
-                .peek_index(*index)
-                .cloned()
-                .ok_or_else(|| EvalError::Stack(format!("`${index}` is out of range"))),
+            Expr::StackIndex(index) => self.read_positional(*index),
             Expr::Message { role, index } => self.eval_message(*role, index),
             Expr::MessageRange { role, start, end } => self.eval_message_range(*role, start, end),
             // Grouping overrides precedence; its value is the inner value (parens
             // are preserved at the string-realisation boundary, not in the value).
             Expr::Group(inner) => self.eval(inner),
+            Expr::FormApply { form, args } => self.eval_form_apply(form, args),
             Expr::List(items) => {
                 let values = items
                     .iter()
@@ -564,6 +569,49 @@ impl<'a> Evaluator<'a> {
 
     /// Evaluate an operator application: operand-first eval, operand coercion,
     /// then realisation resolution + dispatch.
+    /// Resolve a positional `$N` read (bd-5dd86f argument-frame hygiene): inside
+    /// a form application, a non-negative `$N` binds to the current argument
+    /// frame's arg `N`, shadowing the run stack; otherwise — a negative index, no
+    /// active frame, or an out-of-range frame index — it peeks the run stack.
+    fn read_positional(&self, index: i64) -> Result<Value, EvalError> {
+        if index >= 0 {
+            if let Some(value) = self
+                .arg_frames
+                .last()
+                .and_then(|frame| frame.get(index as usize))
+            {
+                return Ok(value.clone());
+            }
+        }
+        self.stack
+            .peek_index(index)
+            .cloned()
+            .ok_or_else(|| EvalError::Stack(format!("`${index}` is out of range")))
+    }
+
+    /// Apply a form to arguments (`form % args`, bd-5dd86f): evaluate `form` to a
+    /// [`Value::Form`], evaluate each argument, push a positional argument frame
+    /// (`$0/$1/…`), evaluate the form's body under it, then pop. A non-form
+    /// callee is an error — the left of `%` must be a `{…}` form.
+    fn eval_form_apply(&mut self, form: &Expr, args: &[Expr]) -> Result<Value, EvalError> {
+        let body = match self.eval(form)? {
+            Value::Form(inner) => *inner,
+            _ => {
+                return Err(EvalError::Unsupported(
+                    "cannot apply a non-form value; the left of `%` must be a {…} form".to_owned(),
+                ));
+            }
+        };
+        let mut frame = Vec::with_capacity(args.len());
+        for arg in args {
+            frame.push(self.eval(arg)?);
+        }
+        self.arg_frames.push(frame);
+        let result = self.eval(&body);
+        self.arg_frames.pop();
+        result
+    }
+
     fn eval_apply(&mut self, op: &str, operand_exprs: &[Expr]) -> Result<Value, EvalError> {
         let op_cfg = self
             .config
@@ -697,6 +745,27 @@ impl<'a> Evaluator<'a> {
                 Expr::Apply { op, operands, .. } => {
                     self.eval_apply_async(op, operands, realiser).await
                 }
+                Expr::FormApply { form, args } => {
+                    // Form application (bd-5dd86f), async: eval the form + args
+                    // (may await), push the argument frame, eval the body, pop.
+                    let body = match self.eval_async(form, realiser).await? {
+                        Value::Form(inner) => *inner,
+                        _ => {
+                            return Err(EvalError::Unsupported(
+                                "cannot apply a non-form value; the left of `%` must be a {…} form"
+                                    .to_owned(),
+                            ));
+                        }
+                    };
+                    let mut frame = Vec::with_capacity(args.len());
+                    for arg in args {
+                        frame.push(self.eval_async(arg, realiser).await?);
+                    }
+                    self.arg_frames.push(frame);
+                    let result = self.eval_async(&body, realiser).await;
+                    self.arg_frames.pop();
+                    result
+                }
             }
         })
     }
@@ -812,6 +881,7 @@ impl<'a> Evaluator<'a> {
                     interpolate: true, ..
                 }
                 | Expr::Quote(_) => Ok(Expr::Value(self.eval(expr)?)),
+                Expr::FormApply { .. } => Ok(Expr::Value(self.eval_async(expr, realiser).await?)),
                 Expr::Group(inner) => Ok(Expr::Group(Box::new(
                     self.reduce_async(inner, realiser).await?,
                 ))),
@@ -1227,6 +1297,9 @@ fn is_parallel_safe(expr: &Expr) -> bool {
         Expr::Group(inner) | Expr::Serial(inner) => is_parallel_safe(inner),
         // A quoted form is inert data (its inner is not evaluated) — pure/safe.
         Expr::Quote(_) => true,
+        // Form application evaluates a body (may read the stack / arg frame) —
+        // not parallel-safe.
+        Expr::FormApply { .. } => false,
         Expr::List(items) => items.iter().all(is_parallel_safe),
         // A nullary op (empty operands) pops the stack — not parallel-safe.
         Expr::Apply { operands, .. } => {
@@ -1327,6 +1400,12 @@ fn eval_parallel_safe(
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Value::list(values))
         }
+        // Form application is not run in the parallel-safe fast path (it evaluates
+        // a body under an argument frame); is_parallel_safe returns false, so the
+        // DAG scheduler evals it on the main path — defensive arm (bd-5dd86f).
+        Expr::FormApply { .. } => Err(EvalError::Unsupported(
+            "form application is not evaluated in the parallel-safe path".to_owned(),
+        )),
         Expr::Apply { op, operands, .. } => {
             let op_cfg = config
                 .operators
@@ -1565,6 +1644,28 @@ operators:
         let value = evaluate(expr, &cfg, &mut ctx, Mode::Det)
             .unwrap_or_else(|e| panic!("eval `{expr}`: {e}"));
         value.render(&ctx.sep())
+    }
+
+    #[test]
+    fn form_application_binds_positional_args() {
+        // `%` applies a form, binding $0/$1/… to the evaluated args (bd-5dd86f).
+        assert_eq!(det("{$0+1}%5"), "6"); // single arg
+        assert_eq!(det("{$0+$1}%(2,3)"), "5"); // tuple args
+        assert_eq!(det("{$0+$1}%[2,3]"), "5"); // list args (spreads like the tuple)
+    }
+
+    #[test]
+    fn form_application_arg_frame_shadows_stack() {
+        // Argument-frame hygiene: inside a form `$0` is the ARG, not the stack
+        // top — `9;{$0}%7` -> 7, not 9 (bd-5dd86f).
+        assert_eq!(det("9;{$0}%7"), "7");
+    }
+
+    #[test]
+    fn applying_a_non_form_is_an_error() {
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        assert!(evaluate("5%3", &cfg, &mut ctx, Mode::Det).is_err());
     }
 
     #[test]

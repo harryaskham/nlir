@@ -88,6 +88,9 @@ pub enum Token {
     LBrace,
     /// `}` — form-quote close.
     RBrace,
+    /// `%` — form application (bd-5dd86f): `f % args` evaluates form `f` with
+    /// `$0/$1/…` bound to the arguments. A special infix, not a config operator.
+    Percent,
     /// `` ` `` — serial-evaluation marker.
     Backtick,
     /// `=` — assignment (the parser treats a preceding bare as the LHS key).
@@ -119,6 +122,7 @@ impl Token {
             Token::RParen => ")".to_owned(),
             Token::LBrace => "{".to_owned(),
             Token::RBrace => "}".to_owned(),
+            Token::Percent => "%".to_owned(),
             Token::Backtick => "`".to_owned(),
             Token::Equals => "=".to_owned(),
             Token::ContextRead(name) => format!("${name}"),
@@ -265,6 +269,10 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
             }
             '}' => {
                 tokens.push(Token::RBrace);
+                i += 1;
+            }
+            '%' => {
+                tokens.push(Token::Percent);
                 i += 1;
             }
             '`' => {

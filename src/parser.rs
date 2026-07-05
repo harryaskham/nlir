@@ -33,6 +33,10 @@ use crate::value::Value;
 pub const DEFAULT_PRIORITY: i64 = 9;
 /// The `^` message index binds tightest (SPEC precedence ladder: `^` = 20).
 pub const CARET_PRIORITY: i64 = 20;
+/// Form-application `%` binding priority (bd-5dd86f): binds tighter than every
+/// config operator + prefix (so `~f%x` = `~(f%x)`, `f%x+1` = `(f%x)+1`), looser
+/// than the tightest `^` message read.
+pub const APPLY_PRIORITY: i64 = 18;
 
 /// The default priority for an operator of the given fixity when the config
 /// leaves `priority` unset (SPEC ladder: prefix 14, binary 9, postfix 1).
@@ -77,6 +81,16 @@ pub enum Expr {
     /// (a `Value::Form`) rather than evaluated. `{a+b}` is the FORM; `(a+b)` is
     /// the value. Application (`%`) evaluates it with `$N` bound to the args.
     Quote(Box<Expr>),
+    /// Form application `form % args` (bd-5dd86f): evaluate `form` to a
+    /// `Value::Form`, bind `$0/$1/…` to the evaluated `args`, and evaluate the
+    /// form's body under that argument frame. A List `args` (from `[x,y]` or a
+    /// `(x,y)` tuple) spreads to multiple arguments.
+    FormApply {
+        /// The expression that must evaluate to a `Value::Form`.
+        form: Box<Expr>,
+        /// The argument expressions, bound to `$0/$1/…` at application.
+        args: Vec<Expr>,
+    },
     /// A list literal `[a,b,c]` (SPEC: spreads into a variadic op, or renders to
     /// text by joining with `_sep`).
     List(Vec<Expr>),
@@ -130,6 +144,13 @@ impl Expr {
             }
             Expr::Group(inner) => inner.render(),
             Expr::Quote(inner) => format!("{{{}}}", inner.render()),
+            Expr::FormApply { form, args } => match args.as_slice() {
+                [a] => format!("({} % {})", form.render(), a.render()),
+                _ => {
+                    let parts: Vec<String> = args.iter().map(Expr::render).collect();
+                    format!("({} % [{}])", form.render(), parts.join(", "))
+                }
+            },
             Expr::List(items) => {
                 let parts: Vec<String> = items.iter().map(Expr::render).collect();
                 format!("[{}]", parts.join(", "))
@@ -168,7 +189,7 @@ impl Expr {
         match self {
             // render() wraps these in one matched outer `(...)`; peel just that
             // pair. Inner parens (and list `[...]`) are left intact.
-            Expr::Apply { .. } | Expr::Assign { .. } | Expr::Serial(_) => {
+            Expr::Apply { .. } | Expr::Assign { .. } | Expr::Serial(_) | Expr::FormApply { .. } => {
                 let full = self.render();
                 full.strip_prefix('(')
                     .and_then(|s| s.strip_suffix(')'))
@@ -381,6 +402,7 @@ impl Parser<'_> {
                 | Token::Message(_)
                 | Token::LParen
                 | Token::LBracket
+                | Token::LBrace
                 | Token::Backtick,
             ) => true,
             Some(Token::Operator(op)) => matches!(
@@ -477,6 +499,27 @@ impl Parser<'_> {
                     role,
                     start: Box::new(lhs),
                     end: Box::new(end),
+                };
+                continue;
+            }
+            // Infix `form % args` form-application (bd-5dd86f): apply the LHS form
+            // to the RHS args. Binds tight (APPLY_PRIORITY), so `~f%x` = `~(f%x)`
+            // and `f%x+1` = `(f%x)+1`. A List RHS (`[x,y]` or a `(x,y)` tuple)
+            // spreads as multiple args; any other RHS is a single arg.
+            if matches!(self.peek(), Some(Token::Percent)) {
+                let l_bp = bp(APPLY_PRIORITY);
+                if l_bp < min_bp {
+                    break;
+                }
+                self.pos += 1;
+                let rhs = self.expr(l_bp + 1)?;
+                let args = match rhs {
+                    Expr::List(items) => items,
+                    other => vec![other],
+                };
+                lhs = Expr::FormApply {
+                    form: Box::new(lhs),
+                    args,
                 };
                 continue;
             }
@@ -615,16 +658,36 @@ impl Parser<'_> {
                 }
             }
             Token::LParen => {
-                let inner = self.expr(0)?;
-                match self.tokens.get(self.pos) {
-                    Some(Token::RParen) => {
-                        self.pos += 1;
-                        Ok(Expr::Group(Box::new(inner)))
+                let first = self.expr(0)?;
+                if matches!(self.tokens.get(self.pos), Some(Token::Comma)) {
+                    // Comma tuple `(a, b, …)` → a List (bd-5dd86f, D3): it spreads
+                    // as form-application args and reads as a tuple value.
+                    let mut items = vec![first];
+                    while matches!(self.tokens.get(self.pos), Some(Token::Comma)) {
+                        self.pos += 1; // consume ','
+                        items.push(self.expr(0)?);
                     }
-                    _ => Err(ParseError {
-                        position: self.pos,
-                        message: "expected ')'".to_owned(),
-                    }),
+                    match self.tokens.get(self.pos) {
+                        Some(Token::RParen) => {
+                            self.pos += 1;
+                            Ok(Expr::List(items))
+                        }
+                        _ => Err(ParseError {
+                            position: self.pos,
+                            message: "expected ')'".to_owned(),
+                        }),
+                    }
+                } else {
+                    match self.tokens.get(self.pos) {
+                        Some(Token::RParen) => {
+                            self.pos += 1;
+                            Ok(Expr::Group(Box::new(first)))
+                        }
+                        _ => Err(ParseError {
+                            position: self.pos,
+                            message: "expected ')'".to_owned(),
+                        }),
+                    }
                 }
             }
             Token::LBracket => {

@@ -83,6 +83,8 @@ pub enum NodeKind {
     /// A `{…}` quoted form (bd-5dd86f): opaque data (a `Value::Form`), a leaf —
     /// its inner AST does not flow in the dataflow graph until applied.
     Quote,
+    /// Form application `form % args` (bd-5dd86f): the form + args flow in.
+    FormApply,
     /// A reduced value spliced in by the small-step evaluator (step frames, G2).
     Value,
 }
@@ -256,6 +258,26 @@ impl Builder {
             Expr::Apply { op, operands, .. } => {
                 self.walk_children(operands, path);
                 self.push(path, NodeKind::Apply(op.clone()), op.clone());
+            }
+            Expr::FormApply { form, args } => {
+                // The form (child 0) + each arg (children 1..) flow into the
+                // application node (operand edges) — bd-5dd86f.
+                let form_child = path.child(0);
+                self.walk(form, &form_child);
+                let arg_children: Vec<NodeId> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, arg)| {
+                        let child = path.child(i + 1);
+                        self.walk(arg, &child);
+                        child
+                    })
+                    .collect();
+                self.push(path, NodeKind::FormApply, "%".to_owned());
+                self.edge(&form_child, path, EdgeKind::Operand);
+                for child in &arg_children {
+                    self.edge(child, path, EdgeKind::Operand);
+                }
             }
             Expr::Assign { key, value } => {
                 let child = path.child(0);
