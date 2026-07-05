@@ -145,3 +145,14 @@ needs-two-weeks):
 >
 > **Our side** — Engineering wants two weeks for testing and a security review, but a flagged beta
 > could ship Friday if limited to internal users first.
+
+### THE COMMON GROUND — `~(0^_-1 & 0^-1)`
+The flip-side of TWO-SIDES: instead of splitting the debate, MERGE both role channels (`^_` their
+whole side & `^` ours) and distil → where the discussion actually LANDS. Honest — if the thread
+hasn't converged it says "still debating…", so it doubles as a "have we reached agreement?" check.
+Real capture on the same 4-turn negotiation (ship-by-Friday vs needs-two-weeks):
+> The team agrees to ship a flagged internal beta by Friday, with GA in two weeks pending full
+> testing and security review.
+
+**The role-channel pair:** `[~0^_-1, ~0^-1]` SPLIT (each side apart) · `~(0^_-1 & 0^-1)` MERGE (the
+synthesis). Same two channels, list vs join — the SELECT structure choosing contrast vs consensus.

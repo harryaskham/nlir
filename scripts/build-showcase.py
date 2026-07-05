@@ -188,6 +188,11 @@ SIMPLE = [
              "engineering wants two weeks for testing and a security review, but a flagged beta could "
              "ship Friday if limited to internal users first.",
          cap="split a debate by ROLE \u2014 ^_ = their side (every user turn), ^ = our side (every assistant turn), each distilled"),
+    dict(name="common-ground", expr="~(0^_-1 & 0^-1)", pill="llm · reads your whole thread",
+         src="a 4-turn negotiation — user: ship by Friday · assistant: needs two weeks to test",
+         out="The team agrees to ship a flagged internal beta by Friday, with GA in two weeks "
+             "pending full testing and security review.",
+         cap="find the common ground \u2014 MERGE both role channels (^_ their side & ^ ours) into the synthesis / where it lands (the flip-side of TWO-SIDES' split)"),
 ]
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
