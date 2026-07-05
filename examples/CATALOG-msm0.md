@@ -172,6 +172,25 @@ composed with aur-0's self-reflection primitive (`k=X;…~$k`) — SELECT ∘ RE
 > **the headline** — The 2pm deploy broke checkout by rejecting valid 2026-expiry cards; the team is
 > pushing a targeted hotfix instead of rolling back, to avoid reverting the fraud-rule migration.
 
+### THE DUAL-REGISTER BRIEF — `(@~^-1)&(:~^-1)`
+One message, two audiences. Take the proposal just made (`^-1`, last assistant), reduce it to its
+gist (`~`), and emit that gist in BOTH registers at once — formal (`@`, for the senior reader) AND
+plain (`:`, for the newcomer) — `&`-joined into one text. The FORK-JOIN shape: one source `~^-1`,
+two register transforms, joined (the shared `~^-1` realises once, cache-deduped). Real capture on a
+wasm-gating proposal:
+> (Native-only crates and effectful backend functions are gated behind a default-on `native` Cargo
+> feature, with error-returning stubs provided otherwise. This allows the synchronous path to continue
+> linking successfully while WebAssembly drives the asynchronous evaluator via JavaScript callbacks.)
+> **and** (Some parts of the code only work on a regular computer, not inside a web browser. Those
+> parts are switched on by default. But when the code runs in a web browser instead, it uses pretend
+> stand-in pieces that just say "sorry, can't do that here" — so everything still fits together and
+> nothing breaks. This way, the regular computer version keeps working the normal, step-by-step way,
+> while the web browser version waits and lets JavaScript tell it when things are ready.)
+
+The register axis (`@`↔`:`) applied as a FORK, not a dial (cf. `20-phrasing`): don't *pick* a
+register — ship both, the same fact for two readers in a single send. SELECT one turn, TRANSFORM it
+two ways, JOIN.
+
 ## Gotchas (verified with aur-0's QA)
 - **`=` binds an EXPRESSION, so quote string values with operators or spaces.** `_sep=--`
   parse-errors ("operator - not valid in prefix position"); write `_sep='--'` (or escape: `_sep=\-\-`).
