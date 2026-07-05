@@ -718,6 +718,25 @@ mod tests {
     }
 
     #[test]
+    fn render_round_trips_faithfully() {
+        // render() is a faithful (idempotent) unparser: re-parsing a rendered
+        // expression yields the same render. Value::Form Display (quote-eval,
+        // bd-5dd86f) relies on this — full parenthesisation preserves precedence,
+        // so a second render must equal the first.
+        for src in [
+            "2**3**2", "1+2*3", "a-b-c", "8/4/2", "!a&b", "a|b|c", "a?", "#^-1", "^_-1", "^*",
+            "^!-1", "0^*-1", "$k", "$-1", "[a,b,c]", "(1+2)*3", "#(a&b)", "!^*",
+        ] {
+            let once = render(src);
+            let twice = render(&once);
+            assert_eq!(
+                once, twice,
+                "render not idempotent for `{src}`: `{once}` -> `{twice}`"
+            );
+        }
+    }
+
+    #[test]
     fn fuzz_tokenize_and_parse_never_panic() {
         // Adversarial + deterministic pseudo-random inputs must never panic the
         // lexer or parser — they return Ok/Err, and a panic here fails the test.
