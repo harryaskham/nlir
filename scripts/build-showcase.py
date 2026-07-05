@@ -586,6 +586,18 @@ SIMPLE = [
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
 GRID = [
+    # aur-0 — named lambdas: define a communicative function once, reuse it (the programmable core)
+    dict(name="named-lambda", expr="brief={@~$0}; $brief%UPDATE", pill="llm · a named function, reused",
+         claim="define a communicative function ONCE — brief = a formal exec summary — then reuse it on any update",
+         cap="the reuse beat: {…} with $0 holes is a function; bind it to a name, apply with % to many inputs. macros show a form is callable — this shows nlir is a real little language: define once, reuse everywhere. (key-free det: sq={$0*$0};[$sq%3,$sq%4,$sq%5] → 9, 16, 25)",
+         cols=1, cells=[
+             ("$brief%'the migration slipped to thursday, mobile is blocked'",
+              "The migration has been postponed to Thursday, and mobile development work is currently blocked."),
+             ("$brief%'auth service is flaky, we are restarting pods hourly'",
+              "The authentication service is currently exhibiting instability and requires pod restarts on an hourly basis."),
+             ("$brief%'the deploy failed twice, rolling back, retry monday'",
+              "The deployment failed on two occasions; consequently, the team is reverting the changes and will attempt the deployment again on Monday."),
+         ]),
     # aur-0 — the smart-pipe era: one sigil (~) distils whatever you pipe into $_stdin (aur-2)
     dict(name="distiller", expr="~$_stdin", pill="llm · one sigil, any pipe",
          claim="the same expression on three very different pipes — a git diff, a compiler error, a stack trace",

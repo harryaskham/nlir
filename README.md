@@ -53,6 +53,10 @@ The smart pipe distils whatever you feed it — a git diff, a compiler error, or
 
 ![the distiller — one sigil (~$_stdin) distils any pipe to a single line](showcase/nlir-distiller.png)
 
+And with quoted forms, nlir is now *programmable* — quote an expression with numbered holes (`$0`, `$1`) to make a function, bind it to a name, and reuse it on any input:
+
+![named lambda — define a communicative function once, reuse it on any update](showcase/nlir-named-lambda.png)
+
 The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
 [`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
 HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):
