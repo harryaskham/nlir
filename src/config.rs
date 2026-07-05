@@ -247,6 +247,54 @@ impl OperatorConfig {
     }
 }
 
+/// A flat, serialisable row describing one operator for a reference / grammar
+/// surface. The native `nlir help` table AND the wasm `operators()` export both
+/// build from [`operator_reference`], so they share ONE source of truth and never
+/// drift (nlir-wasm epic bd-360d0c; matches the P1 operators() JS contract
+/// {op, name, description, arity, priority, fixity, det}).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OperatorRef {
+    /// The operator sigil (e.g. `#`, `&`, `**`).
+    pub op: String,
+    /// The operator's config name (e.g. `subject`, `and`, `pow`).
+    pub name: String,
+    /// One-line summary ([`OperatorConfig::summary`]).
+    pub description: String,
+    /// Operand count, stringified: `"1"`, `"2"`, or `">0"` (variadic).
+    pub arity: String,
+    /// Fixity class: `"prefix"` / `"infix"` / `"postfix"` / `"mixfix"`.
+    pub fixity: String,
+    /// Binding priority, or `None` (JS `null`) when the config leaves it default.
+    pub priority: Option<i64>,
+    /// Whether the operator runs offline in `--mode det`
+    /// ([`OperatorConfig::is_deterministic`]).
+    pub det: bool,
+}
+
+/// Build the operator reference — one [`OperatorRef`] per configured operator, in
+/// config order. Consumed by both `nlir help` (native CLI) and the wasm
+/// `operators()` export, so the reference is the anti-drift shared source of the
+/// operator vocabulary (nlir-wasm epic bd-360d0c).
+#[must_use]
+pub fn operator_reference(config: &Config) -> Vec<OperatorRef> {
+    config
+        .operators
+        .iter()
+        .map(|(name, op)| OperatorRef {
+            op: op.op.clone(),
+            name: name.clone(),
+            description: op.summary(),
+            arity: match op.arity {
+                Arity::Exact(n) => n.to_string(),
+                Arity::Variadic => ">0".to_string(),
+            },
+            fixity: op.fixity.as_str().to_string(),
+            priority: op.priority,
+            det: op.is_deterministic(),
+        })
+        .collect()
+}
+
 /// Operator fixity (SPEC §Grammar & parsing).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -260,6 +308,21 @@ pub enum Fixity {
     Infix,
     /// Unifies infix / list / nullary (e.g. `&`, `+`).
     Mixfix,
+}
+
+impl Fixity {
+    /// The lowercase name of this fixity class (`"prefix"` / `"infix"` /
+    /// `"postfix"` / `"mixfix"`) — the string form surfaced by
+    /// [`operator_reference`] and `nlir help`.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Fixity::Prefix => "prefix",
+            Fixity::Postfix => "postfix",
+            Fixity::Infix => "infix",
+            Fixity::Mixfix => "mixfix",
+        }
+    }
 }
 
 /// Operator associativity for equal-precedence binary chains (SPEC §Grammar &
@@ -1641,6 +1704,43 @@ context:
         assert!(
             issues.is_empty(),
             "shipped example config should validate, got: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn operator_reference_matches_config_and_serializes() {
+        // operator_reference() is the anti-drift shared source for `nlir help` and
+        // the wasm operators() export (nlir-wasm bd-360d0c). Verify it derives the
+        // contract shape {op, name, description, arity, priority, fixity, det}
+        // correctly and serialises to JSON (JS reads the array).
+        let cfg: Config =
+            serde_yaml::from_str(EXAMPLE_CONFIG).expect("example config must deserialize");
+        let refs = operator_reference(&cfg);
+        assert_eq!(refs.len(), cfg.operators.len(), "one row per operator");
+
+        let pow = refs.iter().find(|r| r.name == "pow").expect("pow present");
+        assert_eq!(pow.op, "**");
+        assert_eq!(pow.fixity, "infix");
+        assert_eq!(pow.priority, Some(13));
+        assert!(pow.det, "pow has a reduce realisation -> offline in det");
+        assert!(!pow.description.is_empty());
+
+        let subject = refs
+            .iter()
+            .find(|r| r.name == "subject")
+            .expect("subject present");
+        assert_eq!(subject.op, "#");
+        assert_eq!(subject.fixity, "prefix");
+        assert!(!subject.det, "subject is prompt-only -> model-only (llm)");
+
+        let and = refs.iter().find(|r| r.name == "and").expect("and present");
+        assert_eq!(and.arity, ">0", "variadic arity stringifies to >0");
+
+        // Serialises to JSON (the wasm operators() path via serde_wasm_bindgen).
+        let json = serde_json::to_string(&refs).expect("OperatorRef list must serialize to JSON");
+        assert!(
+            json.contains("\"det\""),
+            "the det flag is in the JSON contract"
         );
     }
 
