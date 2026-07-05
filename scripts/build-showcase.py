@@ -565,6 +565,14 @@ SIMPLE = [
          src="@@ job submit handler @@  + rate_limiter.check(user)  + job.set_priority(user.tier)  + metrics.incr('jobs.submitted')",
          out="The diff adds rate limiting, tier-based job priority, and submission metrics to the job submission handler.",
          cap="git diff | nlir -e '~$_stdin' \u2014 the commit message writes itself: the whole diff distilled to one line"),
+    dict(name="code-concept", expr="#^!", pill="llm \u00b7 reads the agent's code stream",
+         src="\u2039tool result\u203a  def fib(n):  if n<2: return n  return fib(n-1)+fib(n-2)",
+         out="Recursive Fibonacci function",
+         cap="#^! \u2014 ^! is the agent's tool-call / code stream (msm-0's view); # pulls the core concept straight out of the last code result. nlir reading your coding agent's own output"),
+    dict(name="explain-code", expr=":$_stdin", pill="llm \u00b7 reads piped code",
+         src="export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };",
+         out="Imagine a helper who does a job for you, but only after you stop asking for a moment. Every time you ask again, it forgets the earlier wait and starts the countdown over. Only when you stay quiet long enough does it finally run the job.",
+         cap="cat debounce.js | nlir -e ':$_stdin' \u2014 : explains code in plain English straight off the pipe. onboarding, a PR you didn't write, or just 'what does this do'"),
 ]
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
