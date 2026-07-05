@@ -313,7 +313,14 @@ function realisers(){
     const LM = onDeviceApi();
     if (LM) return { llm: async (call) => {
       const c = unmap(call), vars = unmap(c.vars);
-      const session = await LM.create();
+      let session;
+      try { session = await LM.create(); }
+      catch (e) {
+        const msg = String((e && e.name ? e.name + ': ' + e.message : e) || e);
+        if (/NotSupportedError|not enough space|space for downloading/i.test(msg))
+          throw new Error('on-device unavailable: Chrome needs >22GB free on your profile drive to download Gemini Nano (a Chrome requirement, regardless of the ~few-GB model size). Free up space, or use llm mode with a hosted key.');
+        throw new Error('on-device unavailable: ' + msg + ' — enable the Prompt API in chrome://flags, or use llm mode with a key.');
+      }
       try { return await session.prompt((vars && vars.NLIR_PROMPT) || ''); }
       finally { try { session.destroy && session.destroy(); } catch (_) {} }
     } };
@@ -337,7 +344,7 @@ async function checkOnDevice(){
     const ready = a === 'available' || a === 'readily';
     const dl = a === 'downloadable' || a === 'downloading' || a === 'after-download';
     el.textContent = ready ? '\u2713 ready \u2014 Gemini Nano is available; run llm-mode with no key.'
-      : dl ? '\u2b73 available after a one-time model download (the first run fetches it).'
+      : dl ? '\u2b73 available after a one-time Gemini Nano download. Chrome needs >22GB free on your profile drive to fetch it (a Chrome requirement, not the model size).'
       : '\u26a0 not available on this device.';
     el.className = 'od-status' + (ready ? ' ok' : dl ? '' : ' warn');
   } catch (e){ el.textContent = '\u26a0 availability check failed: ' + e; el.className = 'od-status warn'; }
