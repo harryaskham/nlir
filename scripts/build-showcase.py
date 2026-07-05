@@ -91,6 +91,16 @@ SIMPLE = [
          cap="the grounded counter — reply to their suggestion, fold in your amendment, and ground it "
              "in an earlier constraint, made formal: reply + modify + reference + restyle, a whole "
              "considered response in a handful of sigils"),
+    dict(name="cited-synthesis",
+         expr="@~(^_-1 & ^_-2 & ^_-3)",
+         pill="llm · reads your chat",
+         src="three scattered asks: 'make it fast' · 'it has to work offline' · 'it's too cluttered'",
+         out="The redesign should aim to simplify and declutter the user interface, ensure reliable "
+             "functionality in offline conditions, and deliver high-performance analytics, even for "
+             "accounts with substantial data volumes.",
+         cap="the cited synthesis — weave several things they said across the chat (^_-1, ^_-2, ^_-3) "
+             "into one crisp position: distil + formalise scattered asks into 'here's what you're "
+             "really asking for'"),
     dict(name="opposition", expr=">@!x", pill="llm · claude-sonnet-5",
          src="we should adopt a four-day work week",
          out="We should not adopt a four-day workweek. While the concept may seem appealing—"
