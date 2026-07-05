@@ -467,6 +467,19 @@ SIMPLE = [
          cap="the descope proposal — @&[THE_SQUEEZE, WHAT_TO_CUT, WHAT_TO_PROTECT, THE_PAYOFF]: trade "
              "scope for a date, argued well. The protect slot (with its reason) is what makes a cut "
              "land — you're defending the highest-value work, not dropping it"),
+    dict(name="retro",
+         expr="@&['what worked: the daily standups kept everyone unblocked and shipping','what did "
+              "not: we underestimated the data migration and it slipped a week','next time: we timebox "
+              "spikes to two days and pad any migration estimate by fifty percent']",
+         pill="llm · claude-sonnet-5",
+         out="What worked well was that daily stand-up meetings kept the team unblocked and enabled "
+             "consistent progress. What did not go as planned was the data migration, which was "
+             "underestimated and resulted in a one-week delay. Going forward, we will timebox "
+             "exploratory spikes to two days and increase all migration estimates by fifty percent to "
+             "account for such risks.",
+         cap="the retro — @&[WHAT_WORKED, WHAT_DIDNT, WHAT_TO_CHANGE]: a sprint retrospective in one "
+             "note — keep what worked, name what didn't plainly, and end on the concrete change. A retro "
+             "without a change is just venting"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
