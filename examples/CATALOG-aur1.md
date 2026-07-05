@@ -1,13 +1,51 @@
-# CATALOG — aur1's nlir example corpus (a navigable deep-dive index)
+# CATALOG — aur1's nlir lane (a navigable deep-dive index)
 
-A curated, thematic map of my lane's body of work: **47 concept examples**
-(`golf-aur1-NN`) + **45 target examples** (`target-aur1-NN`). Where msm0's lane
-charts the SELECT half (message ranges) and aur2's the coercion/types substrate,
-mine is **cognition, composition, and the operator algebra** — what the sigils
-*mean* when you compose them, and the reusable thinking-tools they build.
+My lane is **cognition, composition, and the reply idioms** — what the sigils
+*mean* when you compose them, and the reusable "moves" you can retype yourself.
+Two layers:
 
-This is a separate per-agent index (does not touch aur2's gallery `README.md`).
-Run any example directly: `./examples/golf-aur1-NN-*.sh`.
+- **The reply idioms** (§0) — the showcase moves: a small, learnable family for
+  replying to an agent, all sharing the same ~7 sigils recombined. This is what
+  the phrasebook ([`POWERMOVES.md`](./POWERMOVES.md)) links here for.
+- **The operator algebra** (§1–§6) — the laws underneath: *why* the moves compose
+  the way they do (repetition-dynamics, commutativity, the `?`-projection, the
+  stack, the `?`-target palette, and the honest rejects).
+
+Where msm0's lane charts SELECT (message ranges) and aur2's the coercion/types
+substrate, mine TRANSFORMS. Every showcase card is a real, reproducible execution
+— checked by [`scripts/verify-showcase.py`](../scripts/verify-showcase.py).
+Run any example directly: `./examples/idiom-aur1-NN-*.sh` (or the older
+`golf-aur1-NN-*.sh` algebra probes).
+
+---
+
+## 0. The reply idioms — the showcase moves
+
+A learnable vocabulary for replying to an agent's message (`^-1` = the agent's
+last turn · `^_-1` = yours · `0^*-1` = the whole thread). Learn the pieces once,
+recombine them forever.
+
+| # | move | say it | what it does |
+|---|---|---|---|
+| 1 | considered reply | `@(^-1 & 'AMENDMENT')` | agree with their suggestion, folding in your amendment, made formal |
+| 2 | decisive close | `@(~0^*-1 & 'DECISION')` | end a whole debate with your call, grounded in what was said |
+| 3 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | your reply + an auto devil's-advocate on your own yes |
+| 4 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, on your grounds, professionally |
+| 5 | steelman reply | `[~>@^-1, @(!^-1 & 'GROUNDS')]` | their case at its best, then your reasoned no |
+| 6 | counter-offer | `[@(!^-1 & 'GROUNDS'), @'ALTERNATIVE']` | decline, then offer the concrete alternative you'd back |
+| 7 | weighed decision | `[~>@^-1, ~>!^-1, @(^-1 & 'DECISION')]` | the case for, the case against, then your verdict |
+
+**The family, by stance:**
+- **Yes** — considered reply (yes + your amendment) · honest yes (yes + the doubt).
+- **No** — reasoned no (no + grounds) · steelman (their best case, then no) · counter-offer (no + the path).
+- **Decide** — decisive close (close a thread) · weighed decision (rule on a proposal).
+
+**Two building blocks recur** (why 7 moves need only ~7 sigils): the *considered
+reply* `@(^-1 & '…')` and its negation the *reasoned no* `@(!^-1 & '…')`. Wrap
+either in `~>…` to argue it, pair them in a `[…]` list to weigh two beats, and
+prefix `@`/`:`/`~` to set the register. Cards: `nlir-{considered-reply,
+decisive-close, honest-yes, reasoned-no, steelman-reply, counter-offer,
+weighed-decision}.png`. Runnable proofs: `examples/idiom-aur1-01..07-*.sh`.
 
 ---
 
