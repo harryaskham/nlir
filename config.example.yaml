@@ -467,6 +467,12 @@ tests:
   cookbook-trio:    { mode: det, expr: "$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3,0,4])))", expected: "30" }
   cookbook-train-atop: { mode: det, expr: "(~ @)%'thanks'", expected: "summary: formal: thanks" }
   cookbook-train-fork: { mode: det, expr: "(# & ~)%'x'", expected: "subject: x and summary: x" }
+  # value builtins (docs/cookbook.md §9): branch ($if), index ($nth), reorder ($sort).
+  cookbook-if-then: { mode: det, expr: "$if%(1,'yes','no')", expected: "yes" }
+  cookbook-if-else: { mode: det, expr: "$if%(0,'yes','no')", expected: "no" }
+  cookbook-nth:     { mode: det, expr: "$nth%(1,[10,20,30])", expected: "20" }
+  cookbook-sort:    { mode: det, expr: "$sort%[3,1,2]", expected: "1\n2\n3" }
+  cookbook-sort-min: { mode: det, expr: "$nth%(0,$sort%[30,4,100,2])", expected: "2" }
   msg:
     mode: det
     context:

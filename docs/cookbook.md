@@ -320,6 +320,39 @@ input, woven.)
 
 ---
 
+## 9. Branch, index, sort — value builtins
+
+Three more builtins let a program **branch and reorder**, not just transform:
+
+- **`$if`** — a short-circuit ternary, `$if%(cond, then, else)`:
+
+```
+$if%(1, 'yes', 'no')          -> yes    (truthy cond -> then)
+$if%(0, 'yes', 'no')          -> no     (falsy -> else)
+```
+
+- **`$nth`** — 0-based indexing into a list:
+
+```
+$nth%(1, [10,20,30])          -> 20
+```
+
+- **`$sort`** — ascending (numeric or lexical):
+
+```
+$sort%[3,1,2]                 -> 1 / 2 / 3
+$nth%(0, $sort%[30,4,100,2])  -> 2       (the minimum: sort, then take the first)
+```
+
+They compose with the rest: `$if` gates a branch on a computed condition,
+`$sort`+`$nth` pick min/max/median, and with map/filter/fold you have a real
+little programming core — select, transform, reduce, branch, reorder.
+
+(Negative-from-end `$nth%(-1,…)` doesn't parse yet — a literal leading `-` in
+`%`-args; use the expression `$nth%(0-1,…)` meanwhile.)
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.
