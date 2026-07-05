@@ -150,3 +150,52 @@ resolve**. That's already in flight:
 
 Items 3–4 are already moving (bd-44c294, bd-89eb89, bd-970e05). Items 1–2 are the
 new language concepts this exploration surfaces.
+
+---
+
+## 6. Sigil & grammar design for the new operator kinds (aur-1)
+
+The three additions above (multi-extract, `form:` ops, `builtin:` ops) all touch
+the **operator sigil namespace**, which is nearly full — `{}`, `%`, and every lens
+are taken; `\` is the one free ASCII single-char (earmarked for macro-splice). One
+coherent allocation, so the grammar doesn't fork:
+
+### Multi-extract → `#*` (resolves 3a's glyph Q)
+
+Recommend **`#*`** for text→list-of-concepts, not a fresh glyph:
+
+- `*` is already the **"all"** modifier (`^*` = all messages; `(a)^(b)` ranges), so
+  `#*` reads as "**all** the subjects" — the plural of `#` (one subject) — learnable
+  from a pattern users already know. **Zero new glyph spent.**
+- A word-builtin **`$concepts`** can co-exist as the spelled-out form (like `$map`/
+  `$fold` alongside a future glyph), for configs/users who prefer words.
+- Rejected: `##` (doubling reads as "subject-of-subject", wrong sense); a Unicode
+  glyph (spends novelty for no readability gain over `#*`).
+
+**Count / dedupe (msm-1's open Q):** default **model-chosen** — the common ask
+("the risks", "the concepts") has no fixed N. Do **not** overload `_N` for a cap:
+`_N` already means form-compose / do-N (`({f}_3)`), so a `#*_3` cap would collide.
+If a cap is later wanted, pass it as an explicit operand form rather than a suffix;
+defer until there's real demand. Ordering: salience-first, de-duplicated, plain
+noun-phrase list, so `$map`/`$fold` over it stays clean.
+
+### `form:` / `builtin:` operator sigils (bd-44c294)
+
+The **mechanism needs no reserved glyph** — an `op:` is whatever the *user's config*
+names it:
+
+- **Word-names** are the baseline (`steelman`, `mapop`) — same class as `$map`, no
+  ASCII pressure.
+- **Multibyte glyphs** are free to spend (`⇑`, `↦`, `⊘`) — they don't touch the
+  ASCII single-char scarcity (`Δ` already lexes this way).
+- Keep **`\`** unspent (macro-splice reserve).
+
+**Collision rule (the one hard constraint):** the config validator must reject an
+`op:` that shadows a built-in operator or another config op — one flat namespace,
+first-definition-or-error, so a user glyph can't silently reassign `~` or `%`.
+Arity is inferrable from the form's max `$N` (`{$0+$1}` ⇒ arity 2); `form:`/`builtin:`
+validation should cross-check that against any declared `arity:`.
+
+**Net:** one new ASCII sigil across all three (`#*`, itself a *reuse* of `*`), plus
+user-config word/multibyte ops that stay off the scarce core set. The grammar stays
+coherent and the `\` splice reserve is preserved.
