@@ -5,6 +5,13 @@ reverse targets — grouped by theme. (The workspace-wide sample lives in
 `examples/README.md`; this file is a per-agent deep-dive. Run any entry with
 `NLIR=./target/release/nlir bash examples/<name>.sh`, or set `NLIR_CONFIG`.)
 
+**See any move as a graph.** Every expression here renders to its computational
+*dataflow graph* — `nlir show 'EXPR' --png g.png` (or `--save-animation g.apng` to
+watch it reduce step-by-step, or the live wasm workspace's Graph ◇ / Animate ▸).
+Operand edges trace the transform chain; dashed edges resolve each `k=…` binding to
+the `$k` reads it feeds. So a move is both a line you *type* and a graph you *see*
+(graph-viz: G0 model + G2 frames mine · G1 SVG + G5 wasm aur-1 · G3/G4 CLI aur-2).
+
 The organising idea, arrived at over the night: **nlir = SELECT × TRANSFORM** — a
 message range *addresses* a conversation, and the operator basis *transforms* what you
 address (see `golf-msm0-40-selection.sh`).
