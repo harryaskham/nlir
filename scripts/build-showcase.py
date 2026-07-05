@@ -34,10 +34,10 @@ SIMPLE = [
     dict(name="simplify", expr=":'idempotent'", pill="llm · claude-sonnet-5",
          out="Doing it again doesn't change anything after the first time.",
          cap=": simplify — 13 characters become a plain-English definition"),
-    dict(name="expand", expr="~>'the main benefits of regular exercise'", pill="llm · claude-sonnet-5",
+    dict(name="expand", expr="~(>'the main benefits of regular exercise')", pill="llm · claude-sonnet-5",
          out="Regular physical activity delivers lasting benefits to physical health, "
              "mental wellbeing, and overall quality of life.",
-         cap="~> expand then distil — a few keywords become one rich line"),
+         cap="~(>…) expand then distil — a few keywords become one rich line"),
     dict(name="tip", expr="'sixty'+'sixty'*'a fifth'", pill="llm coercion · exact", out="72",
          cap="words become math — a $60 bill plus a 20% tip, with precedence"),
     dict(name="collective", expr="'half a dozen'+'a pair'+'a trio'", pill="llm coercion · exact", out="11",
@@ -46,6 +46,9 @@ SIMPLE = [
          cap="right-associative exponentiation — 2^(3^2), matching normal math"),
     dict(name="negate", expr="!(a&b)", pill="det · exact", out="not (a and b)",
          cap="! negate over & and — grouping parentheses preserved"),
+    dict(name="implication", expr='"socrates is a man"; "all men are mortal"; ~>?', pill="llm · ~>? implication",
+         out="Socrates is mortal.",
+         cap="~>? the implication — stack the premises with ; then infer the conclusion. the classic syllogism, in three sigils"),
     dict(name="subject", expr="#^-1", pill="llm · reads your chat",
          out="the primary subject of the last assistant message",
          cap="# subject · ^-1 last message — one glance at the conversation"),
@@ -113,7 +116,7 @@ SIMPLE = [
              "database. Delaying only makes whichever path we pick more costly.",
          cap="the fork \u2014 put two options in an either/or (`|`) and expand (`>`): nlir keeps the paths "
              "DISTINCT and lays out the case + tradeoff for each, turning 'A or B?' into a clean decision "
-             "memo. (`~>` for a one-liner instead.)"),
+             "memo. (`~(>…)` for a one-liner instead.)"),
     dict(name="plain-english", expr="~:^-1", pill="llm · reads your chat · de-jargon",
          src="The p99 latency regression is caused by lock contention on the connection-pool mutex during cache-stampede events, so we should implement request coalescing with a singleflight pattern to deduplicate concurrent identical queries.",
          out="The program slows down when many concurrent requests fetch the same missing data at once, so the "
@@ -274,20 +277,20 @@ SIMPLE = [
          cap="the FAQ entry — jot a question ('x'?) and its raw answer (:); get a customer-ready Q&A "
              "pair. Repeat the pair for a whole mini-FAQ (@ for a formal answer)"),
     dict(name="glossary-entry",
-         expr="[~>'idempotency',:'idempotency']",
+         expr="[~(>'idempotency'),:'idempotency']",
          pill="llm · claude-sonnet-5",
          out="[definition] Idempotency means an operation produces the same result no matter how many "
              "times it's performed, essential for safely handling retries in distributed systems and "
              "APIs.  [analogy] Like pressing an elevator button five times — it still only sends it to "
              "one floor.",
-         cap="the glossary entry — [~>'TERM', :'TERM'] gives both halves of a good definition: a crisp "
-             "precise meaning (~> keeps > from overshooting) and a plain analogy. Rigor + intuition"),
+         cap="the glossary entry — [~(>'TERM'), :'TERM'] gives both halves of a good definition: a crisp "
+             "precise meaning (~(>…) keeps > from overshooting) and a plain analogy. Rigor + intuition"),
     dict(name="compare-contrast",
-         expr="~>'the difference between a mutex and a semaphore'",
+         expr="~(>'the difference between a mutex and a semaphore')",
          pill="llm · claude-sonnet-5",
          out="A mutex enforces ownership-based exclusive locking for a single resource, while a semaphore "
              "uses a non-owned counter to allow flexible, multi-threaded access to a pool of resources.",
-         cap="the compare-and-contrast — ~>'the difference between X and Y' draws out the ONE real "
+         cap="the compare-and-contrast — ~(>'the difference between X and Y') draws out the ONE real "
              "distinction in a crisp sentence (~ keeps > from spilling into an essay)"),
     dict(name="crisp-proposal",
          expr="@&[:'our deploy pipeline takes 40 minutes and blocks the whole team','switch to "
@@ -659,26 +662,26 @@ GRID = [
              ("~$k  its own one-line gist", "End-to-end checkout testing (starting with payment) is recommended "
               "before launch, but only if it doesn't risk the timeline, given limited QA capacity this quarter."),
          ]),
-    dict(name="honest-yes", expr="[@(^-1 & '<your amendment>'), ~>!^-1]", pill="llm · reply, then red-teams it",
+    dict(name="honest-yes", expr="[@(^-1 & '<your amendment>'), ~(>!^-1)]", pill="llm · reply, then red-teams it",
          claim="[agent] we should rewrite the auth service in Rust — for the memory-safety guarantees, to kill the class of bugs we keep hitting",
          cap="the honest yes \u2014 accept + amend their proposal (@(^-1 & '…')), then auto-surface the strongest "
-             "case AGAINST it (~>!^-1). one move that replies AND red-teams itself \u2014 say yes without fooling "
+             "case AGAINST it (~(>!^-1)). one move that replies AND red-teams itself \u2014 say yes without fooling "
              "yourself. reusable after any tempting proposal.",
          cols=1, cells=[
              ("@(^-1 & '…')  your reply", "I would recommend rewriting the authentication service in Rust to obtain "
               "its memory-safety guarantees and eliminate the recurring class of bugs we continue to encounter \u2014 "
               "implemented over two quarters, in alignment with our Q3 roadmap."),
-             ("~>!^-1  the catch", "The strongest case against: most of the service's bugs are logic errors rather "
+             ("~(>!^-1)  the catch", "The strongest case against: most of the service's bugs are logic errors rather "
               "than memory-safety issues, so hardening the existing code is likely more cost-effective than a risky, "
               "time-consuming full rewrite."),
          ]),
-    dict(name="steelman-reply", expr="[~>@^-1, @(!^-1 & '<your grounds>')]", pill="llm · steelman, then declines",
+    dict(name="steelman-reply", expr="[~(>@^-1), @(!^-1 & '<your grounds>')]", pill="llm · steelman, then declines",
          claim="[agent] break the monolith into microservices — each team deploys independently, and the hot paths scale separately",
-         cap="the steelman reply \u2014 argue their idea at its STRONGEST first (~>@^-1), THEN give your reasoned no "
+         cap="the steelman reply \u2014 argue their idea at its STRONGEST first (~(>@^-1)), THEN give your reasoned no "
              "(@(!^-1 & '…')). charity before dissent \u2014 the fair-minded twin of the honest yes. reusable when "
              "you disagree but want to be fair.",
          cols=1, cells=[
-             ("~>@^-1  their case, fairly", "Migrating from a monolith to microservices enables independent "
+             ("~(>@^-1)  their case, fairly", "Migrating from a monolith to microservices enables independent "
               "deployments and targeted scaling \u2014 boosting development velocity and resource efficiency."),
              ("@(!^-1 & '…')  your reasoned no", "We recommend against it: with only four engineers, the "
               "operational overhead of microservices would overwhelm us before any of those benefits \u2014 independent "
@@ -696,29 +699,29 @@ GRID = [
              ("@'…'  the alternative", "Migrate incrementally \u2014 one route at a time, behind a feature flag \u2014 so "
               "features keep shipping throughout the process."),
          ]),
-    dict(name="weighed-decision", expr="[~>@^-1, ~>!^-1, @(^-1 & 'decision: <your call>')]",
+    dict(name="weighed-decision", expr="[~(>@^-1), ~(>!^-1), @(^-1 & 'decision: <your call>')]",
          pill="llm · for / against / your call",
          claim="[agent] break the monolith into microservices — independent deploys, scale the hot paths separately",
-         cap="the weighed decision \u2014 deliberate on an agent's actual proposal BOTH ways (~>@^-1 the case for, "
-             "~>!^-1 the case against), THEN land your own call (@(^-1 & 'decision: …')). steelman both sides, "
+         cap="the weighed decision \u2014 deliberate on an agent's actual proposal BOTH ways (~(>@^-1) the case for, "
+             "~(>!^-1) the case against), THEN land your own call (@(^-1 & 'decision: …')). steelman both sides, "
              "then decide \u2014 the whole arc in one line. reusable on any proposal you have to rule on.",
          cols=1, cells=[
-             ("~>@^-1  the case for", "Migrating to microservices would let teams deploy independently and scale "
+             ("~(>@^-1)  the case for", "Migrating to microservices would let teams deploy independently and scale "
               "services individually \u2014 improving release speed, cost efficiency, and resilience."),
-             ("~>!^-1  the case against", "Keeping the monolith avoids a migration that wouldn't reliably deliver "
+             ("~(>!^-1)  the case against", "Keeping the monolith avoids a migration that wouldn't reliably deliver "
               "its promised independent deploys or hot-path scaling \u2014 at real operational cost."),
              ("@(^-1 & 'decision: …')  your verdict", "Decompose, but narrowly: extract only the two highest-traffic "
               "services now, and keep the rest a monolith for the time being."),
          ]),
-    dict(name="pitch-check", expr="[@~^_-1, ~>!^_-1]", pill="llm · reads your own idea",
+    dict(name="pitch-check", expr="[@~^_-1, ~(>!^_-1)]", pill="llm · reads your own idea",
          claim="[you] i think we should just let people pay with crypto \u2014 it'd open a new market and it's not that hard to add",
          cap="the pitch-check \u2014 take your OWN rough idea (^_-1 = your last message), polish it into a pitch "
-             "(@~^_-1) AND surface the strongest objection you'll need to answer (~>!^_-1). stress-test your "
+             "(@~^_-1) AND surface the strongest objection you'll need to answer (~(>!^_-1)). stress-test your "
              "pitch before you send it.",
          cols=1, cells=[
              ("@~^_-1  your pitch, polished", "We should add cryptocurrency payment support as a way to reach a "
               "new market segment, with a manageable implementation effort."),
-             ("~>!^_-1  the objection to preempt", "The likely customer gain is small, while the implementation "
+             ("~(>!^_-1)  the objection to preempt", "The likely customer gain is small, while the implementation "
               "effort and complexity are substantial."),
          ]),
     dict(name="tighten", expr="[<^-1, ~^-1]", pill="llm · two ways to shorten",
