@@ -225,6 +225,15 @@ SIMPLE = [
          out="The migration affects 59 services across three teams.",
          cap="the computed brief — drop a live calculation ('47'+'12') into a slot; nlir does the maths "
              "(= 59) AND weaves it into the sentence. Numbers + prose, always consistent"),
+    dict(name="register-ladder",
+         expr="[~&['the api is deprecated','use v2 by march'],:&['the api is deprecated','use v2 by march'],"
+              "@&['the api is deprecated','use v2 by march']]",
+         pill="llm · claude-sonnet-5",
+         out="[terse] The API is deprecated; migrate to v2 by March.  [plain] The old system is old and "
+             "won't work anymore soon. Please start using the new one (called \"v2\") before March.  "
+             "[formal] The API is deprecated and must be replaced with v2 by March.",
+         cap="the register ladder — the SAME facts in all three registers at once: ~ terse status line, "
+             ": plain note, @ formal write-up. Write once, post to every channel"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
