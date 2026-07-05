@@ -381,6 +381,17 @@ SIMPLE = [
              "reindex next.",
          cap="the terse status — ~&[DONE, BLOCKED, NEXT]: the ~ tone keeps a standup/status ping tight — "
              "done, blocked, next, in one line. Completes the tone trio (@ formal · : warm · ~ terse)"),
+    dict(name="meeting-recap",
+         expr="@&['we decided to ship the beta to five percent of users on monday','still open: whether "
+              "to gate it behind a feature flag','actions: alex sets up the rollout dashboard by friday, "
+              "priya writes the rollback runbook']",
+         pill="llm · claude-sonnet-5",
+         out="We have decided to release the beta to five percent of users on Monday. It remains "
+             "undecided whether the rollout should be gated behind a feature flag. Regarding action "
+             "items: Alex will set up the rollout dashboard by Friday, and Priya will draft the rollback "
+             "runbook.",
+         cap="the meeting recap — @&[DECIDED, STILL_OPEN, ACTION_ITEMS]: what was decided, what's still "
+             "open, and who owns what — the three things a good recap needs, in one message"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
