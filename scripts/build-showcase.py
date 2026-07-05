@@ -392,6 +392,15 @@ SIMPLE = [
              "runbook.",
          cap="the meeting recap — @&[DECIDED, STILL_OPEN, ACTION_ITEMS]: what was decided, what's still "
              "open, and who owns what — the three things a good recap needs, in one message"),
+    dict(name="partial-accept",
+         expr="@&['I agree we should ship this week','!we cannot skip the security review — it is "
+              "non-negotiable','let us run the review in parallel with final QA instead']",
+         pill="llm · claude-sonnet-5",
+         out="I concur that we should proceed with shipping this week. However, the security review "
+             "cannot be omitted, as it is non-negotiable; I propose that we conduct it concurrently with "
+             "final quality assurance testing.",
+         cap="the partial accept — @&[ACCEPT, !REJECT+reason, ALTERNATIVE]: agree where you can, firmly "
+             "reject one claim (the ! slot) with your reason, and offer a path. Yes-and-no, gracefully"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
