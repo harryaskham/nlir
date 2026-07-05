@@ -248,6 +248,28 @@ function renderExamples(){
     $('examples').appendChild(c);
   });
 }
+const SPECIAL_FORMS = [
+  ['{ }', 'quote', 'a form, code as data: {a+b} is the form, (a+b) its value'],
+  ['%', 'apply', 'call a form: {$0+1}%5 gives 6; f%(x,y) binds $0,$1'],
+  ['=', 'assign', 'bind a name k to a value, then reuse it as $k'],
+  ['$name', 'reference', 'read a binding; $0/$1 are positional args; interpolates in double-quoted strings'],
+  [';', 'sequence', 'run in order; the value is the last statement (also the stack)'],
+  ['( )', 'group', 'override precedence; preserved in output'],
+  ['[ ]', 'list', 'a list; spreads into variadic ops or joins to text'],
+  ['^', 'messages', 'chat views: ^ assistant, ^_ user, ^* thread, ^/ system; ^-1 last, ranges'],
+  ['({f}_N)', 'do-N', 'compose a form N times: ({~$0}_3) over text distils it three times'],
+  ['strings', 'quoting', 'double-quotes interpolate $name; single-quotes are literal'],
+  ['backtick', 'serial', 'forces its right-hand subtree to evaluate serially'],
+];
+function renderForms(){
+  const box = $('forms'); if (!box) return; box.innerHTML = '';
+  const esc = s => String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  SPECIAL_FORMS.forEach(([sig, name, desc]) => {
+    const d = document.createElement('div'); d.className = 'op';
+    d.innerHTML = `<span class="sig">${esc(sig)}</span><span class="nm">${esc(name)}</span><span class="ds">${esc(desc)}</span>`;
+    box.appendChild(d);
+  });
+}
 function renderOps(){
   const box = $('ops'); box.innerHTML = '';
   const ops = nlir.operators(configJson());
@@ -461,7 +483,7 @@ function setMode(m){
 function init(){
   $('config').value = state.config;
   $('cfgNote').textContent = 'Operators below reflect this config.';
-  renderExamples(); renderOps(); renderMessages(); renderKvs();
+  renderExamples(); renderOps(); renderForms(); renderMessages(); renderKvs();
   setMode(state.settings.mode);
   initEditor();
   $('verBadge').textContent = 'wasm: ' + nlir.version().crate;
