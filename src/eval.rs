@@ -146,6 +146,30 @@ pub fn step_trace(
     context: &mut Context,
     mode: Mode,
 ) -> Result<Vec<String>, EvalError> {
+    let mut steps = Vec::new();
+    step_trace_streaming(expr, config, context, mode, |rendered| {
+        steps.push(rendered.to_owned());
+    })?;
+    Ok(steps)
+}
+
+/// Stream each small-step reduction as it is produced (bd-89eb89): the streaming
+/// twin of [`step_trace`]. Instead of collecting every rendered step into a `Vec`
+/// returned only at the end, it invokes `on_step` with each step's rendered string
+/// the moment that step is taken — `on_step` fires first with the initial
+/// (unreduced) statement, then once per reduction, in order. This is the
+/// live-progress source for the CLI `nlir step` stream, the TUI workbench, and the
+/// wasm `step()` view; [`step_trace`] is now a thin collector over it.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub fn step_trace_streaming(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    mut on_step: impl FnMut(&str),
+) -> Result<(), EvalError> {
     let sigils = crate::config::operator_sigils(config);
     let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
         EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
@@ -153,13 +177,12 @@ pub fn step_trace(
     let program = parser::parse_program(&tokens, &config.operators)
         .map_err(|error| EvalError::Parse(error.to_string()))?;
     let mut evaluator = Evaluator::new(config, context, mode);
-    let mut steps = Vec::new();
     for statement in &program.statements {
         let mut current = statement.clone();
-        steps.push(current.render_step());
+        on_step(&current.render_step());
         while let Step::Reduced(next) = evaluator.step_once(&current)? {
             current = next;
-            steps.push(current.render_step());
+            on_step(&current.render_step());
         }
         // Push each statement's final value so later `;`-statements can read it
         // off the stack (mirrors `Evaluator::run`).
@@ -167,7 +190,7 @@ pub fn step_trace(
             evaluator.stack.push(value);
         }
     }
-    Ok(steps)
+    Ok(())
 }
 
 /// Parse `expr` and produce the sequence of dataflow-graph FRAMES its small-step
@@ -1245,6 +1268,32 @@ pub async fn step_async<R: crate::realiser::Realiser>(
     mode: Mode,
     realiser: &R,
 ) -> Result<Vec<String>, EvalError> {
+    let mut steps = Vec::new();
+    step_trace_streaming_async(expr, config, context, mode, realiser, |rendered| {
+        steps.push(rendered.to_owned());
+    })
+    .await?;
+    Ok(steps)
+}
+
+/// Async streaming twin of [`step_trace_streaming`] (bd-89eb89): the live-progress
+/// source for llm mode, where each effectful redex is a slow realiser call, so
+/// streaming each step as it resolves is the big win over batching to a `Vec`.
+/// `on_step` fires with the initial statement then once per reduction, in order —
+/// each effectful redex firing the moment its realisation completes inside the
+/// per-step await loop (so a slow llm step streams live, not batched).
+/// [`step_async`] is now a thin collector over it.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub async fn step_trace_streaming_async<R: crate::realiser::Realiser>(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    realiser: &R,
+    mut on_step: impl FnMut(&str),
+) -> Result<(), EvalError> {
     let sigils = crate::config::operator_sigils(config);
     let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
         EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
@@ -1252,19 +1301,18 @@ pub async fn step_async<R: crate::realiser::Realiser>(
     let program = parser::parse_program(&tokens, &config.operators)
         .map_err(|error| EvalError::Parse(error.to_string()))?;
     let mut evaluator = Evaluator::new(config, context, mode);
-    let mut steps = Vec::new();
     for statement in &program.statements {
         let mut current = statement.clone();
-        steps.push(current.render_step());
+        on_step(&current.render_step());
         while let Step::Reduced(next) = evaluator.step_once_async(&current, realiser).await? {
             current = next;
-            steps.push(current.render_step());
+            on_step(&current.render_step());
         }
         if let Some(value) = as_value(&current) {
             evaluator.stack.push(value);
         }
     }
-    Ok(steps)
+    Ok(())
 }
 
 /// [`realise`] with per-run memoisation (bd-1d078c) shared across
@@ -2081,6 +2129,49 @@ operators:
         let mut ctx = Context::empty(&cfg.context);
         let steps = step_trace("'hi'", &cfg, &mut ctx, Mode::Det).expect("step trace");
         assert_eq!(steps, vec!["hi".to_owned()]);
+    }
+
+    #[test]
+    fn step_trace_streaming_matches_batch_and_streams_each_step() {
+        // bd-89eb89: the streaming form fires on_step per reduction (initial +
+        // each step), and step_trace is now a thin collector over it, so the two
+        // agree exactly. It streams incrementally (>= 2 steps for a reducible expr).
+        let cfg = config();
+        let mut ctx_batch = Context::empty(&cfg.context);
+        let batch = step_trace("2+3*4", &cfg, &mut ctx_batch, Mode::Det).expect("batch");
+        let mut ctx_stream = Context::empty(&cfg.context);
+        let mut streamed = Vec::new();
+        step_trace_streaming("2+3*4", &cfg, &mut ctx_stream, Mode::Det, |s| {
+            streamed.push(s.to_owned());
+        })
+        .expect("stream");
+        assert_eq!(batch, streamed);
+        assert!(
+            streamed.len() >= 2,
+            "a reducible expr should stream multiple steps: {streamed:?}"
+        );
+    }
+
+    #[test]
+    fn step_trace_streaming_async_matches_sync_in_det_mode() {
+        // The async streaming twin matches the sync stream when no realiser is hit
+        // (det mode). NativeRealiser's futures are ready-on-first-poll.
+        use crate::realiser::{NativeRealiser, block_on_ready};
+        let cfg = config();
+        let mut ctx_sync = Context::empty(&cfg.context);
+        let sync = step_trace("2+3*4", &cfg, &mut ctx_sync, Mode::Det).expect("sync");
+        let mut ctx_async = Context::empty(&cfg.context);
+        let mut streamed = Vec::new();
+        block_on_ready(step_trace_streaming_async(
+            "2+3*4",
+            &cfg,
+            &mut ctx_async,
+            Mode::Det,
+            &NativeRealiser,
+            |s| streamed.push(s.to_owned()),
+        ))
+        .expect("async stream");
+        assert_eq!(sync, streamed);
     }
 
     #[test]
