@@ -303,3 +303,57 @@ async fn step_inner(
         }
     }
 }
+
+/// `graph(expr, configJson) -> { ok, svg | error }` — the whole program's
+/// dataflow graph rendered to a self-contained SVG string (msm-0's
+/// `Graph::from_program` + aur-1's `graph_svg::render`, graph-viz G5). Inject
+/// `svg` straight into the DOM.
+#[wasm_bindgen]
+pub fn graph(expr: &str, config_json: &str) -> JsValue {
+    let result = (|| -> Result<String, String> {
+        let cfg = parse_config(config_json)?;
+        let sigils = nlir::config::operator_sigils(&cfg);
+        let tokens = nlir::lexer::tokenize(expr, &sigils).map_err(|e| e.to_string())?;
+        let program =
+            nlir::parser::parse_program(&tokens, &cfg.operators).map_err(|e| e.to_string())?;
+        let graph = nlir::graph::Graph::from_program(&program);
+        Ok(nlir::graph_svg::render(&graph))
+    })();
+    match result {
+        Ok(svg) => payload(&serde_json::json!({ "ok": true, "svg": svg })),
+        Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
+/// `graphFrames(expr, configJson, mode) -> { ok, frames:[{svg, reduced}] | error }`
+/// — the step-through animation frames (msm-0's `step_frames`): each frame's
+/// graph rendered, with `reduced` = the just-reduced NodeId as a dotted path
+/// ("0.1.2", or null) for the panel's highlight/caption. DET-only for v1 (llm
+/// animation would want a `step_frames_async` twin).
+#[wasm_bindgen(js_name = graphFrames)]
+pub fn graph_frames(expr: &str, config_json: &str, mode: &str) -> JsValue {
+    let result = (|| -> Result<Vec<serde_json::Value>, String> {
+        let cfg = parse_config(config_json)?;
+        if let Mode::Llm = parse_mode(mode)? {
+            return Err(
+                "llm graph animation needs step_frames_async — det-only for now".to_owned(),
+            );
+        }
+        let mut ctx = nlir::context::Context::empty(&cfg.context);
+        let frames =
+            nlir::eval::step_frames(expr, &cfg, &mut ctx, Mode::Det).map_err(|e| e.to_string())?;
+        Ok(frames
+            .iter()
+            .map(|frame| {
+                serde_json::json!({
+                    "svg": nlir::graph_svg::render(&frame.graph),
+                    "reduced": frame.reduced.as_ref().map(nlir::graph::NodeId::dotted),
+                })
+            })
+            .collect())
+    })();
+    match result {
+        Ok(frames) => payload(&serde_json::json!({ "ok": true, "frames": frames })),
+        Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
