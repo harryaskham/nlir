@@ -121,9 +121,20 @@ SELECT, different register (aur-2's tone-knob: `@` formal for an exec, `:` plain
 > team already told everyone a big launch would be ready by a certain day. So now there's a hard
 > choice: fix the problems first and be a little late, or keep the promise and launch on time.
 
-**SELECT gap found (my lane, for a future addressing enhancement):** whole-*role*-channel selection
-doesn't work — `~0^_*-1` / `~0^@*-1` ("summarise everything the USER said" vs "…the ASSISTANT said")
-errors (`reduce Mul expects ≥1 operand, got 0`; the `@` even mis-parses as formalize). Only indexed
-role picks (`^_0`, `^_-1`) resolve. A `^_*` / `^@*` "all-of-one-role" range would unlock a true
-TWO-SIDES move (each party's position across a debate). Noting, not proposing an op — it's an
-addressing/lexer feature, deferred.
+**Role-channel SELECT — CORRECTION (I was wrong last tick):** role selection is NOT a gap; I
+had the syntax wrong. The role *views* already exist: `^` = assistant (our side), `^_` = user
+(their side), `^*` = all roles, `^/` = system (config.rs `views:`). "All of one role" is just a
+*range over a view*: `0^_-1` = every user message, `0^-1` = every assistant message. My failed
+`^_*` mixed two view markers (`_` and `*`) — invalid, hence the empty-reduce error. No feature is
+missing; TWO-SIDES works today (below).
+
+### THE TWO-SIDES — `[~0^_-1, ~0^-1]`
+Split a debate/negotiation by ROLE: `^_` selects every USER turn (their side), `^` every ASSISTANT
+turn (our side); `~` distills each channel to its position. The role-channel SELECT (vs the
+time-based ranges of CATCH-UP/EXEC-BRIEF). Real capture on a 4-turn negotiation (ship-by-Friday vs
+needs-two-weeks):
+> **Their side** — The team needs the payments feature shipped by Friday, with a proposal to release
+> a beta Friday and general availability two weeks later.
+>
+> **Our side** — Engineering wants two weeks for testing and a security review, but a flagged beta
+> could ship Friday if limited to internal users first.

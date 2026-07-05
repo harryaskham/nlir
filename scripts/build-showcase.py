@@ -166,6 +166,13 @@ SIMPLE = [
              "So now there's a hard choice: fix the problems first and be a little late, or keep the "
              "promise and launch on time.",
          cap="explain the whole thread like I just walked in \u2014 : gives a plain, jargon-free recap (tone-knob sibling of EXEC BRIEF's @)"),
+    dict(name="two-sides", expr="[~0^_-1, ~0^-1]", pill="llm · reads your whole thread",
+         src="a 4-turn negotiation — user: ship by Friday · assistant: needs two weeks to test",
+         out="\u201cTheir side\u201d \u2014 the team needs the payments feature shipped by Friday, with a "
+             "proposal to release a beta Friday and GA two weeks later.    \u201cOur side\u201d \u2014 "
+             "engineering wants two weeks for testing and a security review, but a flagged beta could "
+             "ship Friday if limited to internal users first.",
+         cap="split a debate by ROLE \u2014 ^_ = their side (every user turn), ^ = our side (every assistant turn), each distilled"),
 ]
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
