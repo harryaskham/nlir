@@ -258,6 +258,10 @@ const SPECIAL_FORMS = [
   ['[ ]', 'list', 'a list; spreads into variadic ops or joins to text'],
   ['^', 'messages', 'chat views: ^ assistant, ^_ user, ^* thread, ^/ system; ^-1 last, ranges'],
   ['({f}_N)', 'do-N', 'compose a form N times: ({~$0}_3) over text distils it three times'],
+  ['$map $fold', 'map / fold', 'higher-order: $map%({f},list) maps f over each item; $fold%({f},list) reduces'],
+  ['$scan $filter', 'scan / filter', '$scan%({f},list) is a running fold ([1,3,6,10]); $filter keeps items that pass'],
+  ['(f g)', 'train — atop', 'tacit compose, no $0: (~ @)%x = distil(formal(x)) — point-free'],
+  ['(f g h)', 'train — fork', 'two lenses on one input: (# & ~)%x = subject x & gist x, combined'],
   ['strings', 'quoting', 'double-quotes interpolate $name; single-quotes are literal'],
   ['backtick', 'serial', 'forces its right-hand subtree to evaluate serially'],
 ];
