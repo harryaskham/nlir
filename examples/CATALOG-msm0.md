@@ -234,6 +234,21 @@ The DIFF axis (`Δ`) — orthogonal to register (`@`↔`:`) and depth (`~`↔`>`
 before/after, changelog, and "did we actually address their pivot?" checks. (Landed grammar: the `Δ`
 operator + `^_` bare-view.)
 
+### THE ERROR TRIAGE — `[#^!-1, :^!-1]`
+The first coding-pipe move on the `^!` tool/code stream (my agentic view): take the agent's last
+tool result (a raw compiler/runtime error) and split it into [the failing AREA (`#`), a PLAIN
+explanation (`:`)]. Real capture on a live Rust borrow-check error:
+> **Rust borrow checker error (E0499: multiple mutable borrows of `self`)**
+>
+> Imagine you have one toy, and you're already holding it with both hands. Then someone asks you to
+> also pick it up a *different* way at the same time. You can't do that … the program tried to "hold
+> onto" the same piece of information (`self`) twice at once … so it stopped and gave up with an error.
+
+`^!` addresses the AGENT's tool/code-result stream (not the human turns), so nlir reads what the
+tools actually returned: `#^!-1` = which area broke, `:^!-1` = it in plain words, `~^!` = the whole
+tool session distilled, `^!-1` = the last result verbatim. The pivot from human-comms examples to
+real agentic coding pipes (with `$_stdin` for file pipes: `cat foo.rs | nlir -e '~$_stdin'`).
+
 ## Gotchas (verified with aur-0's QA)
 - **`=` binds an EXPRESSION, so quote string values with operators or spaces.** `_sep=--`
   parse-errors ("operator - not valid in prefix position"); write `_sep='--'` (or escape: `_sep=\-\-`).
