@@ -192,17 +192,22 @@ jobs:
         shell: bash
         run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 
-      - name: Install aarch64 cross linker (aarch64-linux cross builds only)
+      - name: Install aarch64 cross toolchain (linker + target libc headers)
         if: matrix.cross == 'aarch64-unknown-linux-gnu'
         shell: bash
         run: |
-          # aarch64-linux is cross-compiled on the x86_64 azure-ephemeral runner, so
-          # it needs the gnu cross linker (aarch64-linux-gnu-gcc). apt where present.
+          # aarch64-linux is cross-compiled on the x86_64 azure-ephemeral runner. It
+          # needs the gnu cross linker (aarch64-linux-gnu-gcc) AND the aarch64 target
+          # libc dev headers: a C-compiling dep (ring, via ureq->rustls) invokes the
+          # cross gcc, which fails with `bits/libc-header-start.h: No such file` unless
+          # libc6-dev-arm64-cross is present. `--no-install-recommends` skips that
+          # recommended package, so install it EXPLICITLY (bd-d2437c: the v0.1.3
+          # aarch64-linux cross-build failure was exactly this missing header set).
           for d in /usr/bin /bin; do case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$PATH:$d";; esac; done
           export PATH
           if command -v apt-get >/dev/null 2>&1; then
             SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
-            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
+            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross
           fi
 
       - name: Build the release binary (native or cross)
