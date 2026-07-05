@@ -158,9 +158,18 @@ Macro *holes* reuse the existing positional `$N` reads (D4), so no third sigil i
 until macros-that-build-forms (splice) land later. So:
 - **form-quote = `{…}`** (+1 msm-0): `{a + b}` = the form, `(a + b)` = the value — the cleanest
   mnemonic (code-as-data braces vs grouping parens), zero lexer conflict.
-- **form-apply = `%`** (infix): `f % x` ≡ `f % [x,y]` ≡ `f % (x,y)`. `%` is the cleanest of the
-  free set (no decimal/escape overlap), and `#` stays subject-only (no overload). *Alt* if
-  Harry prefers a call-dot: `.` — but it needs decimal disambiguation.
+- **form-apply** (infix) — two clean options, a genuine tradeoff (flagged by aur-2, template owner):
+  - **`%`**: lexer-clean (zero `%` token in the expr lexer today), keeps `#` subject-only. *Wart:*
+    `%` is already the config **`template:`** placeholder (`substitute_operands` in llm.rs: `%`=operand,
+    `%%`=literal, `%0/%1`=positional). That is a DIFFERENT layer (realisation/template strings, not
+    the expr lexer → **no parser collision**), but a config author would see `%` mean two things.
+    Fine *if* the doc flags the layer split.
+  - **`.`** (call-dot, `f.x`): familiar (method-call syntax everywhere), **no dual-meaning**, but the
+    lexer must disambiguate the decimal point (`3.14` = number between digits; `f.x` = apply between
+    non-digits — a standard lexer rule).
+  Either keeps `#` subject-only (no overload). **Harry's aesthetic + msm-0's parseability call.**
+  Consolidator lean: **`.`** now (zero dual-meaning, universally readable) *if* msm-0 confirms the
+  decimal rule is clean; else **`%`** with the layer split documented.
 - **holes = `$0 $1 …`** (reuse `$N`, D4) — no new sigil.
 - **deferred: macro-splice** (forms that build forms) → a 3rd glyph from the remaining free
   set (`\` or `.`), pinned when macros land.
