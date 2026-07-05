@@ -451,6 +451,22 @@ SIMPLE = [
          cap="the change announcement — @&[WHATS_CHANGING, EFFECTIVE_WHEN, WHAT_YOU_NEED_TO_DO]: a "
              "deprecation / migration / policy shift answers what, when, and 'what do I do?' — ending "
              "on the action turns an FYI into something people can act on"),
+    dict(name="descope-proposal",
+         expr="@&['we cannot ship all six features by the March deadline without burning out the "
+              "team','I propose we cut the analytics dashboard and the export tool to a fast-follow','and "
+              "protect the core checkout flow and the mobile fixes, which is what most users actually "
+              "asked for','that gets us a solid, tested launch on time with the rest landing two weeks "
+              "later']",
+         pill="llm · claude-sonnet-5",
+         out="Delivering all six features by the March deadline is not feasible without placing undue "
+             "strain on the team. I recommend deferring the analytics dashboard and the export tool to a "
+             "fast-follow release, while prioritizing the core checkout flow and the mobile fixes—the "
+             "features most frequently requested by users. This approach would allow us to deliver a "
+             "stable, thoroughly tested launch on schedule, with the remaining features following two "
+             "weeks later.",
+         cap="the descope proposal — @&[THE_SQUEEZE, WHAT_TO_CUT, WHAT_TO_PROTECT, THE_PAYOFF]: trade "
+             "scope for a date, argued well. The protect slot (with its reason) is what makes a cut "
+             "land — you're defending the highest-value work, not dropping it"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
