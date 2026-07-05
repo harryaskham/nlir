@@ -17,14 +17,14 @@ defaults:
   # resolves through here. A single `model: sonnet` (a concrete `models` alias) is
   # also still valid — tiers are opt-in and back-compatible.
   #
-  # `medium` is the ops' default and uses `direct` (type: anthropic_messages) rather
-  # than `sonnet` (type: command) so the DEFAULT realises over HTTP — which is what
-  # the wasm/browser playground needs (a `command:` model can't run in a browser; it
-  # routes to the absent command realiser). Same underlying model (claude-sonnet-5),
-  # just HTTP transport. Native CLI users can pass `--model sonnet` for the claude CLI.
+  # `medium` is the ops' default = `sonnet` (the claude CLI, type: command): resilient,
+  # no network-proxy dependency. In the wasm/browser playground a command-kind MODEL op
+  # still routes to the LLM realiser (the browser has no shell, so the op's prompt goes
+  # to the Settings BYO base-url + model-id) - the model kind only selects the NATIVE
+  # transport (CLI vs HTTP), not the browser path, so browser llm-mode works too.
   model:
     small: haiku
-    medium: direct
+    medium: sonnet
     large: copilot
   parallelism: 8
 
