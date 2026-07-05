@@ -80,6 +80,10 @@ function tryNumeric(expr){
 }
 function knownOut(expr){ const m = EXAMPLES.find(x => x.expr === expr); return m && m.out; }
 
+// A small preview graph (mock path, no pkg/): real dataflow graphs render on the
+// site via graph()/graphFrames(). data-id groups let the highlight logic be tested.
+const PLACEHOLDER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 210"><rect x="1" y="1" width="338" height="208" rx="16" fill="#100a24" stroke="rgba(168,85,247,.28)"/><line x1="100" y1="132" x2="165" y2="70" stroke="rgba(168,85,247,.5)" stroke-width="1.6"/><line x1="240" y1="132" x2="175" y2="70" stroke="rgba(168,85,247,.5)" stroke-width="1.6"/><g data-id="0"><rect x="130" y="28" width="80" height="40" rx="10" fill="#241a45" stroke="#a855f7"/><text x="170" y="48" fill="#e879f9" text-anchor="middle" dominant-baseline="central" font-family="Fira Code,monospace" font-size="13">op</text></g><g data-id="0.0"><rect x="60" y="132" width="80" height="40" rx="10" fill="#170f2c" stroke="#4a3a6a"/><text x="100" y="152" fill="#cbb9f5" text-anchor="middle" dominant-baseline="central" font-family="Fira Code,monospace" font-size="13">a</text></g><g data-id="0.1"><rect x="200" y="132" width="80" height="40" rx="10" fill="#170f2c" stroke="#4a3a6a"/><text x="240" y="152" fill="#cbb9f5" text-anchor="middle" dominant-baseline="central" font-family="Fira Code,monospace" font-size="13">b</text></g></svg>';
+
 const MOCK = {
   async evaluate(expr){
     const n = tryNumeric(expr);
@@ -95,6 +99,11 @@ const MOCK = {
   },
   operators(){ return MOCK_OPERATORS; },
   parse(expr){ return { ok:true, ast:expr }; },
+  graph(){ return { ok:true, svg:PLACEHOLDER_SVG, mock:true }; },
+  graphFrames(){ return { ok:true, mock:true, frames:[
+    { svg:PLACEHOLDER_SVG, reduced:null }, { svg:PLACEHOLDER_SVG, reduced:'0.0' },
+    { svg:PLACEHOLDER_SVG, reduced:'0.1' }, { svg:PLACEHOLDER_SVG, reduced:'0' },
+  ] }; },
   version(){ return { crate:'mock', git:'—' }; },
 };
 
@@ -113,6 +122,8 @@ let wasmReal = false;
       async step(e,c,x,md){ const r = O(await m.step(e,c,x,md)); if (r.steps) r.steps = A(r.steps); return r; },
       operators(c){ return A(m.operators(c)); },
       parse(e,c){ return O(m.parse(e,c)); },
+      graph(e,c){ return O(m.graph(e,c)); },
+      graphFrames(e,c,md){ const r = O(m.graphFrames(e,c,md)); if (r.frames) r.frames = A(r.frames); return r; },
       version(){ return O(m.version()); },
     };
     wasmReal = true;
@@ -248,6 +259,44 @@ async function step(){
     box.appendChild(d);
   });
 }
+
+// ---- graph (G5): dataflow graph panel + step-frame animation with node highlight ----
+let animTimer = null;
+function showGraph(){
+  clearInterval(animTimer);
+  const expr = $('expr').value.trim(); if (!expr) return;
+  const box = $('graphsvg');
+  $('graphview').hidden = false; $('scrub').hidden = true; $('framecap').textContent = '';
+  box.innerHTML = '<span class="placeholder">rendering…</span>';
+  const r = nlir.graph(expr, configJson());
+  if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
+  box.innerHTML = r.svg + (r.mock ? '<div class="mock" style="margin-top:.5rem">preview graph — the live site renders your expression</div>' : '');
+}
+function renderFrame(frame){
+  const box = $('graphsvg'); box.innerHTML = frame.svg;
+  if (frame.reduced){ const g = box.querySelector(`[data-id="${frame.reduced}"]`); if (g) g.classList.add('reduced'); }
+}
+function animate(){
+  clearInterval(animTimer);
+  const expr = $('expr').value.trim(); if (!expr) return;
+  const box = $('graphsvg');
+  $('graphview').hidden = false; box.innerHTML = '<span class="placeholder">building frames…</span>';
+  const r = nlir.graphFrames(expr, configJson(), state.settings.mode);
+  if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
+  const frames = r.frames || [];
+  if (!frames.length){ box.innerHTML = '<span class="placeholder">(no frames)</span>'; return; }
+  const scrub = $('scrub'); scrub.hidden = false; scrub.max = frames.length - 1;
+  let i = 0;
+  const show = k => {
+    i = k; renderFrame(frames[k]); scrub.value = k;
+    const red = frames[k].reduced;
+    $('framecap').textContent = `frame ${k+1}/${frames.length}` + (red ? ` · reduced ${red}` : '') + (r.mock ? ' · preview' : '');
+  };
+  show(0);
+  scrub.oninput = e => { clearInterval(animTimer); show(+e.target.value); };
+  animTimer = setInterval(() => { if (i >= frames.length - 1){ clearInterval(animTimer); return; } show(i + 1); }, 950);
+}
+
 function setMode(m){
   state.settings.mode = m; save();
   document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode===m));
@@ -273,9 +322,11 @@ function init(){
 
   $('runBtn').onclick = run;
   $('stepBtn').onclick = step;
+  $('graphBtn').onclick = showGraph;
+  $('animBtn').onclick = animate;
   $('expr').addEventListener('keydown', e => { if (e.key==='Enter') run(); });
   document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
-  $('applyCfg').onclick = () => { state.config = $('config').value; save(); renderOps(); $('cfgNote').textContent = 'Applied. (Real operator parsing lands with P1.)'; };
+  $('applyCfg').onclick = () => { state.config = $('config').value; save(); renderOps(); $('cfgNote').textContent = 'Applied — operators + graphs reflect this config.'; };
   $('resetCfg').onclick = () => { state.config = DEFAULT_CONFIG; $('config').value = DEFAULT_CONFIG; save(); renderOps(); $('cfgNote').textContent = 'Reset to default config.'; };
   $('addMsg').onclick = () => { const t = $('newMsg').value.trim(); if(!t) return; state.messages.push({role:$('newRole').value, text:t}); $('newMsg').value=''; save(); renderMessages(); };
   $('addKv').onclick = () => { const k = $('newKey').value.trim(); if(!k) return; state.kv.push({k, v:$('newVal').value}); $('newKey').value=''; $('newVal').value=''; save(); renderKvs(); };

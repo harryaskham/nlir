@@ -28,12 +28,18 @@
         </div>
         <button class="run" id="runBtn">Run ▸</button>
         <button class="step" id="stepBtn">Step ↓</button>
+        <button class="graph" id="graphBtn">Graph ◇</button>
+        <button class="graph" id="animBtn">Animate ▸</button>
       </div>
       <div class="chips" id="examples"></div>
       <div class="output" id="output">
         <span class="placeholder">Output appears here. Deterministic expressions (numbers, templates, joins, echo) run fully in-browser, key-free.</span>
       </div>
       <div class="steps" id="steps"></div>
+      <div class="graphview" id="graphview" hidden>
+        <div class="graphsvg" id="graphsvg"></div>
+        <div class="animctl"><input type="range" id="scrub" min="0" value="0" hidden><span class="framecap" id="framecap"></span></div>
+      </div>
     </section>
 
     <section class="panel">
