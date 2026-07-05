@@ -131,8 +131,15 @@ impl Graph {
     /// `;`-separated statements, last-assignment-wins by eval order).
     #[must_use]
     pub fn from_program(program: &Program) -> Self {
+        Self::from_statements(&program.statements)
+    }
+
+    /// Build the dataflow graph of a slice of statements — the form step frames
+    /// (G2) rebuild from as the tree reduces (bindings resolve across the slice).
+    #[must_use]
+    pub fn from_statements(statements: &[Expr]) -> Self {
         let mut builder = Builder::default();
-        for (index, statement) in program.statements.iter().enumerate() {
+        for (index, statement) in statements.iter().enumerate() {
             builder.walk(statement, &NodeId::root(index));
         }
         Graph {
@@ -163,6 +170,63 @@ impl Graph {
     pub fn edges_of(&self, kind: EdgeKind) -> impl Iterator<Item = &Edge> {
         self.edges.iter().filter(move |edge| edge.kind == kind)
     }
+
+    /// This graph's binding edges (Assign → ContextRead), cloned. Step frames
+    /// (G2) carry the ORIGINAL binding set: as an `Assign` reduces to a `Value`
+    /// its key is lost, so the edges are re-applied per frame while their target
+    /// read is still un-reduced (see [`Graph::frame`]).
+    #[must_use]
+    pub fn binding_edges(&self) -> Vec<Edge> {
+        self.edges_of(EdgeKind::Binding).cloned().collect()
+    }
+
+    /// Build the frame graph for a partially-reduced `statements` slice (G2):
+    /// nodes + operand edges from the CURRENT structure, but binding edges taken
+    /// from `original_bindings` (stable [`NodeId`]s) and kept only while the
+    /// target read is still an un-reduced [`NodeKind::ContextRead`] — so a
+    /// variable visibly feeds its uses "until consumed", even after the
+    /// assignment itself has collapsed to a `Value`.
+    #[must_use]
+    pub fn frame(statements: &[Expr], original_bindings: &[Edge]) -> Self {
+        let mut graph = Graph::from_statements(statements);
+        graph.edges.retain(|edge| edge.kind != EdgeKind::Binding);
+        for edge in original_bindings {
+            let target_is_unreduced_read = graph
+                .node(&edge.to)
+                .is_some_and(|node| matches!(node.kind, NodeKind::ContextRead(_)));
+            if target_is_unreduced_read && graph.node(&edge.from).is_some() {
+                graph.edges.push(edge.clone());
+            }
+        }
+        graph
+    }
+}
+
+/// One frame of a step-through animation (graph-viz G2, bd-c1710c): the dataflow
+/// graph of the current partially-reduced program, plus the node that just
+/// reduced to produce it (`None` for the initial frame). G4 (kitty) and G5
+/// (wasm) render each frame via `graph_svg::render(&frame.graph)`; `reduced`
+/// drives the just-reduced-node highlight / caption.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Frame {
+    /// The graph of the current reduction state.
+    pub graph: Graph,
+    /// The node that reduced to produce this frame (`None` = initial frame).
+    pub reduced: Option<NodeId>,
+}
+
+/// The node that reduced between two consecutive frames: the id that is a
+/// [`NodeKind::Value`] in `after` but was a non-Value node in `before` (its
+/// redex collapsed). A small step reduces exactly one redex, so at most one such
+/// node exists.
+#[must_use]
+pub fn reduced_between(before: &Graph, after: &Graph) -> Option<NodeId> {
+    after
+        .nodes
+        .iter()
+        .filter(|node| node.kind == NodeKind::Value)
+        .map(|node| node.id.clone())
+        .find(|id| before.node(id).is_some_and(|b| b.kind != NodeKind::Value))
 }
 
 /// Accumulates nodes/edges while walking, tracking the live binding scope

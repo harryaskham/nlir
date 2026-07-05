@@ -170,6 +170,56 @@ pub fn step_trace(
     Ok(steps)
 }
 
+/// Parse `expr` and produce the sequence of dataflow-graph FRAMES its small-step
+/// reduction passes through (graph-viz epic bd-8ac9ad, slice G2): the animation
+/// source G4 (kitty) and G5 (wasm) render via `graph_svg::render(&frame.graph)`.
+/// Mirrors [`step_trace`] but captures a [`crate::graph::Graph`] per step instead
+/// of a rendered string. Binding edges persist until their read is consumed
+/// (stable [`crate::graph::NodeId`] layout keeps the graph from jumping), and each
+/// frame records the node that just reduced (for highlight / caption).
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub fn step_frames(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+) -> Result<Vec<crate::graph::Frame>, EvalError> {
+    use crate::graph::{Frame, Graph, reduced_between};
+    let sigils = crate::config::operator_sigils(config);
+    let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
+        EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
+    })?;
+    let program = parser::parse_program(&tokens, &config.operators)
+        .map_err(|error| EvalError::Parse(error.to_string()))?;
+
+    // The binding edges carry the ORIGINAL, stable endpoints across all frames;
+    // Graph::frame re-applies them while each target read is still un-reduced.
+    let original_bindings = Graph::from_program(&program).binding_edges();
+
+    let mut evaluator = Evaluator::new(config, context, mode);
+    let mut statements = program.statements.clone();
+    let mut frames = vec![Frame {
+        graph: Graph::frame(&statements, &original_bindings),
+        reduced: None,
+    }];
+    for i in 0..statements.len() {
+        while let Step::Reduced(next) = evaluator.step_once(&statements[i])? {
+            let before = Graph::frame(&statements, &original_bindings);
+            statements[i] = next;
+            let graph = Graph::frame(&statements, &original_bindings);
+            let reduced = reduced_between(&before, &graph);
+            frames.push(Frame { graph, reduced });
+        }
+        // Push the finished statement's value so later `;`-statements resolve.
+        if let Some(value) = as_value(&statements[i]) {
+            evaluator.stack.push(value);
+        }
+    }
+    Ok(frames)
+}
+
 /// The operand-first evaluator: a config + context + a run-scoped stack. The
 /// context is mutable so `key=RHS` assignment can write through (SPEC: context
 /// writes happen immediately).
@@ -1780,6 +1830,46 @@ operators:
             .expect("async step");
             assert_eq!(sync, asynced, "async/sync step mismatch for `{src}`");
         }
+    }
+
+    #[test]
+    fn step_frames_reduce_pow_to_a_single_value() {
+        // 2**3**2 = 2**(3**2): inner ** reduces, then outer ** -> one Value node.
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        let frames = step_frames("2**3**2", &cfg, &mut ctx, Mode::Det).expect("frames");
+        assert_eq!(frames.len(), 3, "initial + 2 reductions");
+        assert!(frames[0].reduced.is_none());
+        assert!(frames[1..].iter().all(|f| f.reduced.is_some()));
+        let last = &frames.last().unwrap().graph;
+        assert_eq!(last.nodes.len(), 1);
+        assert_eq!(last.nodes[0].kind, crate::graph::NodeKind::Value);
+    }
+
+    #[test]
+    fn step_frames_keep_binding_edges_until_consumed() {
+        // k=2;[$k,$k]: the assign feeds both reads; the edges persist past the
+        // assign's OWN reduction and drop only as each read is consumed (G2).
+        use crate::graph::{EdgeKind, NodeId};
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        let frames = step_frames("k=2;[$k,$k]", &cfg, &mut ctx, Mode::Det).expect("frames");
+        let bindings = |i: usize| frames[i].graph.edges_of(EdgeKind::Binding).count();
+        assert_eq!(bindings(0), 2, "initial: assign feeds both reads");
+        let after_assign = frames
+            .iter()
+            .position(|f| f.reduced.as_ref() == Some(&NodeId(vec![0])))
+            .expect("a frame where the assign reduced");
+        assert_eq!(
+            bindings(after_assign),
+            2,
+            "bindings persist past the assign's own reduction"
+        );
+        assert_eq!(
+            bindings(frames.len() - 1),
+            0,
+            "edges drop once both reads are consumed"
+        );
     }
 
     #[test]
