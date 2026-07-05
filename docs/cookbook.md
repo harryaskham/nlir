@@ -335,21 +335,20 @@ $if%(0, 'yes', 'no')          -> no     (falsy -> else)
 
 ```
 $nth%(1, [10,20,30])          -> 20
+$nth%(-1, [10,20,30])         -> 30   (negative counts from the end)
 ```
 
 - **`$sort`** — ascending (numeric or lexical):
 
 ```
 $sort%[3,1,2]                 -> 1 / 2 / 3
-$nth%(0, $sort%[30,4,100,2])  -> 2       (the minimum: sort, then take the first)
+$nth%(0, $sort%[30,4,100,2])  -> 2       (min: sort, take the first)
+$nth%(-1, $sort%[30,4,100,2]) -> 100     (max: sort, take the last)
 ```
 
 They compose with the rest: `$if` gates a branch on a computed condition,
 `$sort`+`$nth` pick min/max/median, and with map/filter/fold you have a real
 little programming core — select, transform, reduce, branch, reorder.
-
-(Negative-from-end `$nth%(-1,…)` doesn't parse yet — a literal leading `-` in
-`%`-args; use the expression `$nth%(0-1,…)` meanwhile.)
 
 ---
 

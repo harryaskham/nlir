@@ -478,6 +478,8 @@ tests:
   # the last coverage gaps (join-3 + assign-then-compute).
   help-join3:          { mode: det, expr: "'ship'&'test'&'review'", expected: "ship and test and review" }
   help-assign-compute: { mode: det, expr: "k=2+3;$k*2", expected: "10" }
+  cookbook-nth-neg:  { mode: det, expr: "$nth%(-1,[10,20,30])", expected: "30" }
+  cookbook-sort-max: { mode: det, expr: "$nth%(-1,$sort%[30,4,100,2])", expected: "100" }
   msg:
     mode: det
     context:
