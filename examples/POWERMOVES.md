@@ -55,6 +55,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | the shout-out | `@&[WHAT_THEY_DID, THE_IMPACT, THE_THANKS]` | specific, polished recognition | aur-2 |
 | dual-register brief | `[@&[FACTS], :&[SAME_FACTS]]` | same facts for engineers (@) AND everyone (:) at once | aur-2 |
 | the BLUF | `[~&[FACTS], @&[SAME_FACTS]]` | a skimmable headline first, then the full detail | aur-2 |
+| computed brief | `@&[LEAD_IN, <a live calc>, TAIL]` | nlir does the maths and weaves the figure into the sentence | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |

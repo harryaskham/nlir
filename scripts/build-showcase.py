@@ -213,6 +213,12 @@ SIMPLE = [
              "about 40% faster.",
          cap="the dual-register brief — the SAME facts twice: @ for your engineers (keeps the jargon), "
              ": for everyone else (plain words). One keystroke-set, two audiences"),
+    dict(name="computed-brief",
+         expr="@&['the migration touches','47'+'12','services','across three teams']",
+         pill="llm · claude-sonnet-5",
+         out="The migration affects 59 services across three teams.",
+         cap="the computed brief — drop a live calculation ('47'+'12') into a slot; nlir does the maths "
+             "(= 59) AND weaves it into the sentence. Numbers + prose, always consistent"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
