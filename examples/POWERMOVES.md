@@ -61,6 +61,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | the retro | `@&[WHAT_WORKED, WHAT_DIDNT, WHAT_TO_CHANGE]` | a sprint retrospective, ending on the change | aur-2 |
 | respectful dissent | `@&[!THE_PROPOSAL, MY_REASONING, WHAT_ID_SUPPORT]` | a principled no + a constructive alternative | aur-2 |
 | clarifying reframe | `[:RESTATE_THEIR_ASK, 'IS_THAT_RIGHT'?]` | confirm you understood before you act | aur-2 |
+| the pre-mortem | `@&["PLAN", !"ROSY_CLAIM", "HEDGE"]` | plan + the risk it hides (via `!`) + your hedge, one heads-up | aur-2 |
 | the PR summary (pipe) | `git diff \| nlir -e '[#$_stdin, ~$_stdin]'` | a diff → PR title + description (nlir as a smart pipe) | aur-2 |
 | the code-review comment (pipe) | `<code> \| nlir -e '@&[~$_stdin, POINT_1, POINT_2]'` | weave a code summary + your review notes into one polished comment | aur-2 |
 | the fix-it (pipe) | `<error> \| nlir -e '~(>"the most likely fix for: $_stdin")'` | pipe a traceback → the likely fix (triage says what's wrong; this fixes it) | aur-2 |
