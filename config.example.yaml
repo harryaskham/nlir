@@ -34,14 +34,14 @@ context:
 
 types: # coercion targets (deterministic parse first, LLM fallback)
   number:
-    model: fast
+    model: haiku
     prompt: |
       Interpret the text inside <text> as a single number. Return only the number.
 
       %
     schema: { type: object, properties: { result: { type: number } }, required: [result] }
   bool:
-    model: fast
+    model: haiku
     prompt: |
       Interpret the text inside <text> as true or false.
 
@@ -58,7 +58,7 @@ sessions:
     content_field: content
 
 models:
-  haiku: *fast
+  haiku:
     type: anthropic_messages
     base_url: $ANTHROPIC_BASE_URL
     api_key: $ANTHROPIC_API_KEY
@@ -104,8 +104,6 @@ models:
         content: "${NLIR_SYSTEM_PROMPT}"
       - role: user
         content: "${NLIR_PROMPT}"
-
-  fast: *haiku
 
 prompts:
   system: { env: NLIR_SYSTEM_PROMPT, text: "Perform the following text transformation task.\nRespond with the transformed text in plain language.\nDo not include <text> tags in your output." }
