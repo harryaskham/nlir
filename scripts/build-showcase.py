@@ -331,6 +331,15 @@ SIMPLE = [
              "provisioning of the staging database by Tuesday.",
          cap="the scoped commitment — @&[DELIVERABLE, BY_WHEN, DEPENDENCY]: a promise with its fine print. "
              "What you'll deliver, by when, and the dependency it hinges on — no vague 'soon'"),
+    dict(name="templated-message",
+         expr="svc='the auth service';@&[\"$svc moves to us-east this friday\",\"expect a ten-minute "
+              "maintenance window for $svc\",\"roll back $svc if error rates exceed two percent\"]",
+         pill="llm · claude-sonnet-5",
+         out="The authentication service will be migrated to US-East this Friday. A ten-minute "
+             "maintenance window should be expected, and the service will be rolled back if error rates "
+             "exceed two percent.",
+         cap="the templated message — bind a value once (svc='...'), reuse it as \"$svc\" across the "
+             "message; change it in one place and every mention updates. Interpolation needs double quotes"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
