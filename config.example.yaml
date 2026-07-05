@@ -58,7 +58,7 @@ sessions:
     content_field: content
 
 models:
-  haiku: &haiku
+  haiku: *haiku
     type: anthropic_messages
     base_url: $ANTHROPIC_BASE_URL
     api_key: $ANTHROPIC_API_KEY
@@ -105,7 +105,7 @@ models:
       - role: user
         content: "${NLIR_PROMPT}"
 
-  fast: &haiku
+  fast: *haiku
 
 prompts:
   system: { env: NLIR_SYSTEM_PROMPT, text: "Perform the following text transformation task.\nRespond with the transformed text in plain language.\nDo not include <text> tags in your output." }
