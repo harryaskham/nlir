@@ -8,6 +8,11 @@ Every move here is a **real execution**: each `examples/move-*.sh` runs the nlir
 captures the output, and deterministic showcase cards are re-run + asserted by
 `scripts/verify-showcase.py` (a CI gate). Nothing here is theory.
 
+For the vocabulary itself, run **`nlir help`** (aliases `operators`, `ops`): a live, config-derived
+reference of every operator — sigil · name · description · [arity · priority · `det` = runs offline /
+`llm` = needs a model]. This phrasebook, `nlir help`, and the SPEC operator table all derive from the
+same config, so they stay in sync.
+
 ---
 
 ## The model: SELECT ∘ TRANSFORM ∘ COMPOSE
