@@ -319,11 +319,17 @@ async function checkOnDevice(){
     el.className = 'od-status' + (ready ? ' ok' : dl ? '' : ' warn');
   } catch (e){ el.textContent = '\u26a0 availability check failed: ' + e; el.className = 'od-status warn'; }
 }
+// The WASM eval knows only `det`/`llm`; on-device is an llm REALISER variant
+// (Chrome built-in Prompt API), so it maps to `llm` mode with realisers()
+// supplying the on-device callback. Without this the eval boundary rejects the
+// UI's `ondevice` with `unknown mode "ondevice"` (bd-5c7306 follow-up).
+function wasmMode(){ return state.settings.mode === 'det' ? 'det' : 'llm'; }
+
 async function run(){
   const expr = getExpr().trim(); if (!expr) return;
   const out = $('output'); $('steps').innerHTML = '';
   out.innerHTML = '<span class="placeholder">running…</span>';
-  const r = await nlir.evaluate(expr, configJson(), contextJson(), state.settings.mode, realisers());
+  const r = await nlir.evaluate(expr, configJson(), contextJson(), wasmMode(), realisers());
   if (!r.ok){ out.innerHTML = `<span class="err">${r.error}</span>`; return; }
   out.innerHTML = `<span class="result">${r.result.replace(/</g,'&lt;')}</span>` + (r.mock ? '<span class="mock">preview mock — the live site runs the real wasm</span>' : '');
   save();
@@ -332,7 +338,7 @@ async function step(){
   const expr = getExpr().trim(); if (!expr) return;
   const out = $('output'); out.innerHTML = '';
   const box = $('steps'); box.innerHTML = '<span class="placeholder">stepping…</span>';
-  const r = await nlir.step(expr, configJson(), contextJson(), state.settings.mode, realisers());
+  const r = await nlir.step(expr, configJson(), contextJson(), wasmMode(), realisers());
   box.innerHTML = '';
   if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
   r.steps.forEach((s,i) => {
@@ -364,7 +370,7 @@ async function animate(){
   const expr = getExpr().trim(); if (!expr) return;
   const box = $('graphsvg');
   $('graphview').hidden = false; box.innerHTML = '<span class="placeholder">building frames…</span>';
-  const md = state.settings.mode;
+  const md = wasmMode();
   const r = md === 'llm'
     ? await nlir.graphFramesAsync(expr, configJson(), contextJson(), md, realisers())
     : nlir.graphFrames(expr, configJson(), md);
