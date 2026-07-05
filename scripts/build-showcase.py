@@ -426,6 +426,19 @@ SIMPLE = [
          cap="the escalation — @&[BLOCKER, IMPACT, ~WHAT_YOU_TRIED, ASK]: raise a blocker upward as a "
              "decision request. The ~ slot digests your long list of attempts into one crisp clause, so "
              "it reads competent, not like a rant"),
+    dict(name="feedback-ask",
+         expr="@&['I have pushed the draft onboarding flow to the staging branch','could you "
+              "specifically sanity-check the error-handling paths and the mobile layout — those are the "
+              "parts I am least sure about','I would love your thoughts before the design review on "
+              "thursday']",
+         pill="llm · claude-sonnet-5",
+         out="I have pushed the draft onboarding flow to the staging branch. Could you please review "
+             "it, with particular attention to the error-handling paths and the mobile layout, as these "
+             "are the areas about which I am least confident? I would greatly appreciate your feedback "
+             "prior to Thursday's design review.",
+         cap="the feedback ask — @&[WHAT_I_MADE, THE_SPECIFIC_THING_TO_CHECK, BY_WHEN]: request TARGETED "
+             "review — name the exact part you're unsure about and the deadline, so the reviewer spends "
+             "their attention where it counts. Not a vague 'any thoughts?'"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
