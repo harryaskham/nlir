@@ -114,6 +114,12 @@ SIMPLE = [
          cap="the plain-english \u2014 strip an agent's jargon-dense answer to plain, accurate language: `:` "
              "simplifies the register, `~` distils it to a crisp sentence. ORDER matters \u2014 `~:` stays "
              "professional, `:~` goes full ELI5. put anything in plain terms."),
+    dict(name="theme-finder", expr="#['reset-password is broken', 'login times out on mobile', 'OAuth callback returns 500']",
+         pill="llm · several things → the one bucket",
+         out="Authentication flow issues",
+         cap="the theme-finder \u2014 `#` on a LIST folds several items down to the single category they share. "
+             "paste your scattered issues, tickets, or notes and get the bucket. (`#` names the common noun; "
+             "over a list, the common theme.)"),
     dict(name="grounded-counter",
          expr="@(^-1 & '- but scoped to just the hot 10% of users' & ^_-1)",
          pill="llm · reads your chat",
