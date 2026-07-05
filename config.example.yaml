@@ -58,7 +58,7 @@ sessions:
     content_field: content
 
 models:
-  haiku: *haiku
+  haiku: *fast
     type: anthropic_messages
     base_url: $ANTHROPIC_BASE_URL
     api_key: $ANTHROPIC_API_KEY
