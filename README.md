@@ -76,9 +76,11 @@ A few moves to start with:
 
 | move | say it | what it does |
 |---|---|---|
-| considered reply | `@(^-1 & 'but scope it to mobile first')` | agree with an agent's suggestion, folding in your amendment, made formal |
+| considered reply | `@(^-1 & 'but scope it to mobile first')` | reply to an agent's suggestion, folding in your amendment, made formal |
 | reasoned no | `@(!^-1 & 'it doubles our on-call')` | decline a proposal, on your grounds, professionally |
 | decisive close | `@(~0^*-1 & 'decision: ship Friday')` | end a whole debate with your call, grounded in what was said |
+| brain-dump | `'too many steps'; 'users drop off'; &; ~$` | jot scattered thoughts, fold them, get the one takeaway |
+| theme-finder | `#['login broken', 'OAuth 500s', 'reset fails']` | fold a pile of items down to the one category they share |
 
 The full phrasebook — every move, its shape, and a copy-paste template, across all four
 lanes — lives in **[`examples/POWERMOVES.md`](examples/POWERMOVES.md)**.
