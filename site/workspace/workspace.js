@@ -203,11 +203,33 @@ function contextJson(){
   state.kv.forEach(p => { if (p.k) o[p.k] = p.v; });
   return JSON.stringify(o);
 }
+// P3: build the llm realiser from the Settings panel (BYO base-url + key). det passes {} (unused).
+// call = { vars:{NLIR_PROMPT,...}, model:{model:<id>,...}, operands:[...] } (aur-0's shape).
+const unmap = v => (v instanceof Map ? Object.fromEntries(v) : v);
+function realisers(){
+  if (state.settings.mode === 'llm' && state.settings.baseUrl){
+    const base = state.settings.baseUrl.replace(/\/+$/,''), key = state.settings.apiKey;
+    return {
+      llm: async (call) => {
+        const c = unmap(call), model = unmap(c.model), vars = unmap(c.vars);
+        const res = await fetch(base + '/chat/completions', {
+          method:'POST',
+          headers: Object.assign({ 'Content-Type':'application/json' }, key ? { Authorization:'Bearer '+key } : {}),
+          body: JSON.stringify({ model: model && model.model, messages:[{ role:'user', content: vars && vars.NLIR_PROMPT }] }),
+        });
+        if (!res.ok) throw new Error('llm endpoint ' + res.status);
+        const j = await res.json();
+        return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+      },
+    };
+  }
+  return {};
+}
 async function run(){
   const expr = $('expr').value.trim(); if (!expr) return;
   const out = $('output'); $('steps').innerHTML = '';
   out.innerHTML = '<span class="placeholder">running…</span>';
-  const r = await nlir.evaluate(expr, configJson(), contextJson(), state.settings.mode);
+  const r = await nlir.evaluate(expr, configJson(), contextJson(), state.settings.mode, realisers());
   if (!r.ok){ out.innerHTML = `<span class="err">${r.error}</span>`; return; }
   out.innerHTML = `<span class="result">${r.result.replace(/</g,'&lt;')}</span>` + (r.mock ? '<span class="mock">preview mock — the live site runs the real wasm</span>' : '');
   save();
@@ -216,7 +238,7 @@ async function step(){
   const expr = $('expr').value.trim(); if (!expr) return;
   const out = $('output'); out.innerHTML = '';
   const box = $('steps'); box.innerHTML = '<span class="placeholder">stepping…</span>';
-  const r = await nlir.step(expr, configJson(), contextJson(), state.settings.mode);
+  const r = await nlir.step(expr, configJson(), contextJson(), state.settings.mode, realisers());
   box.innerHTML = '';
   if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
   r.steps.forEach((s,i) => {
