@@ -376,6 +376,17 @@ GRID = [
              ("@(^-1 & 'decision: …')  your verdict", "Decompose, but narrowly: extract only the two highest-traffic "
               "services now, and keep the rest a monolith for the time being."),
          ]),
+    dict(name="pitch-check", expr="[@~^_-1, ~>!^_-1]", pill="llm · reads your own idea",
+         claim="[you] i think we should just let people pay with crypto \u2014 it'd open a new market and it's not that hard to add",
+         cap="the pitch-check \u2014 take your OWN rough idea (^_-1 = your last message), polish it into a pitch "
+             "(@~^_-1) AND surface the strongest objection you'll need to answer (~>!^_-1). stress-test your "
+             "pitch before you send it.",
+         cols=1, cells=[
+             ("@~^_-1  your pitch, polished", "We should add cryptocurrency payment support as a way to reach a "
+              "new market segment, with a manageable implementation effort."),
+             ("~>!^_-1  the objection to preempt", "The likely customer gain is small, while the implementation "
+              "effort and complexity are substantial."),
+         ]),
 ]
 
 # --- lightweight nlir syntax highlighter --------------------------------------
