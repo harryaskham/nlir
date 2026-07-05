@@ -9,11 +9,11 @@
 #     (SPEC.md -> spec.html, ./showcase -> showcase.html, source files -> the
 #     GitHub blob URL).
 # Used by .github/workflows/pages.yml to publish to GitHub Pages, and runnable
-# locally: `scripts/build-docs.sh [OUT_DIR]` (default: ./site). Requires pandoc.
+# locally: `scripts/build-docs.sh [OUT_DIR]` (default: ./_site). Requires pandoc.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-out="${1:-$root/site}"
+out="${1:-$root/_site}"
 repo="https://github.com/harryaskham/nlir"
 
 if ! command -v pandoc >/dev/null 2>&1; then
@@ -165,8 +165,13 @@ HTML
 # the whole dir and surface it (nav link + hero "Try it live") ONLY when pkg/ is present, so
 # the live site debuts the real evaluator, never the standalone mock. ---
 if [ -d "$root/site/workspace" ]; then
-  rm -rf "$out/workspace"
-  cp -a "$root/site/workspace" "$out/workspace"
+  # Never self-delete the source: skip the copy when out resolves onto the source
+  # dir itself (e.g. an explicit out=./site), so `rm -rf $out/workspace` can't nuke
+  # site/workspace/. The default out is ./_site, which never collides.
+  if ! [ "$out/workspace" -ef "$root/site/workspace" ]; then
+    rm -rf "$out/workspace"
+    cp -a "$root/site/workspace" "$out/workspace"
+  fi
   if [ -d "$root/site/workspace/pkg" ]; then
     sed -i 's#<a href="showcase.html">Showcase</a>#<a href="workspace/">Workspace</a>\n  <a href="showcase.html">Showcase</a>#' "$out/.nav.html"
     sed -i 's#<div class="cta">#<div class="cta">\n    <a class="primary" href="workspace/">Try it live →</a>#' "$out/.hero.html"
