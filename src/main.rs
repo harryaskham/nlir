@@ -1791,9 +1791,20 @@ fn run_step_view(cli: &Cli, expr_str: &str) -> Result<(), i32> {
                     Err(error) => break Some(format!("error: {error}")),
                 },
                 StepKey::Run => {
+                    // Run to completion but STREAM each intermediate step live
+                    // (bd-89eb89) instead of silently draining to the final
+                    // value. In llm mode each reduction appears as its native
+                    // realisation resolves, so the operator watches the
+                    // reduction unfold rather than staring at a frozen prompt;
+                    // in det mode it shows the full reduction path at speed.
                     break loop {
                         match ev.step_once(&cur) {
-                            Ok(nlir::eval::Step::Reduced(next)) => cur = next,
+                            Ok(nlir::eval::Step::Reduced(next)) => {
+                                cur = next;
+                                let _ =
+                                    write!(std::io::stdout(), "\r\n  {}\r\n", cur.render_step());
+                                let _ = std::io::stdout().flush();
+                            }
                             Ok(nlir::eval::Step::Done(value)) => break Some(value.render(&sep)),
                             Err(error) => break Some(format!("error: {error}")),
                         }
