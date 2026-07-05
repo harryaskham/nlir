@@ -33,11 +33,12 @@ One claim, refracted along every axis of meaning — `[#x, ~x, >x, !x, @x, x?]`:
 
 ![the perspective wheel — one claim through six lenses](showcase/nlir-perspective-wheel.png)
 
-A whole *layered reply* — answer the agent's suggestion, fold in your amendment, and
-ground it in an earlier constraint, all made formal — in a handful of sigils that read
-your live chat (`^-1` their last message, `^_-1` your earlier one):
+A whole *layered reply* in ONE expression — answer the agent, fold in your modification,
+reference an earlier point, add a caveat, restyle it formal, then addendum a reflection on
+your own summary. Six communicative moves, a handful of sigils, reading your live chat
+(`^-1` their last message, `^_-1` an earlier one, `$k`/`~$k` your draft and its own gist):
 
-![the grounded counter — a whole considered reply in a handful of sigils](showcase/nlir-grounded-counter.png)
+![the full layered reply — a whole considered response in one expression](showcase/nlir-full-layered-reply.png)
 
 | | |
 |---|---|

@@ -224,6 +224,21 @@ GRID = [
               "avoiding a premature, overly broad action that could disrupt hiring, stall growth, or leave "
               "critical positions unfilled…"),
          ]),
+    dict(name="full-layered-reply",
+         expr="k=@(^-1 & 'start with just the payment step' & ^_-1 & 'only if it wont slip launch');[$k,~$k]",
+         pill="llm · reads your chat · the whole act, one line",
+         claim="add end-to-end tests for the whole checkout flow before launch",
+         cap="the full layered reply — a whole considered response in ONE expression: reply to the agent "
+             "(^-1), fold in your modification, reference an earlier point (^_-1: 'we're short on QA'), add "
+             "a caveat, make it formal (@) — then addendum a reflection on your own summary (~$k). six moves.",
+         cols=1, cells=[
+             ("$k  your layered reply", "It is recommended that end-to-end tests be implemented for the entire "
+              "checkout flow prior to launch, beginning with the payment step. Please be advised that QA capacity "
+              "is significantly constrained this quarter; accordingly, this effort should proceed only if it does "
+              "not jeopardize the launch timeline."),
+             ("~$k  its own one-line gist", "End-to-end checkout testing (starting with payment) is recommended "
+              "before launch, but only if it doesn't risk the timeline, given limited QA capacity this quarter."),
+         ]),
 ]
 
 # --- lightweight nlir syntax highlighter --------------------------------------
