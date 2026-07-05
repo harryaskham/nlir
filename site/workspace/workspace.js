@@ -138,8 +138,16 @@ let wasmReal = false;
 // ---- state ----
 const state = load();
 function load(){
-  try { const s = JSON.parse(localStorage.getItem(LS_KEY)); if (s && s.config) return s; } catch {}
-  return { config: DEFAULT_CONFIG, messages: [{role:'user', text:'Can we ship the auth change on Friday?'}], kv: [], settings:{ mode:'det', baseUrl:'', apiKey:'' } };
+  const defaults = { config: DEFAULT_CONFIG, messages: [{role:'user', text:'Can we ship the auth change on Friday?'}], kv: [], settings:{ mode:'det', baseUrl:'', apiKey:'' } };
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_KEY));
+    // Deep-merge onto defaults so a state persisted before `settings` (or any
+    // subfield) existed still yields a complete settings object — otherwise
+    // `state.settings.mode`/`.baseUrl` are undefined and init()/realisers()
+    // break (bd-09c89c: LLM url/key not persisting).
+    if (s && s.config) return { ...defaults, ...s, settings: { ...defaults.settings, ...(s.settings || {}) } };
+  } catch {}
+  return defaults;
 }
 function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
 
@@ -218,8 +226,9 @@ function contextJson(){
 // call = { vars:{NLIR_PROMPT,...}, model:{model:<id>,...}, operands:[...] } (aur-0's shape).
 const unmap = v => (v instanceof Map ? Object.fromEntries(v) : v);
 function realisers(){
-  if (state.settings.mode === 'llm' && state.settings.baseUrl){
-    const base = state.settings.baseUrl.replace(/\/+$/,''), key = state.settings.apiKey;
+  const baseUrl = (state.settings.baseUrl || '').trim();
+  if (state.settings.mode === 'llm' && baseUrl){
+    const base = baseUrl.replace(/\/+$/,''), key = (state.settings.apiKey || '').trim();
     return {
       llm: async (call) => {
         const c = unmap(call), model = unmap(c.model), vars = unmap(c.vars);
