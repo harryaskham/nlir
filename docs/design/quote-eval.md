@@ -19,32 +19,35 @@ else (map, fold, do-N-times, macros) rides on top.
 
 ## Concepts
 
-- **Quote** — `'FORM` yields a *form value* (`Value::Form(Expr)`): the AST of
-  `FORM`, unevaluated. `~'x` distils the *literal* `x`; `~x` distils the
-  *value* of `x`.
-- **Form** — a new `Value` variant carrying a `Box<Expr>`. Renders as its source
-  (so it round-trips) and can be bound (`f = '(...)`), passed, and applied.
-- **Application** — `f APPLY args`: evaluate `f` to a form, bind `args`
-  positionally to `$0, $1, …`, evaluate the form's body under those bindings,
-  yield the result. `f.x`, `f.[x,y]`, `f.(x,y)` are equivalent (single arg,
-  list, tuple).
+- **Quote** — `{FORM}` yields a *form value* (`Value::Form(Box<Expr>)`): the AST of
+  `FORM`, unevaluated. `~{x}` distils the *literal* `x`; `~x` distils the *value* of
+  `x`. `{a+b}` is the form; `(a+b)` is the evaluated value.
+- **Form** — a `Value` variant carrying a `Box<Expr>`. Renders as its source (so it
+  round-trips) and can be bound (`f = {…}`), passed, and applied.
+- **Application** — `f % args`: evaluate `f` to a form, bind `args` positionally to
+  `$0, $1, …`, evaluate the form's body under those bindings, yield the result.
+  `f%x`, `f%[x,y]`, `f%(x,y)` are equivalent (single arg, list, tuple). Named forms
+  are read back with `$`: `f={…}; $f%x`.
 - **Parameters** — inside a form, `$0 $1 …` are the positional argument holes,
   bound at application time (reusing the existing `$N` positional read syntax).
 - **Tuple/list** — `a,b,c ≡ [a,b,c]` (a top-level comma constructor), so
-  `f.(x,y)` and `f.[x,y]` unify.
+  `f%(x,y)` and `f%[x,y]` unify.
 
 ### What it unlocks
-- **Lambda**: `sum = {$0 + $1}; sum.(2,3)` → 5.
-- **map — the structural per-item map the string-ops CAN'T do** (aur-0's
-  op-over-collection law): today `op[list]` is NOT a structural map — it folds
-  the list to JOINED TEXT and applies `op` once (`:` is the one op that reliably
-  maps per-item; `&` weaves; `#`/`~`/`<` fold; `@`/`>` are non-deterministic).
-  So there is **no general per-item map today**. `map.({:$0}, [a,b,c])` is
-  precisely that: it returns a **LIST** of results (`[:a, :b, :c]`), not a join.
-  Forms are what make a real `map`/`fold` expressible.
-- **do-N-times** (see D5): `{>$0}_3` — apply a form N times (lift `_`).
-- **Macros**: a form that *builds* a form (quote + splice + apply) — deferred to
-  a follow-up once quote-eval is proven.
+- **Lambda**: `sum = {$0 + $1}; $sum%(2,3)` → 5.
+- **map / fold — the structural per-item map the string-ops CAN'T do** (aur-0's
+  op-over-collection law): today `op[list]` is NOT a structural map — it folds the
+  list to JOINED TEXT and applies `op` once (`:` is the one op that reliably maps
+  per-item; `&` weaves; `#`/`~`/`<` fold; `@`/`>` are non-deterministic). Forms fill
+  that gap via the **glyph-free `$map` / `$fold` builtins** (LANDED, bd-14af74):
+  `$map%({$0*$0},[1,2,3])` → `[1,4,9]` (a form applied per item → a LIST);
+  `$fold%({$0+$1},[1,2,3,4])` → `10` (reduce). They take a form + a list via the
+  existing `%`, so no new sigil — they are just reserved forms. Works with llm forms
+  too: `$map%({:$0},[…])` simplifies each item, `$map%({@$0},[…])` formalises each.
+- **do-N-times** (LANDED): `({>$0}_3)%x` — compose a form N times (`_` lift; parens
+  because `%` binds tighter than `_`).
+- **Macros**: a form that *builds* a form (quote + splice + apply) — deferred to a
+  follow-up once quote-eval is proven.
 
 ## Syntax decisions (the crux — each needs a call)
 
@@ -113,13 +116,15 @@ else (map, fold, do-N-times, macros) rides on top.
   cases.)
 - Native + wasm identical (pure eval-core; no new effectful surface).
 
-### D5. do-N-times — lift `_` (aur-0's proposal)
-`_` is already "repeat N times" for text (`x_2` = `"x x"`), so lifting it to forms
-reads consistently: **`{>$0}_3`** = apply the form `{>$0}` three times
-(text-repeat → form-repeat). Cleaner than overloading `*` (`{>$0}*3` collides with
-arithmetic mul). Candidate for the repeat primitive once the quote/apply core
-lands; `map`/`fold` over a LIST (not a count) layer on the same application
-machinery.
+### D5. do-N-times — `_` lifted to forms (LANDED)
+`_` is "repeat N times" for text (`x_2` = `"x x"`); lifted to forms it COMPOSES:
+`{form}_N` composes the form N times, and `({form}_N)%x` applies the composition
+(parens required — `%` binds tighter than `_`, so bare `{$0+1}_3%5` parses as
+`{$0+1}_(3%5)`; use `({$0+1}_3)%5` → 8). Named: `g=({form}_N); $g%x`. Chosen over
+overloading `*` (`{form}*3` collides with arithmetic mul). Sibling primitives
+`$map`/`$fold` (over a LIST, not a count) ride the same `%` application machinery
+(bd-14af74): `$map%({$0*$0},[1,2,3])`→`[1,4,9]`, and they compose —
+`$fold%({$0+$1},$map%({$0*$0},[1,2,3]))`→`14` (sum-of-squares via fold∘map).
 
 ## Migration plan (on greenlight)
 1. Land the quote-eval **core** (Value::Form, Expr::Quote, application, `,`
