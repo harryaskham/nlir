@@ -190,6 +190,46 @@ SELECT chooses the words, the tone knob chooses the register, the composer choos
 
 ---
 
+## Programs on thoughts — map & fold
+
+`map` and `fold` turn nlir from moves into **small programs**. A form `{…}` is the
+step; `$map%(form, list)` runs it over each item, `$fold%(form, list)` reduces the
+list with it. The **structure is deterministic** — the iteration and the reduction are
+pure — while the **step is where det or llm plugs in**. That split is the whole point:
+exact scaffolding, fuzzy steps. (A list result renders as its elements, one per line —
+not bracketed — so it stays a first-class operand and `fold∘map` pipelines compose.)
+
+**Pure structure — det all the way:**
+
+    $map%({$0*$0},[1,2,3])                   → 1, 4, 9   (square each; one per line)
+    $fold%({$0+$1},$map%({$0*$0},[1,2,3]))   → 14        (sum of squares, fold∘map)
+    $fold%({$0*$1},[1,2,3,4])                 → 24        (product)
+
+**Structure det, steps fuzzy — the flagship mix:**
+
+    $fold%({$0+$1},['3 apples','5 oranges','2 pears'])   → 10
+
+The `+` reduce is deterministic; the string→number *extraction* is the llm step.
+Proof: in `--mode det` this same expression **errors** — `cannot coerce '3 apples' to
+number` — because nothing structural can read "3 apples" as 3. In llm mode the model
+extracts 3, 5, 2 and the exact `+` sums them. **Fuzzy-extract, exact-sum, one line.**
+
+    $fold%({$0+$1},['yes','no','yes','yes'])             → tally the yeses
+
+Same shape: the llm maps yes→1 / no→0, the det `+` counts.
+
+**Fuzzy per item, structural on the outside:**
+
+    $map%({~$0},[note1,note2,note3])              → distil each note
+    $map%({@$0},['lmk if any Qs','pls advise'])   → formalise each
+    $fold%({~($0&$1)},[view1,view2,view3])        → weave a list of views into a running consensus
+
+Rate a list of ideas and average the scores; distil every meeting note then weave
+them into one summary — a four-character algorithm that operates on *meaning*. The
+model judges each item; the structure aggregates them. Repeatable programs, fuzzy steps.
+
+---
+
 ## See it / run it
 - **Cards** (sigils rendered literally + typeably): `showcase/` → the GitHub Pages `showcase.html` gallery.
 - **Run any move for real**: `bash examples/move-<lane>-<name>.sh`.
