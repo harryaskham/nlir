@@ -195,14 +195,18 @@ impl nlir::realiser::Realiser for JsRealiser {
         operands: &'a [String],
     ) -> nlir::realiser::RealiseFuture<'a> {
         Box::pin(async move {
-            let func = self
-                .command
-                .as_ref()
-                .ok_or_else(|| realise_err("no command realiser set for this endpoint"))?;
-            let cmd_js = JsValue::from_str(command);
-            let ops_js = serde_wasm_bindgen::to_value(operands)
-                .map_err(|e| realise_err(format!("serialize operands: {e}")))?;
-            call_js_realiser(func, vec![cmd_js, ops_js]).await
+            // A browser-supplied command callback wins if one is ever injected;
+            // otherwise the in-process sh-subset VM runs the op's `command:` script
+            // (P6, bd-89bcb7 — msm-0's run_command_vm). The MVP injects no JS command
+            // callback (aur-1's in-process finding), so this is the default path:
+            // `_` echo now runs in the browser widget, sandboxed-by-construction.
+            if let Some(func) = self.command.as_ref() {
+                let cmd_js = JsValue::from_str(command);
+                let ops_js = serde_wasm_bindgen::to_value(operands)
+                    .map_err(|e| realise_err(format!("serialize operands: {e}")))?;
+                return call_js_realiser(func, vec![cmd_js, ops_js]).await;
+            }
+            nlir::command_vm::run_command_vm(command, operands).map_err(realise_err)
         })
     }
 }
