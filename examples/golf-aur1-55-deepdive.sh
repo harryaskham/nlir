@@ -17,7 +17,7 @@
 #             (the coffee is GONE — a clean, structured deep-dive on just the core)
 #
 # The `~` is a FOCUS FILTER placed before the expansion: distil, then develop. It's the
-# reverse of my #22 telephone (`~>x` = expand THEN distil, drifting the meaning); here the
+# reverse of my #22 telephone (`~(>x)` = expand THEN distil, drifting the meaning); here the
 # distil comes first so the noise never makes it into the elaboration. Reach for `>~x`
 # when a messy note has one real point buried in it and you want that point, fully written.
 #
@@ -36,4 +36,4 @@ say "FOCUSED DEEP-DIVE  >~x  — distil to the core (~ drops tangents), THEN exp
 echo -n "  >x  (expand ALL, noise too)   => "; "$NLIR" -e ">'$S'"  --quiet | fold -s -w 84 | sed '2,$s/^/       /'
 echo -n "  >~x (focus, then deep-dive)   => "; "$NLIR" -e ">~'$S'" --quiet | fold -s -w 84 | sed '2,$s/^/       /'
 
-say "~ is a focus filter BEFORE the expansion. Reverse of #22 telephone (~>x = expand then distil). Distil, then develop."
+say "~ is a focus filter BEFORE the expansion. Reverse of #22 telephone (~(>x) = expand then distil). Distil, then develop."

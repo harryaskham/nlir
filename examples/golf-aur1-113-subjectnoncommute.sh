@@ -14,7 +14,7 @@
 # `#>x` first expands, but then `#` throws all that detail away and keeps only the subject (my
 # #64: the topic survives expansion, so # absorbs the >). `>#x` first collapses to the subject,
 # then `>` expands THAT into a full definition (my #82 define-topic). Two words apart in code,
-# a tag vs an essay in output. This is the same "last op wins" law I found for length (`~>x ≠
+# a tag vs an essay in output. This is the same "last op wins" law I found for length (`~(>x) ≠
 # >~x`, #104) — but generalised: it holds for ANY reduce-vs-produce pair, not just compress-vs-
 # expand. Whenever a REDUCTIVE op (#, ~, <) meets a GENERATIVE op (>), the one you apply LAST
 # decides whether you end up with a label or a document.
@@ -35,4 +35,4 @@ echo   "  x: $C"
 echo -n "  #>x (# LAST → the TOPIC)      => "; "$NLIR" -e "#>'$C'" --quiet | fold -s -w 80 | sed '2,$s/^/       /'
 echo -n "  >#x (> LAST → the DEFINITION) => "; "$NLIR" -e ">#'$C'" --quiet | fold -s -w 80 | sed '2,$s/^/       /'
 
-say "#>x collapses to the topic (# absorbs >, #64); >#x blooms to a definition (#82). Same 'last op wins' law as #104 (~>x≠>~x), GENERALISED: any REDUCTIVE op (#,~,<) vs GENERATIVE (>) — last one decides label vs document."
+say "#>x collapses to the topic (# absorbs >, #64); >#x blooms to a definition (#82). Same 'last op wins' law as #104 (~(>x)≠>~x), GENERALISED: any REDUCTIVE op (#,~,<) vs GENERATIVE (>) — last one decides label vs document."

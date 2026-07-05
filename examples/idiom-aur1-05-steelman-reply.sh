@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# nlir IDIOM · aur1 · 05 — "the steelman reply"   [~>@^-1, @(!^-1 & '<grounds>')]
+# nlir IDIOM · aur1 · 05 — "the steelman reply"   [~(>@^-1), @(!^-1 & '<grounds>')]
 #
 # A reusable MOVE for the pi plugin, and the fair-minded twin of #03's honest yes.
 # You DISAGREE with a proposal — but the honest, persuasive way to say no is to
 # first show you understood it at its strongest (steelman), THEN decline. Two
 # beats, one line:
 #
-#     [ ~>@^-1 ,  @(!^-1 & '<your grounds>') ]
+#     [ ~(>@^-1) ,  @(!^-1 & '<your grounds>') ]
 #        │          │
 #        │          └─ your reasoned no: negate their proposal (!^-1), on your grounds (&), argued (@)
 #        └──────────── the STRONGEST one-line case FOR their idea:
@@ -17,9 +17,9 @@
 #   Together: the two honesties — never agree without a doubt, never refuse without charity.
 #
 # HOW TO REUSE IT (type this in chat) when you disagree but want to be fair:
-#     |[~>@^-1, @(!^-1 & 'we are 4 engineers; the ops overhead would swamp us')]
-#     |[~>@^-1, @(!^-1 & 'this optimizes a path that is under 1% of traffic')]
-#     |[~>@^-1, @(!^-1 & 'we already tried it in Q1 and it stalled on the same wall')]
+#     |[~(>@^-1), @(!^-1 & 'we are 4 engineers; the ops overhead would swamp us')]
+#     |[~(>@^-1), @(!^-1 & 'this optimizes a path that is under 1% of traffic')]
+#     |[~(>@^-1), @(!^-1 & 'we already tried it in Q1 and it stalled on the same wall')]
 #
 # Run:  ./examples/idiom-aur1-05-steelman-reply.sh
 set -euo pipefail
@@ -39,10 +39,10 @@ cat > "$CTX" <<'JSON'
 ]}
 JSON
 
-say "THE STEELMAN REPLY   [~>@^-1, @(!^-1 & '<grounds>')]   — their idea at its strongest, then your reasoned no"
+say "THE STEELMAN REPLY   [~(>@^-1), @(!^-1 & '<grounds>')]   — their idea at its strongest, then your reasoned no"
 echo "  the agent proposed: break the monolith into microservices"
 echo "  your grounds:       'we are only 4 engineers — the ops overhead would swamp us before any gain'"
 echo
-"$NLIR" -e "[~>@^-1, @(!^-1 & 'we are only 4 engineers — the ops overhead of microservices would swamp us before we saw any gain')]" --context-file "$CTX" --quiet | fold -s -w 84 | sed 's/^/    /'
+"$NLIR" -e "[~(>@^-1), @(!^-1 & 'we are only 4 engineers — the ops overhead of microservices would swamp us before we saw any gain')]" --context-file "$CTX" --quiet | fold -s -w 84 | sed 's/^/    /'
 
 say "Two beats: [their case, put fairly] + [your reasoned no]. Charity before dissent. The twin of the honest yes — the two honesties. (Stray leading '(' on beat 2 = cosmetic paren-echo; fix prototyped.)"

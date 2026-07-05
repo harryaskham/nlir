@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# nlir-golf · aur1 · #108 — "the honest proposal" (a crisp idea + the objection at full strength, [~>x, >!x])
+# nlir-golf · aur1 · #108 — "the honest proposal" (a crisp idea + the objection at full strength, [~(>x), >!x])
 #
-# The opposite of a sales pitch. `[~>x, >!x]` states the proposal TIGHT and then gives the
-# counter-argument ROOM: `~>x` (my #22 telephone — expand to draw out the rationale, then
+# The opposite of a sales pitch. `[~(>x), >!x]` states the proposal TIGHT and then gives the
+# counter-argument ROOM: `~(>x)` (my #22 telephone — expand to draw out the rationale, then
 # distil) puts the idea and its point in one clean statement; `>!x` (my #99 skeptic — negate
 # then expand) argues the full case AGAINST. The asymmetry is deliberate: one line to say what
 # you want, a paragraph to honestly air why it might be wrong.
 #
-#   THE HONEST PROPOSAL   [ ~>x , >!x ]
+#   THE HONEST PROPOSAL   [ ~(>x) , >!x ]
 #     x = "we should let the AI auto-merge any PR that passes CI"
-#     ~>x → "Let AI auto-merge any PR that passes CI — removing manual approval to speed up the
+#     ~(>x) → "Let AI auto-merge any PR that passes CI — removing manual approval to speed up the
 #            development workflow."                                          ← the crisp PROPOSAL
 #     >!x → "Human review adds judgment and context automated checks can't replace — a reviewer
 #            weighs whether a change makes sense for the project's goals, catches design
@@ -32,9 +32,9 @@ fi
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 C='we should let the AI auto-merge any PR that passes CI'
 
-say "THE HONEST PROPOSAL  [~>x, >!x]  — the crisp PROPOSAL (~>x, one line) + the FULL objection (>!x)"
+say "THE HONEST PROPOSAL  [~(>x), >!x]  — the crisp PROPOSAL (~(>x), one line) + the FULL objection (>!x)"
 echo   "  x: $C"
-echo -n "  ~>x (the crisp PROPOSAL) => "; "$NLIR" -e "~>'$C'" --quiet | fold -s -w 80 | sed '2,$s/^/       /'
+echo -n "  ~(>x) (the crisp PROPOSAL) => "; "$NLIR" -e "~(>'$C')" --quiet | fold -s -w 80 | sed '2,$s/^/       /'
 echo -n "  >!x (the FULL objection) => "; "$NLIR" -e ">!'$C'" --quiet | fold -s -w 80 | sed '2,$s/^/       /'
 
 say "Deliberately asymmetric: one crisp line for the idea, a full argument for the doubt — you're not sold, you're handed the idea + made to sit with the strongest reason not to. vs #101 steelman-duel [>x,>!x] (symmetric, both full)."

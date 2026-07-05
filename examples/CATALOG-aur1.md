@@ -33,11 +33,11 @@ recombine them forever.
 |---|---|---|---|
 | 1 | considered reply | `@(^-1 & 'AMENDMENT')` | agree with their suggestion, folding in your amendment, made formal |
 | 2 | decisive close | `@(~0^*-1 & 'DECISION')` | end a whole debate with your call, grounded in what was said |
-| 3 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | your reply + an auto devil's-advocate on your own yes |
+| 3 | honest yes | `[@(^-1 & 'AMENDMENT'), ~(>!^-1)]` | your reply + an auto devil's-advocate on your own yes |
 | 4 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, on your grounds, professionally |
-| 5 | steelman reply | `[~>@^-1, @(!^-1 & 'GROUNDS')]` | their case at its best, then your reasoned no |
+| 5 | steelman reply | `[~(>@^-1), @(!^-1 & 'GROUNDS')]` | their case at its best, then your reasoned no |
 | 6 | counter-offer | `[@(!^-1 & 'GROUNDS'), @'ALTERNATIVE']` | decline, then offer the concrete alternative you'd back |
-| 7 | weighed decision | `[~>@^-1, ~>!^-1, @(^-1 & 'DECISION')]` | the case for, the case against, then your verdict |
+| 7 | weighed decision | `[~(>@^-1), ~(>!^-1), @(^-1 & 'DECISION')]` | the case for, the case against, then your verdict |
 
 **The family, by stance:**
 - **Yes** — considered reply (yes + your amendment) · honest yes (yes + the doubt).
@@ -46,7 +46,7 @@ recombine them forever.
 
 **Two building blocks recur** (why 7 moves need only ~7 sigils): the *considered
 reply* `@(^-1 & '…')` and its negation the *reasoned no* `@(!^-1 & '…')`. Wrap
-either in `~>…` to argue it, pair them in a `[…]` list to weigh two beats, and
+either in `~(>…)` to argue it, pair them in a `[…]` list to weigh two beats, and
 prefix `@`/`:`/`~` to set the register. Cards: `nlir-{considered-reply,
 decisive-close, honest-yes, reasoned-no, steelman-reply, counter-offer,
 weighed-decision}.png`. Runnable proofs: `examples/idiom-aur1-01..07-*.sh`.
@@ -59,7 +59,7 @@ Beyond replying, a move for each core operator — so nearly the whole sigil set
 | move | say it | what it does |
 |---|---|---|
 | brain-dump | `'a'; 'b'; 'c'; &; ~$` | jot scattered thoughts onto the **stack**, fold (`&`), distil to the takeaway (`~$`) |
-| pitch-check | `[@~^_-1, ~>!^_-1]` | **role knob** `^_` — polish your OWN floated idea + surface the objection to preempt |
+| pitch-check | `[@~^_-1, ~(>!^_-1)]` | **role knob** `^_` — polish your OWN floated idea + surface the objection to preempt |
 | fork | `>('A' \| 'B')` | **OR** `\|` — two options in an either/or, expanded into a decision memo (paths kept distinct) |
 | tighten | `[<^-1, ~^-1]` | **shorten** `<` — two ways to compress: `<` keeps every fact, `~` keeps the gist |
 | plain-english | `~:^-1` | **simplify** `:` — de-jargon an answer to crisp plain English (order: `~:` pro, `:~` ELI5) |
@@ -115,7 +115,7 @@ information / `!` polarity / length). My contributions:
 - `40-fivelenses` `[#x,~x,!x,x?,@x]` (one claim, five independent views) · `44-bluf` `[~x,>x]` (bottom line up front)
 
 ### Distillation / focus
-- `19-lengthdial` `[<c,>c]` · `22-telephone` `~>~x` · `30-focusfinder` `ramble?` (a wall of worry → one question)
+- `19-lengthdial` `[<c,>c]` · `22-telephone` `~(>~x)` · `30-focusfinder` `ramble?` (a wall of worry → one question)
 
 ### Other tools
 - `07-consensus` `~[o1,o2,o3]` · `12-counterfactual` `>!x` · `15-merge` / `16-diff` (the `~(a&b)` polymorphism)

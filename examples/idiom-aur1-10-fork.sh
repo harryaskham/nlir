@@ -14,7 +14,7 @@
 # on its own terms, instead of merging them. (`&` would fuse them into one plan;
 # `|` keeps them as rival options.) Swap the last register to taste:
 #     >(A | B)   → a full decision memo, case + tradeoff for each
-#     ~>(A | B)  → a one-line "you must choose between A and B"
+#     ~(>(A | B))  → a one-line "you must choose between A and B"
 #     @(A | B)   → the choice, stated formally
 #
 # HOW TO REUSE IT (type this in chat) whenever you're stuck between two paths:
@@ -36,4 +36,4 @@ echo "  your two options: 'migrate to Postgres now'  |  'stay on MySQL and shard
 echo -n "  => "
 "$NLIR" -e ">('migrate the database to Postgres now' | 'stay on MySQL and shard it')" --quiet | fold -s -w 82 | sed '2,$s/^/     /'
 
-say "> over | FORKS: it keeps the two paths DISTINCT and develops each, instead of blending them (that's what & would do). Reusable whenever you're stuck between two paths. ~> for a one-liner."
+say "> over | FORKS: it keeps the two paths DISTINCT and develops each, instead of blending them (that's what & would do). Reusable whenever you're stuck between two paths. ~(>…) for a one-liner."
