@@ -151,6 +151,11 @@ struct ShowArgs {
     /// Write the SVG to a file instead of stdout.
     #[arg(long, value_name = "PATH")]
     out: Option<PathBuf>,
+    /// Write one graph SVG per evaluation step (the animation frames) to a
+    /// directory (--out DIR, default a temp dir) instead of the single static
+    /// graph. The frame source G4's kitty animation / --save-animation consume.
+    #[arg(long)]
+    frames: bool,
 }
 
 #[derive(Debug, Args)]
@@ -617,6 +622,49 @@ fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
 /// draw byte-identical graphs. Prints the SVG to stdout, or `--out FILE` writes it.
 fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
     let cfg = resolve_config(cli)?;
+    if args.frames {
+        // --frames: one graph SVG per small-step reduction (nlir::eval::step_frames,
+        // the same engine as `nlir step`). Frame 0 is the initial graph; each next
+        // frame is one reduction; binding edges persist until each $key read reduces.
+        // These are the animation frames G4 (kitty) + --save-animation rasterise.
+        let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
+        let mut ctx = open_context(cli)?;
+        let frames = match nlir::eval::step_frames(&args.expr, &cfg, &mut ctx, settings.mode) {
+            Ok(frames) => frames,
+            Err(error) => {
+                eprintln!("nlir show: {error}");
+                return Err(1);
+            }
+        };
+        // Assignments write through during stepping; persist them (as `nlir step` does).
+        if let Err(error) = ctx.save() {
+            eprintln!("nlir: context write-through: {error}");
+        }
+        let dir = args
+            .out
+            .clone()
+            .unwrap_or_else(|| std::env::temp_dir().join("nlir-graph-frames"));
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            eprintln!("nlir show: creating {}: {error}", dir.display());
+            return Err(1);
+        }
+        for (i, frame) in frames.iter().enumerate() {
+            let svg = nlir::graph_svg::render(&frame.graph);
+            let path = dir.join(format!("frame-{i:03}.svg"));
+            if let Err(error) = std::fs::write(&path, &svg) {
+                eprintln!("nlir show: writing {}: {error}", path.display());
+                return Err(1);
+            }
+        }
+        if !cli.quiet {
+            eprintln!(
+                "nlir show: wrote {} animation frame(s) to {}",
+                frames.len(),
+                dir.display()
+            );
+        }
+        return Ok(());
+    }
     let sigils = nlir::config::operator_sigils(&cfg);
     let tokens = match nlir::lexer::tokenize(&args.expr, &sigils) {
         Ok(t) => t,
