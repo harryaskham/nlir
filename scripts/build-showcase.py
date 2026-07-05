@@ -196,6 +196,15 @@ SIMPLE = [
              "of revisiting self-hosting once we reach greater scale.",
          cap="the weighed recommendation — lay out two options (each : simplified) and your verdict; the same "
              "@&[...] composer pointed at a decision memo"),
+    dict(name="dual-register-brief",
+         expr="[@&['migrate to the new auth service','cuts login latency by 40%'],"
+              ":&['migrate to the new auth service','cuts login latency by 40%']]",
+         pill="llm · claude-sonnet-5",
+         out="[for engineers] Migrates to the new authentication service and reduces login latency by "
+             "40%.  [for everyone] We switched to a new sign-in system, and now it helps people log in "
+             "about 40% faster.",
+         cap="the dual-register brief — the SAME facts twice: @ for your engineers (keeps the jargon), "
+             ": for everyone else (plain words). One keystroke-set, two audiences"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
