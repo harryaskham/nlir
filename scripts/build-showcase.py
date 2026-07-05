@@ -162,6 +162,14 @@ SIMPLE = [
              "prevent this issue from recurring.",
          cap="the postmortem note — own the miss + root cause + prevention woven into one graceful "
              "accountability memo; the hardest message to write well, in three slots"),
+    dict(name="shoutout",
+         expr="@&['huge thanks to priya for the caching work','it cut our p99 latency in half overnight','the whole team noticed the difference this morning']",
+         pill="llm · claude-sonnet-5",
+         out="I would like to extend my sincere appreciation to Priya for her work on the caching "
+             "implementation, which reduced our p99 latency by fifty percent overnight. The entire team "
+             "observed the improvement this morning.",
+         cap="the shout-out — name the work, the impact, and the thanks; @ keeps it polished and technical "
+             "(the : tone would dumb the jargon down for a non-technical audience)"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",

@@ -52,6 +52,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | postmortem note | `@&[OWN_THE_MISS, ROOT_CAUSE, PREVENTION]` | own a mistake gracefully | aur-2 |
 | meeting recap | `@&[DECIDED, STILL_OPEN, ACTION_ITEMS]` | decision + open questions + owners | aur-2 |
 | the nudge | `:&[REMINDER, WHY_IT_MATTERS, LOW_PRESSURE_ASK]` | a warm follow-up, not a pushy chase | aur-2 |
+| the shout-out | `@&[WHAT_THEY_DID, THE_IMPACT, THE_THANKS]` | specific, polished recognition | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |
