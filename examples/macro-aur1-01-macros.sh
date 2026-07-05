@@ -11,8 +11,8 @@
 #     {~(>@$0)} % 'ship in Rust'  → the steelman: expand, argue charitably, distil
 #     {$0 Δ $1} % (a, b)          → how b shifted from a
 #
-# The whole nlir phrasebook becomes callable. (Named macros —
-# steelman = {~(>@$0)}; steelman % '…' — land with form persistence.)
+# The whole nlir phrasebook becomes callable — inline, OR named:
+#     steelman = {~(>@$0)}; then  steelman % '…'  runs it. A reusable library of moves.
 #
 # Run:  ./examples/macro-aur1-01-macros.sh      (set MODEL=direct on a litellm node)
 set -euo pipefail
@@ -36,5 +36,9 @@ run "{@\$0} % 'lmk if any Qs'"
 run "{~\$0} % 'so basically what I am trying to say is we should just ship Friday and see'"
 run "{~(>@\$0)} % 'we should rewrite it in Rust'"
 run "{\$0 Δ \$1} % ('we should ship Friday', 'actually let us wait until Monday')"
+
+say "NAMED LIBRARY (needs a model) — define a move once, then call it by name"
+run "steelman={~(>@\$0)}; \$steelman % 'we should rewrite it in Rust'"
+run "gist={~\$0}; \$gist % 'so basically after all this we should just ship it Friday and see'"
 
 say "A form {…} is code-as-data; % runs it. Name it and you have a reusable library of moves."
