@@ -123,7 +123,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
   simplify: { op: ":", description: "Rewrites in plain, simple language (strips jargon). The one op that reliably maps per-item over a list.", arity: 1, fixity: prefix, model: sonnet, prompt: "Rewrite the text inside <text> in plain, simple language a child could understand. Return only the rewritten text.\n\n%" }
   expand: { op: ">", description: "Adds detail and explanation (lengthens). Forks over | (keeps paths distinct), integrates over &.", arity: 1, fixity: prefix, model: sonnet, prompt: "Expand the text inside <text> with more detail and explanation, preserving meaning. Return only the expanded text.\n\n%" }
   shorten: { op: "<", description: "Tightens to the information floor — fewest words, but keeps EVERY fact and figure (vs ~ = the gist).", arity: 1, fixity: prefix, model: sonnet, prompt: "Make the text inside <text> more concise while preserving meaning. Return only the shortened text.\n\n%" }
-  implication: { op: "=>", description: "Returns the implication of its arguments. Integrates over &.", arity: ">0", fixity: mixfix, model: sonnet, prompt: "Return the primary implication of the pieces of information contained inside <text> tags, preserving style and no extraneous information.\n\n%" }
+  implication: { op: "~>", description: "Returns the implication of its arguments. Integrates over &.", arity: ">0", fixity: mixfix, model: sonnet, prompt: "Return the primary implication of the pieces of information contained inside <text> tags, preserving style and no extraneous information.\n\n%" }
   echo:
     op: "_"
     arity: 2
