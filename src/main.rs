@@ -431,7 +431,7 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
     let special: &[(&str, &str)] = &[
         (
             "$name",
-            "read a bound value; $0 $1 … are positional operands. Interpolates inside \"double-quoted\" strings.",
+            "read a bound value; $0 $1 … are positional operands (and a form's arguments, bound by %). Interpolates inside \"double-quoted\" strings.",
         ),
         (
             "=",
@@ -456,6 +456,14 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
         (
             "( )",
             "grouping — evaluate first (precedence). [ ] is a list: [a, b, c].",
+        ),
+        (
+            "{ }",
+            "quote a FORM (code as data): {a+b} is the form, (a+b) is its value. Bind it, pass it, apply it.",
+        ),
+        (
+            "%",
+            "apply a form to arguments: {$0+1}%5 → 6; f%(x,y) binds $0=x, $1=y (a form's own arg-frame).",
         ),
         (
             "\" \" / ' '",
