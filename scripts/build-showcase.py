@@ -401,6 +401,14 @@ SIMPLE = [
              "final quality assurance testing.",
          cap="the partial accept — @&[ACCEPT, !REJECT+reason, ALTERNATIVE]: agree where you can, firmly "
              "reject one claim (the ! slot) with your reason, and offer a path. Yes-and-no, gracefully"),
+    dict(name="nudge",
+         expr=":&['just a gentle nudge on the design-doc review','it is blocking two folks from starting "
+              "their tickets','could you get to it by end of day tomorrow?']",
+         pill="llm · claude-sonnet-5",
+         out="Just a friendly reminder to look at the design-doc review — two people can't start their "
+             "work until it's done. Could you finish looking at it by the end of tomorrow?",
+         cap="the nudge — :&[REMINDER, WHY_IT_MATTERS, LOW_PRESSURE_ASK]: the : warm tone turns a "
+             "follow-up into a friendly chase, not a pushy one. Reminder, the stakes, the gentle ask"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
