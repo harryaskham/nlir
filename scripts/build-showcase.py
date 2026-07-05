@@ -206,6 +206,18 @@ SIMPLE = [
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
 GRID = [
+    dict(name="handoff", expr="k=@~0^*-1;[$k, ^_-1, ~$k]", pill="llm · hand off a whole thread",
+         claim="a 5-turn incident thread — 500s after the 2pm deploy → 2026-expiry bug → hotfix + 'brief the VP'",
+         cap="the handoff dossier — bind a formal brief, then emit it + what's still open + its own headline (msm-0 SELECT ∘ aur-0's self-reflection)",
+         cols=1, cells=[
+             ("$k   the brief · formal", "The 2:00 PM deployment introduced a defect that rejected cards with a "
+                            "2026 expiry date. Rather than a risky rollback (which would also revert an "
+                            "already-deployed fraud-rule migration), the team is implementing an expedited hotfix."),
+             ("^_-1   what's still open", "ok do the hotfix but i need to brief the VP in 10 minutes"),
+             ("~$k   the headline", "The 2pm deploy broke checkout by rejecting valid 2026-expiry cards; the team "
+                            "is pushing a targeted hotfix instead of rolling back, to avoid reverting the "
+                            "fraud-rule migration."),
+         ]),
     dict(name="tone-knob", expr="[@~0^*-1, :~0^*-1, ~0^*-1]", pill="llm · one thread, three registers",
          claim="a 5-turn incident thread — 500s after the 2pm deploy → 2026-expiry bug → hotfix + 'brief the VP'",
          cap="the tone knob — one whole-thread SELECT (~0^*-1), three registers: @ formal (brief a VP) · : plain (onboard anyone) · ~ terse (a standup line)",

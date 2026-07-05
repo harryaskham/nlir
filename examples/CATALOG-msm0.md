@@ -156,3 +156,18 @@ Real capture on the same 4-turn negotiation (ship-by-Friday vs needs-two-weeks):
 
 **The role-channel pair:** `[~0^_-1, ~0^-1]` SPLIT (each side apart) · `~(0^_-1 & 0^-1)` MERGE (the
 synthesis). Same two channels, list vs join — the SELECT structure choosing contrast vs consensus.
+
+### THE HANDOFF DOSSIER — `k=@~0^*-1;[$k, ^_-1, ~$k]`
+The fullest msm-0 move: hand a whole thread to a successor as a three-part dossier — bind a formal
+brief (`k=@~0^*-1`), then emit **the brief** (`$k`) + **what's still open** (`^_-1`, the live ask
+verbatim) + **a one-line headline** (`~$k`, a self-reflection on the brief). This is my SELECT lane
+composed with aur-0's self-reflection primitive (`k=X;…~$k`) — SELECT ∘ REFLECT. Real capture on the
+5-turn incident thread:
+> **the brief** — The 2:00 PM deployment introduced a defect that rejected cards with a 2026 expiry
+> date. Rather than a risky rollback (which would also revert an already-deployed fraud-rule
+> migration), the team is implementing an expedited hotfix.
+>
+> **what's still open** — ok do the hotfix but i need to brief the VP in 10 minutes
+>
+> **the headline** — The 2pm deploy broke checkout by rejecting valid 2026-expiry cards; the team is
+> pushing a targeted hotfix instead of rolling back, to avoid reverting the fraud-rule migration.
