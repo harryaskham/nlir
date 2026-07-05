@@ -258,6 +258,13 @@ SIMPLE = [
              "sense of confidence.",
          cap="the myth-buster — ! rejects the misconception, & weaves in the reality: a clean 'not X; "
              "rather Y' correction. Reads no chat — it busts a free-standing myth"),
+    dict(name="faq-entry",
+         expr="['what happens to my data if I cancel'?,:'we export it, then delete it after thirty days']",
+         pill="llm · claude-sonnet-5",
+         out="Q — What happens to your data if you cancel?  A — We save a copy of it, then throw that "
+             "copy away after thirty days.",
+         cap="the FAQ entry — jot a question ('x'?) and its raw answer (:); get a customer-ready Q&A "
+             "pair. Repeat the pair for a whole mini-FAQ (@ for a formal answer)"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
