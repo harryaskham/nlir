@@ -330,6 +330,7 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
         ))
     );
     let mut current: Option<Fixity> = None;
+    let mut any_fallback = false;
     for (name, op) in &ops {
         if current != Some(op.fixity) {
             current = Some(op.fixity);
@@ -343,7 +344,26 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
         let prio = op
             .priority
             .map_or_else(|| "-".to_string(), |p| p.to_string());
-        let meta = dim(&format!("[arity {arity} · prio {prio}]"));
+        // Realisation: an operator runs OFFLINE in `--mode det` if it has any
+        // deterministic realisation (reduce / command / join / template); ops
+        // with only a `prompt:` are model-only (bd-a4096b, aur-0's QA note).
+        let realisation = if op.reduce.is_some()
+            || op.command.is_some()
+            || op.join.is_some()
+            || op.template.is_some()
+        {
+            "det"
+        } else {
+            "llm"
+        };
+        if op
+            .description
+            .as_deref()
+            .is_none_or(|d| d.trim().is_empty())
+        {
+            any_fallback = true;
+        }
+        let meta = dim(&format!("[arity {arity} · prio {prio} · {realisation}]"));
         println!(
             "  {:<sw$}  {:<nw$}  {}  {}",
             op.op,
@@ -358,9 +378,17 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
     println!(
         "{}",
         dim(
-            "  sigil · name · what it does · [arity · priority].  Use in  nlir -e 'EXPR'  or the repl."
+            "  sigil · name · what it does · [arity · priority · det=offline / llm=needs a model].  Use in  nlir -e 'EXPR'  or the repl."
         )
     );
+    if any_fallback {
+        println!(
+            "{}",
+            dim(
+                "  note: some operators have no description: set — showing a derived summary. Refresh your config (or copy the operators: block from config.example.yaml) for the authoritative text."
+            )
+        );
+    }
     Ok(())
 }
 
