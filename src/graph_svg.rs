@@ -158,6 +158,7 @@ fn palette(kind: &NodeKind) -> (&'static str, &'static str, &'static str) {
         NodeKind::Message => ("#0e2420", "#34d399", "#a7f3d0"),
         NodeKind::Number => ("#1c0f2a", "#6a3a5a", "#fca5a5"),
         NodeKind::Quoted => ("#0e1a26", "#3a6a8a", "#7dd3fc"),
+        NodeKind::Quote => ("#181233", "#8b5cf6", "#c4b5fd"),
         NodeKind::Bare => ("#170f2c", "#4a3a6a", "#cbb9f5"),
         NodeKind::Value => ("#0e2414", "#4ade80", "#86efac"),
         NodeKind::StackPeek | NodeKind::StackIndex(_) => ("#1a1030", "#8b5cf6", "#c4b5fd"),

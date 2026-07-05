@@ -73,6 +73,10 @@ pub enum Expr {
     },
     /// A parenthesised sub-expression (parens are preserved in output).
     Group(Box<Expr>),
+    /// A quoted form `{…}` (bd-5dd86f): the enclosed expression captured as data
+    /// (a `Value::Form`) rather than evaluated. `{a+b}` is the FORM; `(a+b)` is
+    /// the value. Application (`%`) evaluates it with `$N` bound to the args.
+    Quote(Box<Expr>),
     /// A list literal `[a,b,c]` (SPEC: spreads into a variadic op, or renders to
     /// text by joining with `_sep`).
     List(Vec<Expr>),
@@ -125,6 +129,7 @@ impl Expr {
                 format!("{}^{}{}", start.render(), role.suffix(), end.render())
             }
             Expr::Group(inner) => inner.render(),
+            Expr::Quote(inner) => format!("{{{}}}", inner.render()),
             Expr::List(items) => {
                 let parts: Vec<String> = items.iter().map(Expr::render).collect();
                 format!("[{}]", parts.join(", "))
@@ -626,6 +631,22 @@ impl Parser<'_> {
                 let items = self.parse_list_items()?;
                 Ok(Expr::List(items))
             }
+            Token::LBrace => {
+                // Form-quote `{…}` (bd-5dd86f): capture the enclosed expression as
+                // data (an `Expr::Quote`, later a `Value::Form`) rather than
+                // evaluating it.
+                let inner = self.expr(0)?;
+                match self.tokens.get(self.pos) {
+                    Some(Token::RBrace) => {
+                        self.pos += 1;
+                        Ok(Expr::Quote(Box::new(inner)))
+                    }
+                    _ => Err(ParseError {
+                        position: self.pos,
+                        message: "expected '}'".to_owned(),
+                    }),
+                }
+            }
             Token::Backtick => {
                 // Low-precedence prefix: capture the whole RHS as a serial subtree.
                 let inner = self.expr(0)?;
@@ -718,6 +739,16 @@ mod tests {
     }
 
     #[test]
+    fn form_quote_wraps_in_braces_distinct_from_group() {
+        // `{a+b}` (form-quote, bd-5dd86f) renders WITH braces — code-as-data;
+        // `(a+b)` (group) renders without — a value. They are distinct nodes.
+        assert_eq!(render("{a+b}"), "{(a + b)}");
+        assert_eq!(render("(a+b)"), "(a + b)");
+        // A form wraps any expression (here a message-subject op).
+        assert_eq!(render("{#^-1}"), "{(# ^-1)}");
+    }
+
+    #[test]
     fn render_round_trips_faithfully() {
         // render() is a faithful (idempotent) unparser: re-parsing a rendered
         // expression yields the same render. Value::Form Display (quote-eval,
@@ -725,7 +756,8 @@ mod tests {
         // so a second render must equal the first.
         for src in [
             "2**3**2", "1+2*3", "a-b-c", "8/4/2", "!a&b", "a|b|c", "a?", "#^-1", "^_-1", "^*",
-            "^!-1", "0^*-1", "$k", "$-1", "[a,b,c]", "(1+2)*3", "#(a&b)", "!^*",
+            "^!-1", "0^*-1", "$k", "$-1", "[a,b,c]", "(1+2)*3", "#(a&b)", "!^*", "{a+b}", "{#^-1}",
+            "{!a&b}", "{$k}",
         ] {
             let once = render(src);
             let twice = render(&once);

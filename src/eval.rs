@@ -313,6 +313,10 @@ fn as_value(expr: &Expr) -> Option<Value> {
             interpolate: false,
         } => Some(Value::string(content.clone())),
         Expr::Group(inner) | Expr::Serial(inner) => as_value(inner),
+        // A quoted form `{…}` is a value: its inner is NOT evaluated. Placeholder
+        // until Value::Form (aur-2, bd-5dd86f) — yields the inner source text;
+        // rewired to Some(Value::Form(inner.clone())) with %-apply next.
+        Expr::Quote(inner) => Some(Value::string(inner.render())),
         Expr::List(items) => items
             .iter()
             .map(as_value)
@@ -429,9 +433,11 @@ impl<'a> Evaluator<'a> {
             }
             // Literals / already-reduced values are caught by `as_value` before
             // `reduce` is reached; evaluate defensively for exhaustiveness.
-            Expr::Value(_) | Expr::Bare(_) | Expr::Number(_) | Expr::Quoted { .. } => {
-                Ok(Expr::Value(self.eval(expr)?))
-            }
+            Expr::Value(_)
+            | Expr::Bare(_)
+            | Expr::Number(_)
+            | Expr::Quoted { .. }
+            | Expr::Quote(_) => Ok(Expr::Value(self.eval(expr)?)),
         }
     }
 
@@ -453,6 +459,11 @@ impl<'a> Evaluator<'a> {
                 content.clone()
             })),
             Expr::Number(n) => Ok(Value::number(*n)),
+            // A quoted form `{…}` does NOT evaluate its inner; it yields the form
+            // as data. Placeholder until Value::Form (aur-2, bd-5dd86f): the
+            // inner source text for now; rewired to Value::Form(inner) + the
+            // %-apply operator + the $N argument-frame next.
+            Expr::Quote(inner) => Ok(Value::string(inner.render())),
             Expr::ContextRead(name) => self.read_context(name),
             Expr::StackPeek => self
                 .stack
@@ -668,7 +679,8 @@ impl<'a> Evaluator<'a> {
                 | Expr::StackIndex(_)
                 | Expr::Message { .. }
                 | Expr::MessageRange { .. }
-                | Expr::Value(_) => self.eval(expr),
+                | Expr::Value(_)
+                | Expr::Quote(_) => self.eval(expr),
                 Expr::Group(inner) | Expr::Serial(inner) => self.eval_async(inner, realiser).await,
                 Expr::List(items) => {
                     let mut values = Vec::with_capacity(items.len());
@@ -800,7 +812,8 @@ impl<'a> Evaluator<'a> {
                 | Expr::MessageRange { .. }
                 | Expr::Quoted {
                     interpolate: true, ..
-                } => Ok(Expr::Value(self.eval(expr)?)),
+                }
+                | Expr::Quote(_) => Ok(Expr::Value(self.eval(expr)?)),
                 Expr::Group(inner) => Ok(Expr::Group(Box::new(
                     self.reduce_async(inner, realiser).await?,
                 ))),
@@ -1214,6 +1227,8 @@ fn is_parallel_safe(expr: &Expr) -> bool {
         Expr::Message { index, .. } => is_parallel_safe(index),
         Expr::MessageRange { start, end, .. } => is_parallel_safe(start) && is_parallel_safe(end),
         Expr::Group(inner) | Expr::Serial(inner) => is_parallel_safe(inner),
+        // A quoted form is inert data (its inner is not evaluated) — pure/safe.
+        Expr::Quote(_) => true,
         Expr::List(items) => items.iter().all(is_parallel_safe),
         // A nullary op (empty operands) pops the stack — not parallel-safe.
         Expr::Apply { operands, .. } => {
@@ -1250,6 +1265,9 @@ fn eval_parallel_safe(
             content.clone()
         })),
         Expr::Number(n) => Ok(Value::number(*n)),
+        // A quoted form is inert data (its inner is not evaluated) — its value is
+        // the form (placeholder: inner source text until Value::Form, bd-5dd86f).
+        Expr::Quote(inner) => Ok(Value::string(inner.render())),
         Expr::ContextRead(name) => context
             .get(name)
             .map(json_to_value)

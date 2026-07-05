@@ -80,6 +80,9 @@ pub enum NodeKind {
     Number,
     /// A quoted literal.
     Quoted,
+    /// A `{…}` quoted form (bd-5dd86f): opaque data (a `Value::Form`), a leaf —
+    /// its inner AST does not flow in the dataflow graph until applied.
+    Quote,
     /// A reduced value spliced in by the small-step evaluator (step frames, G2).
     Value,
 }
@@ -319,6 +322,13 @@ impl Builder {
             Expr::Quoted { content, .. } => {
                 let label = truncate_ends(content, LABEL_HEAD_WORDS, LABEL_TAIL_WORDS);
                 self.push(path, NodeKind::Quoted, format!("'{label}'"));
+            }
+            Expr::Quote(inner) => {
+                // A quoted form is opaque data (its inner is NOT evaluated), so
+                // it renders as a single leaf labelled with the form source — no
+                // operand edges into it (bd-5dd86f).
+                let label = truncate_ends(&inner.render(), LABEL_HEAD_WORDS, LABEL_TAIL_WORDS);
+                self.push(path, NodeKind::Quote, format!("{{{label}}}"));
             }
             Expr::Value(value) => {
                 let label = truncate_ends(&value.to_string(), LABEL_HEAD_WORDS, LABEL_TAIL_WORDS);

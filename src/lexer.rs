@@ -83,6 +83,11 @@ pub enum Token {
     LParen,
     /// `)` — grouping close.
     RParen,
+    /// `{` — form-quote open (bd-5dd86f): `{…}` quotes the enclosed expression
+    /// as a `Value::Form` (data) instead of evaluating it.
+    LBrace,
+    /// `}` — form-quote close.
+    RBrace,
     /// `` ` `` — serial-evaluation marker.
     Backtick,
     /// `=` — assignment (the parser treats a preceding bare as the LHS key).
@@ -112,6 +117,8 @@ impl Token {
             Token::Comma => ",".to_owned(),
             Token::LParen => "(".to_owned(),
             Token::RParen => ")".to_owned(),
+            Token::LBrace => "{".to_owned(),
+            Token::RBrace => "}".to_owned(),
             Token::Backtick => "`".to_owned(),
             Token::Equals => "=".to_owned(),
             Token::ContextRead(name) => format!("${name}"),
@@ -250,6 +257,14 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
             }
             ')' => {
                 tokens.push(Token::RParen);
+                i += 1;
+            }
+            '{' => {
+                tokens.push(Token::LBrace);
+                i += 1;
+            }
+            '}' => {
+                tokens.push(Token::RBrace);
                 i += 1;
             }
             '`' => {
