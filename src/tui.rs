@@ -81,6 +81,15 @@ pub struct EditState {
     pub editor: LineEditor,
 }
 
+/// A destructive session-pool action awaiting a y/n confirmation.
+#[derive(Debug, Clone)]
+pub enum ConfirmAction {
+    /// Delete one session file from the pool.
+    DeleteSession(std::path::PathBuf),
+    /// Prune the pool to the `keep_n` most-recent sessions.
+    PruneSessions(usize),
+}
+
 /// The pure workbench state. `main.rs` mutates it via the methods here and reads
 /// it back to render; it performs no IO itself.
 pub struct Workbench {
@@ -99,6 +108,8 @@ pub struct Workbench {
     should_quit: bool,
     /// An active modal context edit, if any (mutually exclusive with pane input).
     editing: Option<EditState>,
+    /// A destructive session action awaiting y/n confirmation.
+    confirm: Option<(String, ConfirmAction)>,
 }
 
 impl Workbench {
@@ -117,6 +128,7 @@ impl Workbench {
                 .to_owned(),
             should_quit: false,
             editing: None,
+            confirm: None,
         }
     }
 
@@ -255,6 +267,31 @@ impl Workbench {
         let state = self.editing.take()?;
         Some((state.kind, state.key, state.editor.buffer_string()))
     }
+
+    /// Whether a destructive session action is awaiting confirmation.
+    pub fn is_confirming(&self) -> bool {
+        self.confirm.is_some()
+    }
+
+    /// The confirmation prompt message, for rendering.
+    pub fn confirm_message(&self) -> Option<&str> {
+        self.confirm.as_ref().map(|(message, _)| message.as_str())
+    }
+
+    /// Arm a y/n confirmation for a destructive session action.
+    pub fn begin_confirm(&mut self, message: impl Into<String>, action: ConfirmAction) {
+        self.confirm = Some((message.into(), action));
+    }
+
+    /// Accept the pending confirmation (y), returning the action to perform.
+    pub fn take_confirm(&mut self) -> Option<ConfirmAction> {
+        self.confirm.take().map(|(_, action)| action)
+    }
+
+    /// Dismiss the pending confirmation (n / Esc) without acting.
+    pub fn cancel_confirm(&mut self) {
+        self.confirm = None;
+    }
 }
 
 /// Draw the whole workbench for one frame.
@@ -336,7 +373,7 @@ fn render_help(frame: &mut Frame, area: Rect, wb: &Workbench) {
     ]);
     let hint = match wb.focus() {
         Pane::Expr => "Expression: type · Enter evaluates · ↑↓ history · Ctrl-A/E/K/U/W edit",
-        Pane::Sessions => "Sessions: ↑↓ select · Enter restores into the context",
+        Pane::Sessions => "Sessions: ↑↓ select · Enter restore · d delete · p prune",
         Pane::Context => "Context: ↑↓ select · e edit · a add · d delete",
     };
     let line2 = Line::from(Span::styled(hint, Style::default().fg(Color::DarkGray)));
@@ -447,13 +484,17 @@ fn render_output(frame: &mut Frame, area: Rect, wb: &Workbench) {
 }
 
 fn render_status(frame: &mut Frame, area: Rect, wb: &Workbench) {
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            wb.status.clone(),
-            Style::default().fg(Color::DarkGray),
-        )),
-        area,
-    );
+    let (text, style) = if let Some(message) = wb.confirm_message() {
+        (
+            format!("{message}  [y/n]"),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (wb.status.clone(), Style::default().fg(Color::DarkGray))
+    };
+    frame.render_widget(Paragraph::new(Span::styled(text, style)), area);
 }
 
 /// Draw the modal context-edit box (value edit or new entry) over the panes.
@@ -687,5 +728,35 @@ mod tests {
         wb.cancel_edit();
         assert!(!wb.is_editing());
         assert!(wb.commit_edit().is_none());
+    }
+
+    #[test]
+    fn confirm_take_yields_action_once() {
+        let mut wb = sample();
+        assert!(!wb.is_confirming());
+        wb.begin_confirm(
+            "delete X?",
+            ConfirmAction::DeleteSession("/s/1.json".into()),
+        );
+        assert!(wb.is_confirming());
+        assert_eq!(wb.confirm_message(), Some("delete X?"));
+        match wb.take_confirm() {
+            Some(ConfirmAction::DeleteSession(path)) => {
+                assert_eq!(path.to_str(), Some("/s/1.json"));
+            }
+            other => panic!("expected DeleteSession, got {other:?}"),
+        }
+        // taking clears it
+        assert!(!wb.is_confirming());
+        assert!(wb.take_confirm().is_none());
+    }
+
+    #[test]
+    fn confirm_cancel_discards_action() {
+        let mut wb = sample();
+        wb.begin_confirm("prune?", ConfirmAction::PruneSessions(20));
+        wb.cancel_confirm();
+        assert!(!wb.is_confirming());
+        assert!(wb.take_confirm().is_none());
     }
 }

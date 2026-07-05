@@ -2240,6 +2240,39 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
 
+    // A pending destructive-session action swallows input until y/n.
+    if wb.is_confirming() {
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                if let Some(action) = wb.take_confirm() {
+                    match action {
+                        tui::ConfirmAction::DeleteSession(path) => match delete_session(&path) {
+                            Ok(()) => {
+                                wb.set_sessions(tui_build_sessions(cli));
+                                wb.set_status(format!("deleted session {}", path.display()));
+                            }
+                            Err(error) => wb.set_status(format!("delete failed: {error}")),
+                        },
+                        tui::ConfirmAction::PruneSessions(keep) => {
+                            match tui_prune_sessions(cli, keep) {
+                                Ok(removed) => {
+                                    wb.set_sessions(tui_build_sessions(cli));
+                                    wb.set_status(format!("pruned {removed} session(s)"));
+                                }
+                                Err(error) => wb.set_status(error),
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {
+                wb.cancel_confirm();
+                wb.set_status("cancelled");
+            }
+        }
+        return;
+    }
+
     // A modal context edit swallows all input until Enter (commit) / Esc (cancel).
     if wb.is_editing() {
         match key.code {
@@ -2330,6 +2363,22 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
                     }
                 }
             }
+            // Delete the selected session (confirmed).
+            KeyCode::Char('d') => {
+                if let Some(sel) = wb.selected_session() {
+                    let summary = sel.summary.clone();
+                    let path = sel.path.clone();
+                    wb.begin_confirm(
+                        format!("delete session  {summary}"),
+                        tui::ConfirmAction::DeleteSession(path),
+                    );
+                }
+            }
+            // Prune the pool to the 20 most-recent sessions (confirmed).
+            KeyCode::Char('p') => wb.begin_confirm(
+                "prune to the 20 most-recent sessions".to_owned(),
+                tui::ConfirmAction::PruneSessions(20),
+            ),
             _ => {}
         },
         Pane::Context => match key.code {
@@ -2466,6 +2515,14 @@ fn tui_delete_context_key(cli: &Cli, key: &str) -> Result<(), String> {
     ctx.remove(key);
     ctx.save().map_err(|error| error.to_string())?;
     Ok(())
+}
+
+/// Prune the shared session pool to the `keep` most-recent sessions, returning
+/// the number removed (uses aur-0's `prune_sessions` over the shared dir).
+fn tui_prune_sessions(cli: &Cli, keep: usize) -> Result<usize, String> {
+    let cfg = resolve_config(cli).map_err(|_| "config error".to_owned())?;
+    let path = effective_context_path(cli, &cfg).ok_or_else(|| "no context store".to_owned())?;
+    Ok(prune_sessions(&sessions_dir(&path), keep))
 }
 /// Build the workbench session-browser rows from the shared pool.
 fn tui_build_sessions(cli: &Cli) -> Vec<tui::SessionEntry> {
