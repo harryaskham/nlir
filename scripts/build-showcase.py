@@ -274,6 +274,13 @@ SIMPLE = [
              "one floor.",
          cap="the glossary entry — [~>'TERM', :'TERM'] gives both halves of a good definition: a crisp "
              "precise meaning (~> keeps > from overshooting) and a plain analogy. Rigor + intuition"),
+    dict(name="compare-contrast",
+         expr="~>'the difference between a mutex and a semaphore'",
+         pill="llm · claude-sonnet-5",
+         out="A mutex enforces ownership-based exclusive locking for a single resource, while a semaphore "
+             "uses a non-owned counter to allow flexible, multi-threaded access to a pool of resources.",
+         cap="the compare-and-contrast — ~>'the difference between X and Y' draws out the ONE real "
+             "distinction in a crisp sentence (~ keeps > from spilling into an essay)"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
