@@ -174,6 +174,10 @@ pub struct OperatorConfig {
     pub operands: TypeName,
     /// Result type.
     pub result: TypeName,
+    /// Human-readable one-line description of what the operator does and when to
+    /// reach for it, surfaced by `nlir help`. When absent, `nlir help` derives a
+    /// summary from the template / reduce / join / prompt (bd-a4096b).
+    pub description: Option<String>,
     // --- realisation (SPEC §Modes) ---
     /// Deterministic template (`det`), e.g. `"not %"`.
     pub template: Option<String>,

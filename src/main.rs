@@ -28,7 +28,8 @@ use nlir::{
     name = "nlir",
     version,
     about = "nlir — transpile a terse shorthand IR into fluent English (nlir -e 'EXPR').",
-    arg_required_else_help = true
+    arg_required_else_help = true,
+    disable_help_subcommand = true
 )]
 struct Cli {
     /// Evaluate a shorthand expression and print the English result.
@@ -102,6 +103,9 @@ enum Command {
     Parse(ParseArgs),
     /// Run the config-defined test suite.
     Test,
+    /// Print a config-derived reference of every operator + a one-line summary.
+    #[command(visible_aliases = ["operators", "ops"])]
+    Help,
     /// Interactive REPL: one expression per submission (`:cmd` == `nlir cmd`).
     Repl(ReplArgs),
     /// Replace context keys: `set KEY VALUE` or `set '{"k":"v",...}'`.
@@ -217,6 +221,7 @@ fn run(cli: Cli) -> Result<(), i32> {
     match cli.command {
         Some(Command::Parse(ref args)) => run_parse(&cli, args),
         Some(Command::Test) => run_test(&cli),
+        Some(Command::Help) => run_help(&cli),
         Some(Command::Repl(ref args)) => run_repl(&cli, args),
         Some(Command::Set(ref args)) => run_set(&cli, args),
         Some(Command::Get(ref args)) => run_get(&cli, args),
@@ -228,7 +233,7 @@ fn run(cli: Cli) -> Result<(), i32> {
             Some(ref expr) => run_eval(&cli, expr),
             None => {
                 eprintln!(
-                    "nlir: pass -e 'EXPR' to evaluate, or a subcommand (parse|test|repl|set|get|append-message|mcp|self-update|feedback). See --help."
+                    "nlir: pass -e 'EXPR' to evaluate, or a subcommand (parse|test|help|repl|set|get|append-message|mcp|self-update|feedback). See --help."
                 );
                 Err(2)
             }
@@ -260,6 +265,153 @@ fn cli_overrides(cli: &Cli) -> nlir::config::DefaultOverrides {
         model: cli.model.clone(),
         parallelism: cli.parallelism,
     }
+}
+
+/// `nlir help` (aliases `operators`, `ops`) — print a reference of every operator
+/// configured in the loaded config: sigil, name, arity/priority, and a one-line
+/// summary (the operator's `description:`, else derived from its realisation).
+/// Pure config read, so the reference is always in sync with the config (bd-a4096b).
+fn run_help(cli: &Cli) -> Result<(), i32> {
+    use nlir::config::{Arity, Fixity};
+    use std::io::IsTerminal;
+
+    let cfg = resolve_config(cli)?;
+    let color = std::io::stdout().is_terminal();
+    let bold = |s: &str| {
+        if color {
+            format!("\x1b[1m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
+    };
+    let dim = |s: &str| {
+        if color {
+            format!("\x1b[2m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
+    };
+
+    // Group by fixity (prefix, infix, postfix, mixfix); within a group, tighter
+    // binding (higher priority) first, then by sigil.
+    let rank = |f: Fixity| match f {
+        Fixity::Prefix => 0u8,
+        Fixity::Infix => 1,
+        Fixity::Postfix => 2,
+        Fixity::Mixfix => 3,
+    };
+    let mut ops: Vec<(&String, &nlir::config::OperatorConfig)> = cfg.operators.iter().collect();
+    ops.sort_by(|(na, a), (nb, b)| {
+        rank(a.fixity)
+            .cmp(&rank(b.fixity))
+            .then_with(|| b.priority.unwrap_or(9).cmp(&a.priority.unwrap_or(9)))
+            .then_with(|| a.op.cmp(&b.op))
+            .then_with(|| na.cmp(nb))
+    });
+
+    let sig_w = ops
+        .iter()
+        .map(|(_, o)| o.op.chars().count())
+        .max()
+        .unwrap_or(3)
+        .max(3);
+    let name_w = ops
+        .iter()
+        .map(|(n, _)| n.chars().count())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+
+    println!(
+        "{}",
+        bold(&format!(
+            "nlir — {} operators (derived from your config)",
+            ops.len()
+        ))
+    );
+    let mut current: Option<Fixity> = None;
+    for (name, op) in &ops {
+        if current != Some(op.fixity) {
+            current = Some(op.fixity);
+            println!();
+            println!("{}", bold(fixity_label(op.fixity)));
+        }
+        let arity = match op.arity {
+            Arity::Exact(n) => n.to_string(),
+            Arity::Variadic => ">0".to_string(),
+        };
+        let prio = op
+            .priority
+            .map_or_else(|| "-".to_string(), |p| p.to_string());
+        let meta = dim(&format!("[arity {arity} · prio {prio}]"));
+        println!(
+            "  {:<sw$}  {:<nw$}  {}  {}",
+            op.op,
+            name,
+            operator_summary(op),
+            meta,
+            sw = sig_w,
+            nw = name_w,
+        );
+    }
+    println!();
+    println!(
+        "{}",
+        dim(
+            "  sigil · name · what it does · [arity · priority].  Use in  nlir -e 'EXPR'  or the repl."
+        )
+    );
+    Ok(())
+}
+
+/// A human-readable group header for a fixity class.
+fn fixity_label(fixity: nlir::config::Fixity) -> &'static str {
+    use nlir::config::Fixity;
+    match fixity {
+        Fixity::Prefix => "prefix — the sigil goes before its operand (op x):",
+        Fixity::Infix => "infix — the sigil goes between two operands (a op b):",
+        Fixity::Postfix => "postfix — the sigil goes after its operand (x op):",
+        Fixity::Mixfix => "mixfix — chains / lists (a op b op c, or op[list]):",
+    }
+}
+
+/// The one-line summary for an operator: its `description:` if set, else derived
+/// from its deterministic realisation (reduce / join / template / command) or the
+/// first line of its LLM prompt.
+fn operator_summary(op: &nlir::config::OperatorConfig) -> String {
+    use nlir::config::ReduceOp;
+    if let Some(d) = op.description.as_deref() {
+        let d = d.trim();
+        if !d.is_empty() {
+            return d.to_string();
+        }
+    }
+    if let Some(reduce) = op.reduce {
+        return match reduce {
+            ReduceOp::Add => "sum of the numeric operands",
+            ReduceOp::Sub => "difference, a − b",
+            ReduceOp::Mul => "product of the numeric operands",
+            ReduceOp::Div => "quotient, a ÷ b",
+            ReduceOp::Pow => "a to the power b",
+        }
+        .to_string();
+    }
+    if let Some(join) = op.join.as_deref() {
+        return format!("joins its operands with \"{}\"", join.trim());
+    }
+    if let Some(template) = op.template.as_deref() {
+        return format!("deterministic template: {template}");
+    }
+    if op.command.is_some() {
+        return "runs a configured shell command".to_string();
+    }
+    if let Some(prompt) = op.prompt.as_deref() {
+        let first = prompt.split(['\n', '.']).next().unwrap_or("").trim();
+        if !first.is_empty() {
+            return format!("{first} (LLM)");
+        }
+    }
+    "—".to_string()
 }
 
 /// `nlir -e 'EXPR'` — SKELETON identity passthrough (bd-57ad92).
