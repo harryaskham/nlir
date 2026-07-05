@@ -1806,6 +1806,29 @@ context:
     }
 
     #[test]
+    fn example_config_is_the_complete_browser_fallback() {
+        // The browser seeds DEFAULT_CONFIG from `default_config_yaml()` = this
+        // EXAMPLE_CONFIG (nlir-wasm, bd-ca518b) — the REAL config, single source of
+        // truth. Lock that it carries the COMPLETE operator set: the bd-799000 drift
+        // dropped Δ / ~> / ~>? from the hand-written workspace fallback; the embedded
+        // config must never, or the browser parser silently loses operators.
+        let cfg: Config =
+            serde_yaml::from_str(EXAMPLE_CONFIG).expect("example config must deserialize");
+        let refs = operator_reference(&cfg);
+        assert!(
+            refs.len() >= 19,
+            "browser fallback must carry the full operator set, got {}",
+            refs.len()
+        );
+        for sig in ["\u{0394}", "~>", "~>?"] {
+            assert!(
+                refs.iter().any(|r| r.op == sig),
+                "operator {sig} must be present in the browser fallback config"
+            );
+        }
+    }
+
+    #[test]
     fn operator_reference_matches_config_and_serializes() {
         // operator_reference() is the anti-drift shared source for `nlir help` and
         // the wasm operators() export (nlir-wasm bd-360d0c). Verify it derives the

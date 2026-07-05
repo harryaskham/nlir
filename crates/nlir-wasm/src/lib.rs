@@ -252,6 +252,16 @@ pub fn operators(config_json: &str) -> JsValue {
     }
 }
 
+/// `defaultConfigYaml() -> String` — the canonical `config.example.yaml`, embedded
+/// at build time via `nlir::config::EXAMPLE_CONFIG` (the same const the CLI writes
+/// on first run). Lets the workspace seed `DEFAULT_CONFIG` from the REAL config so
+/// the browser parser + operator set stay in lockstep with the shipped config — no
+/// hand-maintained fallback to drift (bd-ca518b; the bd-799000 sigil-keyed lesson).
+#[wasm_bindgen(js_name = defaultConfigYaml)]
+pub fn default_config_yaml() -> String {
+    nlir::config::EXAMPLE_CONFIG.to_string()
+}
+
 /// `evaluate(expr, configJson, contextJson, mode, realisers) -> Promise<{ ok, result|error }>`.
 /// DET evaluates on the sync core (key-free); LLM drives `evaluate_async` with
 /// the [`JsRealiser`] built from the `realisers` object.
