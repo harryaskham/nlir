@@ -506,6 +506,8 @@ pub struct MessageViews {
     pub all: Vec<String>,
     /// `^/` — roles for the system view.
     pub system: Vec<String>,
+    /// `^!` — roles for the tool/code view (tool-call results + code messages).
+    pub tool: Vec<String>,
 }
 
 impl Default for MessageViews {
@@ -519,6 +521,11 @@ impl Default for MessageViews {
                 "system".to_owned(),
             ],
             system: vec!["system".to_owned()],
+            tool: vec![
+                "tool".to_owned(),
+                "tool_result".to_owned(),
+                "function".to_owned(),
+            ],
         }
     }
 }

@@ -22,7 +22,8 @@
 use std::fmt;
 
 /// The role-filtered message view selected by a `^` sigil (SPEC §Message
-/// indexing): `^` assistant (default), `^_` user, `^*` all, `^/` system.
+/// indexing): `^` assistant (default), `^_` user, `^*` all, `^/` system,
+/// `^!` tool/code (tool-call results + code messages — the agentic-pipe view).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageRole {
     /// `^` — assistant messages (the default view).
@@ -33,10 +34,12 @@ pub enum MessageRole {
     All,
     /// `^/` — system messages.
     System,
+    /// `^!` — tool-call results + code messages (the agentic-pipe view).
+    Tool,
 }
 
 impl MessageRole {
-    /// The sigil suffix (`""`, `"_"`, `"*"`, `"/"`).
+    /// The sigil suffix (`""`, `"_"`, `"*"`, `"/"`, `"!"`).
     #[must_use]
     pub const fn suffix(self) -> &'static str {
         match self {
@@ -44,6 +47,7 @@ impl MessageRole {
             MessageRole::User => "_",
             MessageRole::All => "*",
             MessageRole::System => "/",
+            MessageRole::Tool => "!",
         }
     }
 }
@@ -325,12 +329,14 @@ fn lex_dollar(chars: &[char], start: usize) -> Result<(Token, usize), LexError> 
 }
 
 /// Lex a `^` message sigil with its optional role modifier (bd-4c951c): `^`
-/// assistant, `^_` user, `^*` all, `^/` system. The index expression follows.
+/// assistant, `^_` user, `^*` all, `^/` system, `^!` tool/code. The index
+/// expression (or, since bare-views, nothing) follows.
 fn lex_caret(chars: &[char], start: usize) -> (Token, usize) {
     let (role, end) = match chars.get(start + 1).copied() {
         Some('_') => (MessageRole::User, start + 2),
         Some('*') => (MessageRole::All, start + 2),
         Some('/') => (MessageRole::System, start + 2),
+        Some('!') => (MessageRole::Tool, start + 2),
         _ => (MessageRole::Assistant, start + 1),
     };
     (Token::Message(role), end)
@@ -900,7 +906,7 @@ mod tests {
 
     #[test]
     fn caret_role_modifiers_and_negative_index() {
-        let ops = ops(&["+", "-"]);
+        let ops = ops(&["+", "-", "!"]);
         // Role modifiers `_ * /` right after `^` (bd-4c951c), not operators.
         assert_eq!(
             tokenize("^1", &ops).unwrap(),
@@ -929,6 +935,19 @@ mod tests {
                 Token::Message(MessageRole::System),
                 Token::Bare("1".to_owned())
             ]
+        );
+        // `^!` = the tool/code view; the `!` is the view modifier, NOT the negate
+        // operator — even when `!` is a configured op, lex_caret consumes it first.
+        assert_eq!(
+            tokenize("^!1", &ops).unwrap(),
+            vec![
+                Token::Message(MessageRole::Tool),
+                Token::Bare("1".to_owned())
+            ]
+        );
+        assert_eq!(
+            tokenize("^!-1", &ops).unwrap(),
+            vec![Token::Message(MessageRole::Tool), Token::Number(-1.0)]
         );
         // `^-1`: the `-` is a negative index, NOT the subtract operator (bd-4c951c).
         assert_eq!(

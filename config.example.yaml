@@ -23,11 +23,12 @@ context:
     key: _messages
     role_field: role
     content_field: content
-    views: # ^ / ^_ / ^* / ^/
+    views: # ^ / ^_ / ^* / ^/ / ^!
       default: [assistant]
       user: [user]
       all: [user, assistant, system]
       system: [system]
+      tool: [tool, tool_result, function]
   defaults:
     _sep: "\n" # list & message-range → text separator
     _cache: true

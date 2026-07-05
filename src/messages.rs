@@ -38,6 +38,7 @@ pub fn effective_roles(views: &MessageViews, role: MessageRole) -> Vec<String> {
         MessageRole::User => views.user.clone(),
         MessageRole::All => views.all.clone(),
         MessageRole::System => views.system.clone(),
+        MessageRole::Tool => views.tool.clone(),
     }
 }
 
@@ -185,14 +186,20 @@ mod tests {
             ["user", "assistant", "system"]
         );
         assert_eq!(effective_roles(&v, MessageRole::System), ["system"]);
+        assert_eq!(
+            effective_roles(&v, MessageRole::Tool),
+            ["tool", "tool_result", "function"]
+        );
         // An explicitly-empty view means "no roles" (matches nothing).
         let empty = MessageViews {
             default: vec![],
             user: vec![],
             all: vec![],
             system: vec![],
+            tool: vec![],
         };
         assert!(effective_roles(&empty, MessageRole::Assistant).is_empty());
+        assert!(effective_roles(&empty, MessageRole::Tool).is_empty());
     }
 
     #[test]
