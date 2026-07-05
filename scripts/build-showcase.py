@@ -570,9 +570,16 @@ body {{ font-family:'Fira Sans',sans-serif; padding:56px 60px 64px;
 
 
 def render_contact_sheet(outdir, chrome):
-    order = ["formalize", "understood", "simplify", "expand", "tip", "collective", "pow",
-             "negate", "subject", "gettysburg", "answer", "reverse-dictionary", "mvp",
-             "opposite", "three-bases", "exec-summary", "escalation", "opposition", "target-reverse"]
+    # front page leads with the LANGUAGE OF THOUGHT moves (all four lanes: reply / reflect /
+    # compose / select), then the core teaching grids (the dials + the lenses), then the
+    # primitive atoms the moves are built from. grid cards are grouped into their own rows so
+    # the 3-wide montage stays even. (was: only the original primitive cards — bd site-beautify.)
+    order = ["considered-reply", "reasoned-no", "brain-dump",
+             "grounded-counter", "composer-reply", "empathetic-redirect",
+             "catchup", "exec-brief", "two-sides",
+             "honest-yes", "weighed-decision", "full-layered-reply",
+             "perspective-wheel", "tone-knob", "deliberation",
+             "formalize", "simplify", "tip"]
     imgs = "".join(f'<img src="file://{outdir.resolve()}/nlir-{n}.png">'
                    for n in order if (outdir / f"nlir-{n}.png").exists())
     doc = SHEET_HTML.format(imgs=imgs)
