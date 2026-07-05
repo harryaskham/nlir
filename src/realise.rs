@@ -5,7 +5,8 @@
 //! evaluator (bd-2b226d) calls after it has resolved and coerced an operator's
 //! operands:
 //!
-//! - [`reduce`] — numeric reduction (`+ - * / **`), SPEC `reduce:` (bd-fa5ee2).
+//! - [`reduce`] — numeric reduction (`+ - * / **`) plus string ops (`++` concat,
+//!   `//` split), SPEC `reduce:` (bd-fa5ee2, bd-c833a8).
 //! - [`template`] — template substitution (`%`, `%N`, `%%`), SPEC `template:`
 //!   (bd-1779cd).
 //! - [`join`] — variadic join with the configured separator, SPEC `join:`
@@ -61,6 +62,13 @@ impl std::error::Error for RealiseError {}
 /// over all operands (variadic, ≥1); `-`/`/`/`**` are binary. `/` by zero is a
 /// loud error.
 pub fn reduce(op: ReduceOp, operands: &[Value]) -> Result<Value, RealiseError> {
+    // String realisations branch before numeric coercion, since `numbers()`
+    // errors on non-numeric operands (bd-c833a8).
+    match op {
+        ReduceOp::Concat => return Ok(concat(operands)),
+        ReduceOp::Split => return split(op, operands),
+        _ => {}
+    }
     let nums = numbers(op, operands)?;
     let result = match op {
         ReduceOp::Add => {
@@ -86,8 +94,47 @@ pub fn reduce(op: ReduceOp, operands: &[Value]) -> Result<Value, RealiseError> {
             let (a, b) = binary(op, &nums)?;
             a.powf(b)
         }
+        ReduceOp::Concat | ReduceOp::Split => unreachable!("string ops handled above"),
     };
     Ok(Value::number(result))
+}
+
+/// Concatenate the string renders of every operand (`++`, variadic). The eval
+/// layer coerces operands to String, so `as_str` succeeds; the defensive
+/// fallback renders anything else with a space separator. Empty operand set
+/// yields the empty string.
+fn concat(operands: &[Value]) -> Value {
+    let joined: String = operands.iter().map(operand_str).collect();
+    Value::string(joined)
+}
+
+/// Split the first operand by the second into a list of strings (`//`, binary).
+/// An empty separator splits into characters.
+fn split(op: ReduceOp, operands: &[Value]) -> Result<Value, RealiseError> {
+    if operands.len() != 2 {
+        return Err(RealiseError::Arity {
+            op,
+            expected: "exactly 2",
+            got: operands.len(),
+        });
+    }
+    let text = operand_str(&operands[0]);
+    let sep = operand_str(&operands[1]);
+    let parts: Vec<Value> = if sep.is_empty() {
+        text.chars().map(|c| Value::string(c.to_string())).collect()
+    } else {
+        text.split(sep.as_str()).map(Value::string).collect()
+    };
+    Ok(Value::List(parts))
+}
+
+/// Render an operand as an owned string for the string ops: the direct string
+/// when it is one, else its rendered form (space-separated for lists).
+fn operand_str(value: &Value) -> String {
+    value
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_else(|| value.render(" "))
 }
 
 /// Extract every operand as a number, erroring on the first non-number.
@@ -269,6 +316,56 @@ mod tests {
                 position: 1
             })
         );
+    }
+
+    // -- string ops: concat / split (bd-c833a8) ----------------------------
+
+    #[test]
+    fn concat_folds_string_operands() {
+        assert_eq!(
+            reduce(
+                ReduceOp::Concat,
+                &[
+                    Value::string("foo"),
+                    Value::string("bar"),
+                    Value::string("baz"),
+                ],
+            ),
+            Ok(Value::string("foobarbaz"))
+        );
+        // Variadic: empty operand set yields the empty string.
+        assert_eq!(reduce(ReduceOp::Concat, &[]), Ok(Value::string("")));
+    }
+
+    #[test]
+    fn split_separates_into_a_list() {
+        assert_eq!(
+            reduce(
+                ReduceOp::Split,
+                &[Value::string("a,b,c"), Value::string(",")],
+            ),
+            Ok(Value::List(vec![
+                Value::string("a"),
+                Value::string("b"),
+                Value::string("c"),
+            ]))
+        );
+    }
+
+    #[test]
+    fn split_empty_separator_yields_characters() {
+        assert_eq!(
+            reduce(ReduceOp::Split, &[Value::string("ab"), Value::string("")]),
+            Ok(Value::List(vec![Value::string("a"), Value::string("b")]))
+        );
+    }
+
+    #[test]
+    fn split_requires_exactly_two_operands() {
+        assert!(matches!(
+            reduce(ReduceOp::Split, &[Value::string("a,b")]),
+            Err(RealiseError::Arity { got: 1, .. })
+        ));
     }
 
     // -- template (bd-1779cd) ----------------------------------------------

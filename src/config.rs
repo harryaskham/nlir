@@ -281,6 +281,8 @@ impl OperatorConfig {
                 ReduceOp::Mul => "product of the numeric operands",
                 ReduceOp::Div => "quotient, a ÷ b",
                 ReduceOp::Pow => "a to the power b",
+                ReduceOp::Concat => "concatenation of the string operands",
+                ReduceOp::Split => "split a string by a separator into a list",
             }
             .to_string();
         }
@@ -456,6 +458,10 @@ pub enum ReduceOp {
     Mul,
     Div,
     Pow,
+    /// String concatenation (`++`, variadic).
+    Concat,
+    /// Split a string by a separator into a list (`//`, binary).
+    Split,
 }
 
 /// Operator arity: a fixed count, or `>0` (one-or-more, variadic).
