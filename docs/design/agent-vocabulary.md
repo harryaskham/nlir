@@ -98,11 +98,12 @@ $map%({:$0}, concepts^-1)         -> plain-language each risk
 $fold%({~($0&$1)}, concepts^-1)   -> distil the concepts to a theme
 ```
 
-Proposal: a prefix operator (name `concepts`, glyph TBD — e.g. `#*` as a
-suffixed sibling of `#`, or a Unicode glyph via bd-44c294) that realises to a
-**list** of short noun phrases. Arity 1, `result: list`. It pairs with map/fold
-so cleanly that it's arguably the single highest-leverage addition on this page.
-Open design Qs: how many items (a `_n` cap? model-chosen?), and dedupe/ordering.
+Proposal: a prefix operator (name `concepts` / word-builtin `$concepts`) that
+realises to a **list** of short, salience-ordered, de-duped noun phrases. Arity
+1, `result: list`. It pairs with map/fold so cleanly that it's arguably the
+single highest-leverage addition on this page. **Sigil + semantics settled in
+§6:** `#*` (the plural of `#`), with a model-chosen count (no `_N` cap — that
+would collide with do-N `({f}_3)`).
 
 ### 3b. Assess / critique — a judgement lens
 
