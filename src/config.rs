@@ -193,6 +193,60 @@ pub struct OperatorConfig {
     pub prompt: Option<String>,
 }
 
+impl OperatorConfig {
+    /// A one-line human summary of what this operator does: its `description:`
+    /// if set, else derived from its realisation (reduce / join / template /
+    /// command) or the first line of its LLM prompt. Shared by `nlir help` (the
+    /// native CLI) and the wasm `operators()` export so they never drift.
+    #[must_use]
+    pub fn summary(&self) -> String {
+        if let Some(d) = self.description.as_deref() {
+            let d = d.trim();
+            if !d.is_empty() {
+                return d.to_string();
+            }
+        }
+        if let Some(reduce) = self.reduce {
+            return match reduce {
+                ReduceOp::Add => "sum of the numeric operands",
+                ReduceOp::Sub => "difference, a − b",
+                ReduceOp::Mul => "product of the numeric operands",
+                ReduceOp::Div => "quotient, a ÷ b",
+                ReduceOp::Pow => "a to the power b",
+            }
+            .to_string();
+        }
+        if let Some(join) = self.join.as_deref() {
+            return format!("joins its operands with \"{}\"", join.trim());
+        }
+        if let Some(template) = self.template.as_deref() {
+            return format!("deterministic template: {template}");
+        }
+        if self.command.is_some() {
+            return "runs a configured shell command".to_string();
+        }
+        if let Some(prompt) = self.prompt.as_deref() {
+            let first = prompt.split(['\n', '.']).next().unwrap_or("").trim();
+            if !first.is_empty() {
+                return format!("{first} (LLM)");
+            }
+        }
+        "—".to_string()
+    }
+
+    /// Whether this operator has a DETERMINISTIC realisation — i.e. it runs
+    /// offline in `--mode det` (a `reduce` / `command` / `join` / `template`),
+    /// versus model-only (only a `prompt`). Shared by `nlir help` + the wasm
+    /// `operators()` export.
+    #[must_use]
+    pub fn is_deterministic(&self) -> bool {
+        self.reduce.is_some()
+            || self.command.is_some()
+            || self.join.is_some()
+            || self.template.is_some()
+    }
+}
+
 /// Operator fixity (SPEC §Grammar & parsing).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

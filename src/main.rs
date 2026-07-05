@@ -354,18 +354,9 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
         let prio = op
             .priority
             .map_or_else(|| "-".to_string(), |p| p.to_string());
-        // Realisation: an operator runs OFFLINE in `--mode det` if it has any
-        // deterministic realisation (reduce / command / join / template); ops
-        // with only a `prompt:` are model-only (bd-a4096b, aur-0's QA note).
-        let realisation = if op.reduce.is_some()
-            || op.command.is_some()
-            || op.join.is_some()
-            || op.template.is_some()
-        {
-            "det"
-        } else {
-            "llm"
-        };
+        // Realisation: `det` = runs offline in `--mode det`; `llm` = model-only.
+        // Shared with the wasm operators() export via OperatorConfig (bd-a4096b).
+        let realisation = if op.is_deterministic() { "det" } else { "llm" };
         if op
             .description
             .as_deref()
@@ -378,7 +369,7 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
             "  {:<sw$}  {:<nw$}  {}  {}",
             op.op,
             name,
-            operator_summary(op),
+            op.summary(),
             meta,
             sw = sig_w,
             nw = name_w,
@@ -411,45 +402,6 @@ fn fixity_label(fixity: nlir::config::Fixity) -> &'static str {
         Fixity::Postfix => "postfix — the sigil goes after its operand (x op):",
         Fixity::Mixfix => "mixfix — chains / lists (a op b op c, or op[list]):",
     }
-}
-
-/// The one-line summary for an operator: its `description:` if set, else derived
-/// from its deterministic realisation (reduce / join / template / command) or the
-/// first line of its LLM prompt.
-fn operator_summary(op: &nlir::config::OperatorConfig) -> String {
-    use nlir::config::ReduceOp;
-    if let Some(d) = op.description.as_deref() {
-        let d = d.trim();
-        if !d.is_empty() {
-            return d.to_string();
-        }
-    }
-    if let Some(reduce) = op.reduce {
-        return match reduce {
-            ReduceOp::Add => "sum of the numeric operands",
-            ReduceOp::Sub => "difference, a − b",
-            ReduceOp::Mul => "product of the numeric operands",
-            ReduceOp::Div => "quotient, a ÷ b",
-            ReduceOp::Pow => "a to the power b",
-        }
-        .to_string();
-    }
-    if let Some(join) = op.join.as_deref() {
-        return format!("joins its operands with \"{}\"", join.trim());
-    }
-    if let Some(template) = op.template.as_deref() {
-        return format!("deterministic template: {template}");
-    }
-    if op.command.is_some() {
-        return "runs a configured shell command".to_string();
-    }
-    if let Some(prompt) = op.prompt.as_deref() {
-        let first = prompt.split(['\n', '.']).next().unwrap_or("").trim();
-        if !first.is_empty() {
-            return format!("{first} (LLM)");
-        }
-    }
-    "—".to_string()
 }
 
 /// `nlir -e 'EXPR'` — SKELETON identity passthrough (bd-57ad92).
@@ -936,7 +888,7 @@ enum StepKey {
 /// Block in raw mode until the user presses a step-view control key. Non-key and
 /// non-press events are ignored; a read error is treated as cancel.
 fn read_step_key() -> StepKey {
-    use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, read};
     loop {
         match read() {
             Ok(Event::Key(KeyEvent {
