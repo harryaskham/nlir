@@ -119,6 +119,15 @@ SIMPLE = [
          cap="! on a lone concept-word gives its opposite, not just 'not hot'"),
     dict(name="three-bases", expr="'0o17'+'0xF'+'0b1'", pill="llm coercion · exact", out="31",
          cap="octal + hex + binary, added as numbers — every base a source file uses"),
+    dict(name="composer-reply",
+         expr="@&[:'their proposal to rewrite everything in rust','agree in principle','but do it incrementally, hot paths first','mindful of our small team and the release']",
+         pill="llm · claude-sonnet-5",
+         out="We concur in principle with the proposal to rebuild the system using Rust; however, we "
+             "recommend an incremental approach, prioritizing critical paths first, in consideration of "
+             "our limited team capacity and the upcoming release schedule.",
+         cap="the composer @&[...] — weave several points (acknowledge + agree + modify + caveat) into one "
+             "polished reply; each slot is transformable (: plain their point) and the leading op dials "
+             "tone (@ formal / : warm)"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
