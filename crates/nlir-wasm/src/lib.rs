@@ -357,3 +357,50 @@ pub fn graph_frames(expr: &str, config_json: &str, mode: &str) -> JsValue {
         Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
     }
 }
+
+/// `graphFramesAsync(expr, configJson, contextJson, mode, realisers) -> Promise<{ ok, frames:[{svg, reduced}] | error }>`
+/// — the LLM twin of [`graph_frames`]: drives msm-0's `step_frames_async` with
+/// the injected [`JsRealiser`], so the G5 Animate panel can watch an operator
+/// realise as the dataflow graph evolves in llm mode (each realise = a frame).
+/// DET mode works too (step_frames_async never awaits in det). Same
+/// `Frame{graph, reduced}` output as the sync path, so aur-1's
+/// `graph_svg::render` + the G5 scrubber/highlight are unchanged. Pairs with
+/// `graphFrames` exactly as `step`/`evaluate` pair their async selves (bd-0f2ce2).
+#[wasm_bindgen(js_name = graphFramesAsync)]
+pub async fn graph_frames_async(
+    expr: String,
+    config_json: String,
+    context_json: String,
+    mode: String,
+    realisers: JsValue,
+) -> JsValue {
+    match graph_frames_async_inner(&expr, &config_json, &context_json, &mode, &realisers).await {
+        Ok(frames) => payload(&serde_json::json!({ "ok": true, "frames": frames })),
+        Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
+async fn graph_frames_async_inner(
+    expr: &str,
+    config_json: &str,
+    context_json: &str,
+    mode: &str,
+    realisers: &JsValue,
+) -> Result<Vec<serde_json::Value>, String> {
+    let cfg = parse_config(config_json)?;
+    let parsed_mode = parse_mode(mode)?;
+    let mut ctx = parse_context(context_json, &cfg)?;
+    let realiser = JsRealiser::from_js(realisers);
+    let frames = nlir::eval::step_frames_async(expr, &cfg, &mut ctx, parsed_mode, &realiser)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(frames
+        .iter()
+        .map(|frame| {
+            serde_json::json!({
+                "svg": nlir::graph_svg::render(&frame.graph),
+                "reduced": frame.reduced.as_ref().map(nlir::graph::NodeId::dotted),
+            })
+        })
+        .collect())
+}
