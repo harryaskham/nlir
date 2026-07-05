@@ -281,6 +281,17 @@ SIMPLE = [
              "uses a non-owned counter to allow flexible, multi-threaded access to a pool of resources.",
          cap="the compare-and-contrast — ~>'the difference between X and Y' draws out the ONE real "
              "distinction in a crisp sentence (~ keeps > from spilling into an essay)"),
+    dict(name="crisp-proposal",
+         expr="@&[:'our deploy pipeline takes 40 minutes and blocks the whole team','switch to "
+              "incremental builds with a shared cache','it adds some cache-invalidation complexity',"
+              "'approve a one-week spike to prototype it']",
+         pill="llm · claude-sonnet-5",
+         out="Our team's current deployment process requires 40 minutes to complete, during which no "
+             "team member is able to perform other work. We propose transitioning to incremental builds "
+             "utilizing a shared cache. Although this approach introduces additional cache-invalidation "
+             "complexity, we recommend approving a one-week spike to prototype the solution.",
+         cap="the crisp proposal — a mini-RFC in one line: @&[:PROBLEM, FIX, TRADEOFF, ASK]. The : "
+             "plainly frames the problem, then the fix, the honest tradeoff, and the concrete ask"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
