@@ -64,6 +64,14 @@ SIMPLE = [
              "and is now impacting customers. It is essential that an owner be assigned to address this "
              "pipeline issue promptly.",
          cap="@~^_-1 — a heated rant becomes a clean, forwardable escalation"),
+    dict(name="drift", expr="^_-2 Δ ^_-1", pill="llm · Δ diff · reads your chat",
+         src="① let's do the full auth rewrite in Rust this quarter — memory-safety is worth it   →   "
+             "② actually let's just patch the memory leak for now and defer the rewrite to next year",
+         out="The scope shrank from a full quarter-long auth rewrite in Rust to a minimal memory-leak "
+             "patch, and the timeline shifted from immediate to indefinitely deferred; the justification "
+             "moved from a proactive value argument to a reactive stopgap.",
+         cap="Δ the drift — ^_-2 Δ ^_-1 diffs your last two turns, directionally (what was added, dropped, "
+             "or shifted). the new diff operator: before → after in one line — powers changelogs + course-corrections"),
     dict(name="considered-reply", expr="@(^-1 & 'phase it over two quarters, aligned to our Q3 roadmap')",
          pill="llm · reads your chat",
          src="I'd rewrite the auth service in Rust for the memory-safety guarantees and to kill the class of bugs we keep hitting.",
