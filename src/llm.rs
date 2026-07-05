@@ -1047,10 +1047,7 @@ pub fn realise_llm(
 /// # Errors
 /// Returns [`RealiseError::OperatorCommand`] on spawn failure or a non-zero exit.
 #[cfg(not(feature = "native"))]
-pub fn run_operator_command(
-    _command: &str,
-    _operands: &[String],
-) -> Result<String, RealiseError> {
+pub fn run_operator_command(_command: &str, _operands: &[String]) -> Result<String, RealiseError> {
     Err(RealiseError::OperatorCommand(
         "native operator-command backend unavailable in wasm build".to_owned(),
     ))
