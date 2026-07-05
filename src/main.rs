@@ -1110,7 +1110,7 @@ fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
     let interactive = !args.raw;
     if interactive {
         eprintln!(
-            "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:set`/`:get`/`:append-message`/`:quit`); Ctrl-D to exit."
+            "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:set`/`:get`/`:append-message`/`:quit`); Ctrl-D to exit."
         );
     }
     let stdin = io::stdin();
@@ -1340,11 +1340,27 @@ fn read_step_key() -> StepKey {
     }
 }
 
+/// `:new` — clear user context (all non-system keys + `_messages`) for a fresh
+/// start within the same REPL session, then persist (bd-56e593). Save is a
+/// no-op for a transient store. Confirmation goes to stderr so stdout stays
+/// clean for eval results.
+fn run_new(cli: &Cli) -> Result<(), i32> {
+    let mut ctx = open_context(cli)?;
+    ctx.clear_user();
+    if let Err(error) = ctx.save() {
+        eprintln!("nlir: context: {error}");
+        return Err(1);
+    }
+    eprintln!("nlir: context cleared — fresh start (keys + messages)");
+    Ok(())
+}
+
 fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
     let parts: Vec<&str> = meta.split_whitespace().collect();
     match parts.as_slice() {
         [] => Ok(()),
         ["quit" | "exit" | "q"] => std::process::exit(0),
+        ["new"] => run_new(cli),
         ["set", tail @ ..] if !tail.is_empty() => run_set(
             cli,
             &SetArgs {
@@ -1374,7 +1390,7 @@ fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
         ["step", tail @ ..] if !tail.is_empty() => run_step_view(cli, &tail.join(" ")),
         _ => {
             eprintln!(
-                "nlir repl: unknown meta-command ':{meta}' (try :step EXPR, :set KEY VALUE, :get KEY, :append-message [--role R] TEXT, :quit)"
+                "nlir repl: unknown meta-command ':{meta}' (try :new, :step EXPR, :set KEY VALUE, :get KEY, :append-message [--role R] TEXT, :quit)"
             );
             Err(2)
         }

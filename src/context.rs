@@ -351,6 +351,16 @@ impl Context {
         self.save()
     }
 
+    /// Clear user context for a fresh start: drop every non-system key and the
+    /// `_messages` array, preserving config-derived system keys (`_sep`,
+    /// `_cache`). Powers the repl `:new` command (bd-56e593). In-memory only;
+    /// call [`Context::save`] to persist (a no-op for a transient store).
+    pub fn clear_user(&mut self) {
+        let messages_key = self.messages_key.clone();
+        self.data.retain(|key, _| Self::is_system_key(key));
+        self.data.remove(&messages_key);
+    }
+
     /// Persist the context object to the active file (pretty JSON), creating
     /// parent directories as needed. A no-op for a transient store.
     pub fn save(&self) -> Result<(), ContextError> {
@@ -855,6 +865,26 @@ mod tests {
         assert!(path.is_file());
         let _ = fs::remove_file(&path);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clear_user_drops_keys_and_messages_keeps_system() {
+        let mut store = Context::empty(&cfg());
+        store.set("k", Value::from("v")).expect("set key");
+        store.set_transient("_sep", Value::from(", "));
+        store.append_message("user", "hi").expect("append message");
+        assert!(store.get("k").is_some());
+        assert_eq!(store.messages().len(), 1);
+
+        store.clear_user();
+
+        assert!(store.get("k").is_none(), "user key dropped");
+        assert!(store.messages().is_empty(), "messages cleared");
+        assert_eq!(
+            store.get("_sep").and_then(Value::as_str),
+            Some(", "),
+            "system key preserved"
+        );
     }
 
     // -- interpolation (bd-22fa7e) -----------------------------------------
