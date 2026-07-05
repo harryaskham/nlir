@@ -867,15 +867,26 @@ mod tests {
             "= = =".to_owned(),
             "=".to_owned(),
             "%%%%".to_owned(),
+            // quote-eval `{…}` form-quote + `%` form-apply (bd-5dd86f): the new
+            // recursive parse paths must also error-not-overflow on adversarial
+            // nesting and never panic on unbalanced/degenerate forms.
+            "{{{{{{".to_owned(),
+            "}}}}}}".to_owned(),
+            "{a%b}".to_owned(),
+            "{}%".to_owned(),
+            "{%}".to_owned(),
             "\u{1f680}&\u{1f389}?".to_owned(),
             "a".repeat(5000),
             "(".repeat(500),
             "&".repeat(500),
             "1+".repeat(500),
             "[a,".repeat(500),
+            "{".repeat(500),
+            "{$0+".repeat(500),
+            "a%".repeat(500),
         ];
 
-        let alphabet: &[u8] = b"abc()[]&|+-*!?;=$^`_#% \t\"'.,0123456789";
+        let alphabet: &[u8] = b"abc()[]{}&|+-*!?;=$^`_#% \t\"'.,0123456789";
         let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
         let mut next = || {
             state ^= state << 13;
