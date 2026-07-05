@@ -151,6 +151,9 @@ struct ShowArgs {
     /// Write the SVG to a file instead of stdout.
     #[arg(long, value_name = "PATH")]
     out: Option<PathBuf>,
+    /// Rasterise the graph SVG to a PNG file (via resvg).
+    #[arg(long, value_name = "PATH")]
+    png: Option<PathBuf>,
     /// Write one graph SVG per evaluation step (the animation frames) to a
     /// directory (--out DIR, default a temp dir) instead of the single static
     /// graph. The frame source G4's kitty animation / --save-animation consume.
@@ -614,6 +617,25 @@ fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
     Ok(())
 }
 
+/// Rasterise an SVG document string to PNG bytes via resvg (graph-viz G4,
+/// native-only). `nlir show --png` + the kitty animation build on this; the
+/// browser (G5) renders the SAME SVG directly, so PNG and DOM stay identical.
+/// System fonts are loaded so the SVG's 'Fira Code' labels render (falling back
+/// to a monospace face if Fira Code is not installed on the host).
+fn svg_to_png(svg: &str) -> Result<Vec<u8>, String> {
+    use resvg::{tiny_skia, usvg};
+    let mut opt = usvg::Options::default();
+    opt.fontdb_mut().load_system_fonts();
+    let tree = usvg::Tree::from_str(svg, &opt).map_err(|error| format!("rasterise: {error}"))?;
+    let size = tree.size().to_int_size();
+    let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height())
+        .ok_or_else(|| "rasterise: could not allocate the pixmap".to_string())?;
+    resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
+    pixmap
+        .encode_png()
+        .map_err(|error| format!("encode png: {error}"))
+}
+
 /// `nlir show 'EXPR'` — render EXPR's computational dataflow graph as a
 /// self-contained SVG (graph-viz epic bd-8ac9ad, G3). The graph is the AST with
 /// variable-binding references RESOLVED into edges (an `Assign` node feeds every
@@ -682,6 +704,27 @@ fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
     };
     let graph = nlir::graph::Graph::from_program(&program);
     let svg = nlir::graph_svg::render(&graph);
+    if let Some(path) = &args.png {
+        let png = match svg_to_png(&svg) {
+            Ok(png) => png,
+            Err(error) => {
+                eprintln!("nlir show: {error}");
+                return Err(1);
+            }
+        };
+        if let Err(error) = std::fs::write(path, &png) {
+            eprintln!("nlir show: writing {}: {error}", path.display());
+            return Err(1);
+        }
+        if !cli.quiet {
+            eprintln!(
+                "nlir show: wrote {} bytes of PNG to {}",
+                png.len(),
+                path.display()
+            );
+        }
+        return Ok(());
+    }
     if let Some(path) = &args.out {
         if let Err(error) = std::fs::write(path, &svg) {
             eprintln!("nlir show: writing {}: {error}", path.display());
