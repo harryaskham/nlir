@@ -24,7 +24,7 @@ body {
 a { color:var(--teal); text-decoration:none; } a:hover { text-decoration:underline; }
 
 /* top bar */
-nav { position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:1rem;
+nav { position:sticky; top:0; z-index:30; display:flex; align-items:center; flex-wrap:wrap; gap:.5rem 1rem;
   padding:.65rem 1.4rem; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
   background:rgba(18,10,38,.72); border-bottom:1px solid rgba(168,85,247,.18); }
 nav .brand { font-family:var(--mono); font-weight:700; font-size:1.05rem; color:#fff; letter-spacing:-.5px; margin-right:auto; }
@@ -36,7 +36,9 @@ nav a { color:var(--muted); font-weight:500; font-size:.9rem; } nav a:hover { co
 /* layout */
 .wrap { max-width:80rem; margin:0 auto; padding:1.6rem 1.4rem 4rem; display:grid; grid-template-columns:1fr 22rem; gap:1.4rem; align-items:start; }
 @media (max-width:900px){ .wrap { grid-template-columns:1fr; } }
-.col { display:flex; flex-direction:column; gap:1.2rem; }
+/* min-width:0 lets a 1fr grid column shrink instead of blowing out on wide
+   content (long output tokens, op descriptions) — bd-4cfa33. */
+.col { display:flex; flex-direction:column; gap:1.2rem; min-width:0; }
 
 /* panel */
 .panel { background:var(--panel); border:1px solid var(--panel-border); border-radius:16px; padding:1.1rem 1.2rem; box-shadow:0 14px 38px rgba(0,0,0,.32); }
@@ -45,7 +47,7 @@ nav a { color:var(--muted); font-weight:500; font-size:.9rem; } nav a:hover { co
 
 /* expr bar */
 .exprbar { display:flex; gap:.6rem; flex-wrap:wrap; }
-.exprbar input { flex:1 1 20rem; font-family:var(--mono); font-size:1.05rem; color:#efeaff; background:var(--code-bg);
+.exprbar input { flex:1 1 20rem; min-width:0; font-family:var(--mono); font-size:1.05rem; color:#efeaff; background:var(--code-bg);
   border:1px solid var(--code-border); border-radius:12px; padding:.75rem 1rem; box-shadow:0 12px 34px rgba(0,0,0,.4) inset; }
 .exprbar input:focus { outline:none; border-color:var(--violet); }
 button { font-family:var(--mono); font-size:.9rem; cursor:pointer; border:none; border-radius:12px; padding:.7rem 1.15rem; transition:transform .12s, box-shadow .12s, background .12s; }
@@ -72,9 +74,12 @@ button.ghost { border:1px solid var(--panel-border); color:var(--muted); backgro
 textarea { width:100%; font-family:var(--mono); font-size:.82rem; line-height:1.5; color:#efeaff; background:var(--code-bg);
   border:1px solid var(--code-border); border-radius:12px; padding:.8rem; resize:vertical; min-height:9rem; }
 textarea:focus { outline:none; border-color:var(--violet); }
-.row { display:flex; gap:.5rem; align-items:center; margin:.4rem 0; }
+.row { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin:.4rem 0; min-width:0; }
 .row input, .row select { font-family:var(--mono); font-size:.82rem; color:#efeaff; background:var(--code-bg); border:1px solid var(--code-border); border-radius:8px; padding:.4rem .55rem; }
-.row .k { flex:0 0 6rem; } .row .v { flex:1; } .row .role { flex:0 0 6.5rem; } .row .txt { flex:1; }
+/* flex:1 inputs need min-width:0 (overriding the intrinsic input min-content
+   width) or they refuse to shrink and shove the ✕ / + buttons out of the
+   panel on the narrow right column — bd-4cfa33. */
+.row .k { flex:0 0 6rem; } .row .v { flex:1 1 0; min-width:0; } .row .role { flex:0 0 6.5rem; } .row .txt { flex:1 1 0; min-width:0; }
 .row button.x { flex:0 0 auto; padding:.35rem .6rem; font-size:.75rem; color:var(--dim); background:transparent; border:1px solid var(--panel-border); }
 .msg { font-family:var(--sans); }
 small.note { color:var(--dim); font-size:.76rem; display:block; margin-top:.5rem; }
@@ -101,3 +106,14 @@ button.graph { border:1px solid rgba(125,211,252,.4); color:var(--teal); backgro
 .animctl input[type=range] { flex:1; accent-color:var(--violet); height:4px; }
 .animctl input[type=range][hidden] { display:none; }
 .framecap { font-family:var(--mono); font-size:.82rem; color:var(--muted); white-space:nowrap; }
+
+/* overflow containment (bd-4cfa33) — arbitrary realised text / long single
+   tokens (expressions, LLM output, op descriptions) must WRAP inside their
+   card, never widen it or force a horizontal scroll. Pairs with the min-width:0
+   flex/grid fixes above (a flex/grid child only wraps once it is allowed to
+   shrink below its content's intrinsic width). */
+.output, .output .result, .err { overflow-wrap:anywhere; word-break:break-word; }
+.steps .step { min-width:0; }
+.steps .step .x { min-width:0; overflow-wrap:anywhere; word-break:break-word; }
+.ops .op { min-width:0; }
+.ops .op .ds { overflow-wrap:anywhere; word-break:break-word; }
