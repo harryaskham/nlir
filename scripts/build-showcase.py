@@ -246,6 +246,19 @@ GRID = [
              ("~$k  its own one-line gist", "End-to-end checkout testing (starting with payment) is recommended "
               "before launch, but only if it doesn't risk the timeline, given limited QA capacity this quarter."),
          ]),
+    dict(name="honest-yes", expr="[@(^-1 & '<your amendment>'), ~>!^-1]", pill="llm · reply, then red-teams it",
+         claim="[agent] we should rewrite the auth service in Rust — for the memory-safety guarantees, to kill the class of bugs we keep hitting",
+         cap="the honest yes \u2014 accept + amend their proposal (@(^-1 & '…')), then auto-surface the strongest "
+             "case AGAINST it (~>!^-1). one move that replies AND red-teams itself \u2014 say yes without fooling "
+             "yourself. reusable after any tempting proposal.",
+         cols=1, cells=[
+             ("@(^-1 & '…')  your reply", "I would recommend rewriting the authentication service in Rust to obtain "
+              "its memory-safety guarantees and eliminate the recurring class of bugs we continue to encounter \u2014 "
+              "implemented over two quarters, in alignment with our Q3 roadmap."),
+             ("~>!^-1  the catch", "The strongest case against: most of the service's bugs are logic errors rather "
+              "than memory-safety issues, so hardening the existing code is likely more cost-effective than a risky, "
+              "time-consuming full rewrite."),
+         ]),
 ]
 
 # --- lightweight nlir syntax highlighter --------------------------------------
