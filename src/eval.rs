@@ -313,10 +313,9 @@ fn as_value(expr: &Expr) -> Option<Value> {
             interpolate: false,
         } => Some(Value::string(content.clone())),
         Expr::Group(inner) | Expr::Serial(inner) => as_value(inner),
-        // A quoted form `{…}` is a value: its inner is NOT evaluated. Placeholder
-        // until Value::Form (aur-2, bd-5dd86f) — yields the inner source text;
-        // rewired to Some(Value::Form(inner.clone())) with %-apply next.
-        Expr::Quote(inner) => Some(Value::string(inner.render())),
+        // A quoted form `{…}` is a value: its inner is NOT evaluated. Yields a
+        // Value::Form carrying the inner AST (code-as-data, bd-5dd86f).
+        Expr::Quote(inner) => Some(Value::form((**inner).clone())),
         Expr::List(items) => items
             .iter()
             .map(as_value)
@@ -460,10 +459,9 @@ impl<'a> Evaluator<'a> {
             })),
             Expr::Number(n) => Ok(Value::number(*n)),
             // A quoted form `{…}` does NOT evaluate its inner; it yields the form
-            // as data. Placeholder until Value::Form (aur-2, bd-5dd86f): the
-            // inner source text for now; rewired to Value::Form(inner) + the
-            // %-apply operator + the $N argument-frame next.
-            Expr::Quote(inner) => Ok(Value::string(inner.render())),
+            // as data (Value::Form). Application (`%`) evaluates it with $N bound
+            // to the arguments (bd-5dd86f).
+            Expr::Quote(inner) => Ok(Value::form((**inner).clone())),
             Expr::ContextRead(name) => self.read_context(name),
             Expr::StackPeek => self
                 .stack
@@ -1265,9 +1263,9 @@ fn eval_parallel_safe(
             content.clone()
         })),
         Expr::Number(n) => Ok(Value::number(*n)),
-        // A quoted form is inert data (its inner is not evaluated) — its value is
-        // the form (placeholder: inner source text until Value::Form, bd-5dd86f).
-        Expr::Quote(inner) => Ok(Value::string(inner.render())),
+        // A quoted form is inert data (its inner is not evaluated): a Value::Form
+        // carrying the inner AST (bd-5dd86f).
+        Expr::Quote(inner) => Ok(Value::form((**inner).clone())),
         Expr::ContextRead(name) => context
             .get(name)
             .map(json_to_value)
