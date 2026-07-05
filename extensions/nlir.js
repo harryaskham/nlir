@@ -36,7 +36,69 @@ function errText(err) {
   return String(msg).trim();
 }
 
+// --- nlir-mode editor tint -------------------------------------------------
+// When your input begins with `|` (nlir shorthand mode), colour the editor
+// border YELLOW so you can see at a glance you're in nlir mode — mirroring the
+// way pi tints the border in bash mode (`!` prefix). Implemented as a custom
+// editor component (there is no as-you-type input event; the editor re-renders
+// per keystroke, so overriding its border colour reflects the live buffer).
+const NLIR_YELLOW = "\x1b[93m"; // bright yellow
+const ANSI_RESET = "\x1b[0m";
+const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+/** Register the nlir-mode yellow-border editor, degrading silently if the
+ *  running pi build doesn't expose CustomEditor / setEditorComponent. */
+async function installNlirModeEditor(ctx) {
+  try {
+    if (!ctx?.ui || typeof ctx.ui.setEditorComponent !== "function") return;
+    const mod = await import("@earendil-works/pi-coding-agent");
+    const CustomEditor = mod?.CustomEditor;
+    if (!CustomEditor) return;
+
+    const inNlirMode = (self) => {
+      try {
+        return typeof self.getText === "function" && self.getText().startsWith("|");
+      } catch {
+        return false;
+      }
+    };
+
+    class NlirModeEditor extends CustomEditor {
+      // If the base editor routes all border chars through borderColor(), this
+      // yellows the whole box in nlir mode.
+      borderColor(text) {
+        if (inNlirMode(this)) return NLIR_YELLOW + text + ANSI_RESET;
+        return super.borderColor(text);
+      }
+
+      // Belt-and-suspenders: recolour the top/bottom border lines directly, so
+      // the yellow shows even if the base border isn't drawn via borderColor().
+      render(width) {
+        const lines = super.render(width);
+        try {
+          if (inNlirMode(this) && lines.length >= 2) {
+            lines[0] = NLIR_YELLOW + stripAnsi(lines[0]) + ANSI_RESET;
+            lines[lines.length - 1] = NLIR_YELLOW + stripAnsi(lines[lines.length - 1]) + ANSI_RESET;
+          }
+        } catch {
+          /* fall back to the un-tinted lines on any render error */
+        }
+        return lines;
+      }
+    }
+
+    ctx.ui.setEditorComponent((tui, theme, keybindings) => new NlirModeEditor(tui, theme, keybindings));
+  } catch {
+    /* CustomEditor unavailable or wiring failed — the `|` expansion still works. */
+  }
+}
+
 export default function (pi) {
+  // Yellow editor border while you're typing an nlir expression (leading `|`).
+  pi.on("session_start", async (_event, ctx) => {
+    await installNlirModeEditor(ctx);
+  });
+
   // `|expr` -> expand via nlir, then continue with the English (transform), so a
   // terse nlir line becomes the fluent message the model sees.
   pi.on("input", async (event, ctx) => {
