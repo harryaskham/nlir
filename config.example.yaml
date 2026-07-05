@@ -358,6 +358,15 @@ tests:
   form-quote-strop: { mode: det, expr: "{a&b}",      expected: "{(a & b)}" }
   form-quote-prec:  { mode: det, expr: "{1+2*3}",    expected: "{(1 + (2 * 3))}" }
   form-bind-read:   { mode: det, expr: "f={2+3};$f", expected: "{(2 + 3)}" }
+  # quote-eval apply (bd-5dd86f): `%` calls a form, binding args to $0/$1… from an
+  # argument frame — tuple `%(a,b)` ≡ list `%[a,b]` ≡ single `%x`. The frame is
+  # hygienic: a form's $0 is its argument, not the run-stack top (`9;{$0}%7`→7).
+  apply-inc:        { mode: det, expr: "{$0+1}%5",      expected: "6" }
+  apply-add2:       { mode: det, expr: "{$0+$1}%(2,3)", expected: "5" }
+  apply-add2-list:  { mode: det, expr: "{$0+$1}%[2,3]", expected: "5" }
+  apply-id:         { mode: det, expr: "{$0}%7",        expected: "7" }
+  apply-mul:        { mode: det, expr: "{$0*$1}%(3,4)", expected: "12" }
+  apply-hygiene:    { mode: det, expr: "9;{$0}%7",      expected: "7" }
   msg:
     mode: det
     context:
