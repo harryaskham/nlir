@@ -20,7 +20,7 @@ same config, so they stay in sync.
 A move is built from three kinds of step, and they nest:
 
 1. **SELECT** what you're acting on — a literal `'...'`, or a slice of the live chat via message
-   ranges: `^-1` (last), `^_-1` (their last), `0^*-2` (all but the last), ...
+   ranges: `^-1` (last), `^_-1` (their last), `^*` (all — the whole thread), `0^*-2` (all but the last), ...
 2. **TRANSFORM** it — `@` formalise · `:` simplify/plain · `~` distil · `>` expand · `#` subject ·
    `!` negate.
 3. **COMPOSE** several pieces into one — `&[a, b, c]` weaves them into one coherent text.

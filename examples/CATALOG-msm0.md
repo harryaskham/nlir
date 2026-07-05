@@ -19,6 +19,7 @@ address (see `golf-msm0-40-selection.sh`).
 ## Forward (max-concept) — `golf-msm0-*`
 
 ### Conversation ranges (the SELECT half — my signature)
+*A bare view sigil = its whole channel: `^*` ≡ `0^*-1` (whole thread) · `^_` ≡ all user · `^` ≡ all assistant · `^/` ≡ all system. So every `~0^*-1` form below also writes as `~^*` — the range spelled out here for clarity, the bare form for speed.*
 - `01-history`  crux `#~0^*-1` — auto-title a whole chat
 - `03-arc`  `~(^_0&^-1)` — first user ask + last assistant answer = the takeaway
 - `04-twosides`  `[~0^_-1,~0^-1]` — role-scoped ranges: their side | our side
