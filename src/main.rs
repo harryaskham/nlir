@@ -2252,6 +2252,28 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
 
+    // The operator palette (Ctrl-P) swallows input: navigate + Enter inserts the
+    // selected sigil into the expression; Esc / Ctrl-P close.
+    if wb.is_palette_open() {
+        match key.code {
+            KeyCode::Esc => wb.close_palette(),
+            KeyCode::Char('c') if ctrl => wb.close_palette(),
+            KeyCode::Char('p') if ctrl => wb.close_palette(),
+            KeyCode::Up | KeyCode::Char('k') => wb.palette_up(),
+            KeyCode::Down | KeyCode::Char('j') => wb.palette_down(),
+            KeyCode::Enter => {
+                if let Some(sigil) = wb.selected_op_sigil() {
+                    wb.close_palette();
+                    wb.focus_expr();
+                    wb.editor.insert_str(&sigil);
+                    wb.set_status(format!("inserted  {sigil}"));
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
+
     // A pending destructive-session action swallows input until y/n.
     if wb.is_confirming() {
         match key.code {
@@ -2322,6 +2344,11 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
         }
         KeyCode::BackTab => {
             wb.focus_prev();
+            return;
+        }
+        // Ctrl-P opens the operator palette from any pane.
+        KeyCode::Char('p') if ctrl => {
+            wb.open_palette(tui_build_operators(cli));
             return;
         }
         _ => {}
@@ -2549,6 +2576,37 @@ fn tui_build_sessions(cli: &Cli) -> Vec<tui::SessionEntry> {
         .map(|path| {
             let summary = session_summary(&path);
             tui::SessionEntry { path, summary }
+        })
+        .collect()
+}
+
+/// Build the operator-palette rows from the config, sorted like `nlir help`
+/// (by fixity, then tighter binding, then sigil).
+fn tui_build_operators(cli: &Cli) -> Vec<tui::OpEntry> {
+    use nlir::config::Fixity;
+    let Ok(cfg) = resolve_config(cli) else {
+        return Vec::new();
+    };
+    let rank = |fixity: Fixity| match fixity {
+        Fixity::Prefix => 0u8,
+        Fixity::Infix => 1,
+        Fixity::Postfix => 2,
+        Fixity::Mixfix => 3,
+    };
+    let mut ops: Vec<(&String, &nlir::config::OperatorConfig)> = cfg.operators.iter().collect();
+    ops.sort_by(|(na, a), (nb, b)| {
+        rank(a.fixity)
+            .cmp(&rank(b.fixity))
+            .then_with(|| b.priority.unwrap_or(9).cmp(&a.priority.unwrap_or(9)))
+            .then_with(|| a.op.cmp(&b.op))
+            .then_with(|| na.cmp(nb))
+    });
+    ops.into_iter()
+        .map(|(name, op)| tui::OpEntry {
+            sigil: op.op.clone(),
+            name: (*name).clone(),
+            summary: op.summary().to_string(),
+            deterministic: op.is_deterministic(),
         })
         .collect()
 }

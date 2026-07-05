@@ -61,6 +61,16 @@ pub struct ContextEntry {
     pub value: String,
 }
 
+/// One operator row in the Ctrl-P palette: sigil, name, one-line summary, and
+/// whether it evaluates deterministically (offline) or needs an LLM.
+#[derive(Debug, Clone)]
+pub struct OpEntry {
+    pub sigil: String,
+    pub name: String,
+    pub summary: String,
+    pub deterministic: bool,
+}
+
 /// What an active modal edit will commit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditKind {
@@ -90,6 +100,12 @@ pub enum ConfirmAction {
     PruneSessions(usize),
 }
 
+/// The open operator palette: the derived operator list + the selected row.
+struct PaletteState {
+    entries: Vec<OpEntry>,
+    selected: usize,
+}
+
 /// The pure workbench state. `main.rs` mutates it via the methods here and reads
 /// it back to render; it performs no IO itself.
 pub struct Workbench {
@@ -110,6 +126,8 @@ pub struct Workbench {
     editing: Option<EditState>,
     /// A destructive session action awaiting y/n confirmation.
     confirm: Option<(String, ConfirmAction)>,
+    /// The open operator palette (Ctrl-P), if any.
+    palette: Option<PaletteState>,
 }
 
 impl Workbench {
@@ -129,6 +147,7 @@ impl Workbench {
             should_quit: false,
             editing: None,
             confirm: None,
+            palette: None,
         }
     }
 
@@ -292,6 +311,53 @@ impl Workbench {
     pub fn cancel_confirm(&mut self) {
         self.confirm = None;
     }
+
+    /// Whether the operator palette (Ctrl-P) is open.
+    pub fn is_palette_open(&self) -> bool {
+        self.palette.is_some()
+    }
+
+    /// Open the operator palette with the derived operator list.
+    pub fn open_palette(&mut self, entries: Vec<OpEntry>) {
+        self.palette = Some(PaletteState {
+            entries,
+            selected: 0,
+        });
+    }
+
+    /// Close the operator palette.
+    pub fn close_palette(&mut self) {
+        self.palette = None;
+    }
+
+    /// Move the palette selection up.
+    pub fn palette_up(&mut self) {
+        if let Some(palette) = self.palette.as_mut() {
+            palette.selected = palette.selected.saturating_sub(1);
+        }
+    }
+
+    /// Move the palette selection down.
+    pub fn palette_down(&mut self) {
+        if let Some(palette) = self.palette.as_mut()
+            && palette.selected + 1 < palette.entries.len()
+        {
+            palette.selected += 1;
+        }
+    }
+
+    /// The sigil of the palette's selected operator, if any.
+    pub fn selected_op_sigil(&self) -> Option<String> {
+        self.palette
+            .as_ref()
+            .and_then(|palette| palette.entries.get(palette.selected))
+            .map(|entry| entry.sigil.clone())
+    }
+
+    /// Focus the expression pane (used after inserting a palette operator).
+    pub fn focus_expr(&mut self) {
+        self.focus = Pane::Expr;
+    }
 }
 
 /// Draw the whole workbench for one frame.
@@ -332,6 +398,10 @@ pub fn render(frame: &mut Frame, wb: &Workbench) {
     if wb.is_editing() {
         render_edit_modal(frame, area, wb);
     }
+    // The operator palette floats above everything (Ctrl-P).
+    if wb.is_palette_open() {
+        render_palette(frame, area, wb);
+    }
 }
 
 fn pane_block(title: &str, focused: bool) -> Block<'_> {
@@ -368,6 +438,8 @@ fn render_help(frame: &mut Frame, area: Rect, wb: &Workbench) {
         Span::raw(" pane · "),
         Span::styled("Enter", Style::default().fg(Color::Yellow)),
         Span::raw(" eval/restore · "),
+        Span::styled("Ctrl-P", Style::default().fg(Color::Yellow)),
+        Span::raw(" ops · "),
         Span::styled("Ctrl-D/Esc", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]);
@@ -577,6 +649,86 @@ fn centered_fixed(area: Rect, width: u16, height: u16) -> Rect {
     }
 }
 
+/// Draw the operator palette overlay (Ctrl-P): the derived operator list with
+/// the selected row highlighted, plus a one-line key hint.
+fn render_palette(frame: &mut Frame, area: Rect, wb: &Workbench) {
+    let Some(palette) = wb.palette.as_ref() else {
+        return;
+    };
+    let height = (palette.entries.len() as u16 + 4).clamp(6, area.height.saturating_sub(2).max(6));
+    let modal = centered_fixed(area, 68, height);
+    frame.render_widget(Clear, modal);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .title(Span::styled(
+            " Operators (Ctrl-P) ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(modal);
+    frame.render_widget(block, modal);
+    if inner.height < 2 {
+        return;
+    }
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+    let items: Vec<ListItem> = palette
+        .entries
+        .iter()
+        .map(|entry| {
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!("{:<4}", entry.sigil),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:<11}", entry.name),
+                    Style::default().fg(Color::Green),
+                ),
+                Span::raw(entry.summary.clone()),
+                Span::styled(
+                    if entry.deterministic {
+                        "  det"
+                    } else {
+                        "  llm"
+                    },
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]))
+        })
+        .collect();
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▶ ");
+    let mut state = ListState::default();
+    if !palette.entries.is_empty() {
+        state.select(Some(palette.selected.min(palette.entries.len() - 1)));
+    }
+    frame.render_stateful_widget(list, rows[0], &mut state);
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "↑↓ select · Enter insert sigil · Esc close",
+            Style::default().fg(Color::DarkGray),
+        )),
+        rows[1],
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -758,5 +910,36 @@ mod tests {
         wb.cancel_confirm();
         assert!(!wb.is_confirming());
         assert!(wb.take_confirm().is_none());
+    }
+
+    #[test]
+    fn palette_open_navigate_select_close() {
+        let mut wb = sample();
+        assert!(!wb.is_palette_open());
+        wb.open_palette(vec![
+            OpEntry {
+                sigil: "~".into(),
+                name: "distil".into(),
+                summary: "distil to essence".into(),
+                deterministic: false,
+            },
+            OpEntry {
+                sigil: "@&".into(),
+                name: "compose".into(),
+                summary: "weave into one".into(),
+                deterministic: false,
+            },
+        ]);
+        assert!(wb.is_palette_open());
+        assert_eq!(wb.selected_op_sigil().as_deref(), Some("~"));
+        wb.palette_down();
+        assert_eq!(wb.selected_op_sigil().as_deref(), Some("@&"));
+        wb.palette_down(); // clamp at last
+        assert_eq!(wb.selected_op_sigil().as_deref(), Some("@&"));
+        wb.palette_up();
+        assert_eq!(wb.selected_op_sigil().as_deref(), Some("~"));
+        wb.close_palette();
+        assert!(!wb.is_palette_open());
+        assert!(wb.selected_op_sigil().is_none());
     }
 }
