@@ -408,6 +408,53 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
         );
     }
     println!();
+    // Special forms: grammar-level sigils that are NOT config `operators:` (message
+    // addressing, stack/interpolation, binding, sequence, grouping, strings). Curated
+    // because they live in the lexer/parser, not the config, so they can't be derived.
+    println!("{}", bold("special forms — grammar, not config operators:"));
+    let special: &[(&str, &str)] = &[
+        (
+            "$name",
+            "read a bound value; $0 $1 … are positional operands. Interpolates inside \"double-quoted\" strings.",
+        ),
+        (
+            "=",
+            "bind a value to a name (k = 'x'), then reuse it as $k. The RHS may compute (k = 2+3).",
+        ),
+        (
+            ";",
+            "sequence: run statements left-to-right; the value is the LAST statement.",
+        ),
+        (
+            "^",
+            "message addressing: ^ all assistant · ^_ all user · ^* whole thread · ^/ system.",
+        ),
+        (
+            "^-1",
+            "one message or a range: ^-1 last assistant · ^_-1 your last · ^_-2..^_-1 your last two.",
+        ),
+        (
+            "`",
+            "serial: force a subtree to run one-at-a-time (no parallelism).",
+        ),
+        (
+            "( )",
+            "grouping — evaluate first (precedence). [ ] is a list: [a, b, c].",
+        ),
+        (
+            "\" \" / ' '",
+            "strings: \"double\" interpolates $name; 'single' is literal.",
+        ),
+    ];
+    let sw2 = special
+        .iter()
+        .map(|(s, _)| s.chars().count())
+        .max()
+        .unwrap_or(6);
+    for (sig, desc) in special {
+        println!("  {:<w$}  {}", sig, dim(desc), w = sw2);
+    }
+    println!();
     println!(
         "{}",
         dim(
