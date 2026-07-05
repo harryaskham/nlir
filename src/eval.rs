@@ -1480,6 +1480,10 @@ fn value_to_json(value: &Value) -> Json {
         }
         Value::Bool(flag) => Json::Bool(*flag),
         Value::List(items) => Json::Array(items.iter().map(value_to_json).collect()),
+        // A form persists as its braced source string (v1): it reloads as a
+        // String, not a Form. Form round-trip through context is a follow-up
+        // (a tagged JSON representation) once forms are commonly bound/persisted.
+        Value::Form(inner) => Json::String(format!("{{{}}}", inner.render())),
     }
 }
 

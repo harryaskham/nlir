@@ -19,6 +19,7 @@
 use std::fmt;
 
 use crate::config::TypeName;
+use crate::parser::Expr;
 
 /// Default list/range → text separator (SPEC `_sep`, default `"\n"`).
 ///
@@ -43,6 +44,13 @@ pub enum Value {
     /// An ordered list of values. Renders by joining each element's rendering
     /// with the active separator (`_sep`).
     List(Vec<Value>),
+    /// A quoted form (`{…}`): an unevaluated [`Expr`] carried as a first-class
+    /// value (code-as-data). Produced by evaluating an [`Expr::Quote`]; only the
+    /// application operator (`%`) consumes it as *callable*. Every other operator
+    /// sees its rendered inner source (the op×Form rule), so a form coerces to
+    /// its source text in any non-form slot. Renders (output/Display) WITH braces
+    /// — `{(2 + 3)}` — so it round-trips against [`Expr::Quote`].
+    Form(Box<Expr>),
 }
 
 impl Value {
@@ -70,6 +78,12 @@ impl Value {
         Value::List(items)
     }
 
+    /// Construct a [`Value::Form`] from an [`Expr`] (a quoted form / code-as-data).
+    #[must_use]
+    pub fn form(expr: Expr) -> Self {
+        Value::Form(Box::new(expr))
+    }
+
     /// The [`TypeName`] of this value — the shared type tag used by operator
     /// `operands:` / `result:` declarations and the coercion layer.
     #[must_use]
@@ -79,6 +93,7 @@ impl Value {
             Value::Number(_) => TypeName::Number,
             Value::Bool(_) => TypeName::Bool,
             Value::List(_) => TypeName::List,
+            Value::Form(_) => TypeName::Form,
         }
     }
 
@@ -92,6 +107,7 @@ impl Value {
                 | (Value::Number(_), TypeName::Number)
                 | (Value::Bool(_), TypeName::Bool)
                 | (Value::List(_), TypeName::List)
+                | (Value::Form(_), TypeName::Form)
         )
     }
 
@@ -151,6 +167,10 @@ impl Value {
                 .map(|item| item.render(sep))
                 .collect::<Vec<_>>()
                 .join(sep),
+            // A form renders WITH braces so bare output/Display reads as a form
+            // and round-trips against `Expr::Quote` (`{(2 + 3)}`). Operand
+            // coercion uses the INNER source instead (see `coerce_deterministic`).
+            Value::Form(inner) => format!("{{{}}}", inner.render()),
         }
     }
 
@@ -178,6 +198,13 @@ impl Value {
         if self.is_type(target) {
             return Some(self.clone());
         }
+        // op×Form: a form in a NON-form slot coerces via its INNER source (no
+        // braces), so a non-application operator operates on the source text
+        // (`@{a+b}` → "a + b", `{2+3}` in a numeric slot → "2 + 3" → parse). The
+        // callable-form path is the application operator only.
+        if let Value::Form(inner) = self {
+            return Value::String(inner.render()).coerce_deterministic(target, sep);
+        }
         // Step 2: deterministic parses/renders. Anything not handled here is
         // `None` (defer to the LLM fallback / loud-error layers).
         match target {
@@ -197,6 +224,10 @@ impl Value {
             },
             // No deterministic scalar → list rule (already-list handled above).
             TypeName::List => None,
+            // No deterministic rule turns a non-form value INTO a form (quoting is
+            // syntactic: `{…}`). A form in a non-form slot is handled above via its
+            // inner source, so this arm is only reached for non-form self → form.
+            TypeName::Form => None,
         }
     }
 
@@ -221,6 +252,15 @@ impl Value {
     /// # Errors
     /// Returns [`CoerceError`] when the value cannot be represented as `target`.
     pub fn coerce(&self, target: TypeName, sep: &str) -> Result<Value, CoerceError> {
+        // op×Form: a form coerces via its inner source in any non-form slot, so the
+        // source string carries through BOTH the deterministic and (future) LLM
+        // coercion — `{2+3}` → number tries "2 + 3", never the braced form.
+        if let Value::Form(inner) = self {
+            if target == TypeName::Form {
+                return Ok(self.clone());
+            }
+            return Value::String(inner.render()).coerce(target, sep);
+        }
         // `list → number` is structurally impossible: a loud error in every
         // mode, and never routed to the LLM fallback.
         if matches!((self, target), (Value::List(_), TypeName::Number)) {
@@ -767,5 +807,33 @@ mod tests {
         // Truncated to the bound + a single-char ellipsis marker.
         assert!(err.source.chars().count() <= COERCE_ERROR_SOURCE_MAX + 1);
         assert!(err.source.ends_with('…'));
+    }
+
+    #[test]
+    fn form_value_renders_braced_and_coerces_via_inner_source() {
+        use crate::parser::Expr;
+        // A quoted form (`{…}`) carries an unevaluated Expr as first-class data.
+        let form = Value::form(Expr::Number(5.0));
+        assert_eq!(form.type_name(), TypeName::Form);
+        assert!(form.is_type(TypeName::Form));
+        // Output / Display render WITH braces, so it round-trips against Expr::Quote.
+        assert_eq!(form.render(DEFAULT_SEP), "{5}");
+        assert_eq!(form.to_string(), "{5}");
+        // op×Form: a form in a non-form slot coerces to its INNER source (no braces),
+        // so a non-application operator operates on the source text.
+        assert_eq!(
+            form.coerce(TypeName::String, DEFAULT_SEP).unwrap(),
+            Value::String("5".to_owned())
+        );
+        // The inner source flows through to numeric coercion ("5" parses to 5).
+        assert_eq!(
+            form.coerce(TypeName::Number, DEFAULT_SEP).unwrap(),
+            Value::Number(5.0)
+        );
+        // A form stays a form for a form slot (the application-operand path).
+        assert_eq!(
+            form.coerce(TypeName::Form, DEFAULT_SEP).unwrap(),
+            form.clone()
+        );
     }
 }

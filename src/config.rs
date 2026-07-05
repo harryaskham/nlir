@@ -412,6 +412,10 @@ pub enum TypeName {
     Number,
     Bool,
     List,
+    /// A quoted form value (`{…}`) — an unevaluated expression carried as data
+    /// (code-as-data). Only the application operator (`%`) consumes a form as
+    /// *callable*; every other operator sees its rendered inner source (op×Form).
+    Form,
 }
 
 impl TypeName {
@@ -425,6 +429,7 @@ impl TypeName {
             TypeName::Number => "number",
             TypeName::Bool => "bool",
             TypeName::List => "list",
+            TypeName::Form => "form",
         }
     }
 }
