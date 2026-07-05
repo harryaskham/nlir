@@ -146,6 +146,14 @@ SIMPLE = [
          cap="the composer @&[...] — weave several points (acknowledge + agree + modify + caveat) into one "
              "polished reply; each slot is transformable (: plain their point) and the leading op dials "
              "tone (@ formal / : warm)"),
+    dict(name="empathetic-redirect",
+         expr=":&['acknowledge the team is frustrated the deploy keeps breaking','they are right that the current process is painful','but the real root cause is skipped tests, not the tooling','so from friday every merge runs the test suite first']",
+         pill="llm · claude-sonnet-5",
+         out="The team feels upset because the program keeps breaking, and they're right — that's been really "
+             "annoying. But the real reason isn't the tools. It's that we skipped testing our work before "
+             "making changes. So starting Friday, every change will be tested first before it's allowed in.",
+         cap="the empathetic redirect — validate + agree + reframe + fix woven into one warm message; the "
+             "leading : dials a WARM tone (swap @ for a formal announcement, same slots)"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
