@@ -496,7 +496,19 @@ fn render_json(value: &Value, sep: &str) -> String {
             .collect::<Vec<_>>()
             .join(sep),
         Value::Null => String::new(),
-        Value::Object(_) => value.to_string(),
+        Value::Object(map) => {
+            // A persisted form (bd-5dd86f) is a lone `{"__nlir_form__": "<src>"}`
+            // object; display it as its braced form `{<src>}` (mirroring
+            // Value::Form's Display) instead of the raw tagged JSON (bd-c81e06).
+            // The tag string must match eval.rs FORM_TAG.
+            if map.len() == 1
+                && let Some(Value::String(source)) = map.get("__nlir_form__")
+            {
+                format!("{{{source}}}")
+            } else {
+                value.to_string()
+            }
+        }
     }
 }
 
@@ -766,6 +778,29 @@ mod tests {
         assert_eq!(store.render_key("greeting").as_deref(), Some("hello"));
         assert_eq!(store.render_key("items").as_deref(), Some("a,b"));
         assert_eq!(store.render_key("missing"), None);
+    }
+
+    #[test]
+    fn persisted_form_renders_as_braces_not_raw_json() {
+        // A form persisted to context (bd-5dd86f) is a lone `{__nlir_form__: "<src>"}`
+        // object; render_key must show its braced form, not the raw tagged JSON
+        // (bd-c81e06: dogfooded via the nlir tui Context pane — the same divergence
+        // hits `nlir get` and the REPL context view).
+        let mut store = Context::empty(&cfg());
+        store.merge(object(&[
+            ("f", serde_json::json!({ "__nlir_form__": "($0 + 1)" })),
+            ("greeting", Value::from("hello")),
+            ("obj", serde_json::json!({ "a": 1 })),
+        ]));
+        // The persisted form shows as its braced form, not the tagged JSON.
+        assert_eq!(store.render_key("f").as_deref(), Some("{($0 + 1)}"));
+        // Plain values are unchanged.
+        assert_eq!(store.render_key("greeting").as_deref(), Some("hello"));
+        // A regular (non-form) object still renders as compact JSON.
+        assert_eq!(
+            store.render_key("obj").as_deref(),
+            Some(serde_json::json!({ "a": 1 }).to_string().as_str())
+        );
     }
 
     // -- system keys & defaults (bd-fdd3bc) --------------------------------
