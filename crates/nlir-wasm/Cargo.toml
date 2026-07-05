@@ -1,0 +1,38 @@
+# nlir-wasm — the nlir evaluator compiled to WebAssembly (nlir-wasm epic
+# bd-360d0c, P1). Depends on the nlir lib by path and re-exports the SAME
+# evaluator via wasm-bindgen, so the in-browser workspace can never drift from
+# the shipped binary. Built with `wasm-pack build --target web` in CI / the nix
+# devshell (source-rustc author nodes lack the wasm32 target).
+#
+# The empty [workspace] table below makes this crate its OWN workspace root, so
+# it never participates in — and never perturbs — the parent nlir package's
+# native `cargo build`/clippy gate. CI cds here to build it.
+[workspace]
+
+[package]
+name = "nlir-wasm"
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "nlir-wasm — the nlir natural-language IR evaluator compiled to WebAssembly (wasm-bindgen) for the in-browser workspace."
+repository = "https://github.com/harryaskham/nlir"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# default-features = false → drop the native `native` feature (ureq/crossterm/
+# mcp-cli/updatable-cli/feedback-cli) so only the pure evaluator core compiles to
+# wasm32 (nlir-wasm epic bd-360d0c). The effectful backends are behind msm-0's
+# Realiser seam + native twins.
+nlir = { path = "../..", default-features = false }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-wasm-bindgen = "0.6"
+
+[lints.rust]
+unsafe_code = "forbid"
