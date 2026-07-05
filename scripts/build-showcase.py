@@ -348,6 +348,18 @@ SIMPLE = [
              "additional regions.",
          cap="the computed constant — bind the RESULT of a calc once (budget='2500'*'12'), reuse it as "
              "\"$budget\" everywhere. Computed once ($30,000), always consistent — even works offline"),
+    dict(name="briefed-handoff",
+         expr="@&['take over the search-index migration','~the backstory: we hit lock contention on the "
+              "primary db, tried read-replicas which did not help, then settled on sharding by tenant "
+              "which still needs a data backfill','it is P1 — the live index is at 90 percent capacity']",
+         pill="llm · claude-sonnet-5",
+         out="Please assume ownership of the search-index migration. For background: the primary database "
+             "encountered lock contention; read replicas were subsequently implemented but did not "
+             "resolve the issue; the team then adopted a sharding-by-tenant approach, which still "
+             "requires a data backfill. This effort is designated P1 priority, as the live index is "
+             "currently operating at 90 percent capacity.",
+         cap="the briefed handoff — @&[TASK, ~LONG_REF, PRIORITY]: the ~ slot DIGESTS a long backstory "
+             "into the handoff, so the recipient gets the task, the compressed context, and the priority"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
