@@ -85,10 +85,13 @@ A few moves to start with:
 The full phrasebook — every move, its shape, and a copy-paste template, across all four
 lanes — lives in **[`examples/POWERMOVES.md`](examples/POWERMOVES.md)**.
 
-And two commands to learn it live: **`nlir help`** prints every operator — sigil, name,
-and what it does — derived straight from your config; **`nlir step '<expr>'`** walks an
-expression through evaluation one reduction at a time, so you can watch the sigils unfold
-into English step by step.
+And two ways to learn it live: **`nlir help`** prints every operator — sigil, name,
+and what it does — derived straight from your config; and **`nlir step '<expr>'`** (or
+**`:step <expr>`** in the repl, pressing Tab to advance) walks an expression through
+evaluation one reduction at a time, so you can watch the sigils unfold into English
+step by step.
+
+![nlir :step — evaluation unfolds one redex per Tab, deterministic ops instantly and each LLM op one realisation at a time](showcase/nlir-step-through.png)
 
 ## Mental model
 

@@ -610,6 +610,42 @@ OPS = ["**", "^-", "^*", "^_", "^/", "#", "!", "&", "|", "?", "@", ":", "~",
        ">", "<", "+", "-", "*", "/", "^", ";", "=", "$", "[", "]", "(", ")", ",", "%"]
 
 
+# Process cards: a live `:step` / `nlir step` unfold (one redex per Tab). A
+# categorically different card from the static expr->output ones. Real captures.
+STEPS = [
+    dict(
+        name="step-through",
+        pill="process · live :step capture",
+        title="`:step` — evaluation unfolds one redex per Tab",
+        tracks=[
+            dict(
+                label="llm · one realisation per Tab (real claude via copilot)",
+                expr="~[@'the deploy broke', @'we rolled it back']",
+                lines=[
+                    "~ [(@ the deploy broke), (@ we rolled it back)]",
+                    "~ [(@ «the deploy broke»), (@ we rolled it back)]",
+                    "~ [«The deployment failed.», (@ we rolled it back)]",
+                    "~ [«The deployment failed.», (@ «we rolled it back»)]",
+                    "~ [«The deployment failed.», «The change has been reverted.»]",
+                    "«The deployment failed and was reverted.»",
+                ],
+            ),
+            dict(
+                label="det · instant, no model (keyless, reproducible)",
+                expr="2+3*4",
+                lines=[
+                    "2 + (3 * 4)",
+                    "2 + «12»",
+                    "«14»",
+                ],
+            ),
+        ],
+        cap="press Tab to reduce the leftmost redex · each operand first becomes «its value», "
+            "then its operator realises · «…» = a reduced sub-expression · Enter runs to completion",
+    ),
+]
+
+
 def highlight(expr: str) -> str:
     out, i, n = [], 0, len(expr)
     while i < n:
@@ -692,6 +728,27 @@ html,body {{ width:1200px; height:{h}px; }} {css}
 </body></html>"""
 
 
+STEPS_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
+html,body {{ width:1200px; height:{h}px; }} {css}
+.o {{ color:#e879f9; }} .s {{ color:#7dd3fc; }} .n {{ color:#fca5a5; }}
+.title {{ font-size:23px; color:#e9e2ff; margin:4px 0 6px 0; }}
+.title code {{ font-family:'Fira Code',monospace; color:#e879f9; font-size:21px; }}
+.body {{ flex:1; display:flex; flex-direction:column; justify-content:center; gap:22px; }}
+.track .tlabel {{ font-family:'Fira Code',monospace; font-size:15px; color:#a7f3d0; margin-bottom:10px; }}
+.seq {{ font-family:'Fira Code',monospace; font-size:20px; line-height:1.5; background:#100a24;
+  border:1px solid rgba(168,85,247,.28); border-radius:14px; padding:14px 24px;
+  box-shadow:0 12px 34px rgba(0,0,0,.34); }}
+.seq .ln {{ white-space:pre-wrap; color:#efeaff; }}
+.seq .ar {{ color:#8b7bbf; }}
+.seq .red {{ color:#7be0c0; }}
+</style></head><body>
+  <div class="head"><div class="brand">nlir<span class="dot">·</span><span class="sub">natural-language IR</span></div><div class="pill">{pill}</div></div>
+  <div class="title">{title}</div>
+  <div class="body">{tracks}</div>
+  <div class="foot"><div class="cap">{cap}</div><div class="gh">github.com/harryaskham/nlir</div></div>
+</body></html>"""
+
+
 def esz(expr):
     n = len(expr)
     return 62 if n <= 12 else 52 if n <= 20 else 42 if n <= 32 else 34 if n <= 46 else 28
@@ -743,6 +800,33 @@ def render_grid(card, outdir, chrome):
     return _emit(card["name"], doc, outdir, chrome, 1200, h)
 
 
+def hl_step(line):
+    esc = html.escape(line)
+    esc = re.sub(r"«[^»]*»", lambda m: f'<span class="red">{m.group(0)}</span>', esc)
+    return esc
+
+
+def render_steps(card, outdir, chrome):
+    tracks_html = ""
+    total_lines = 0
+    for tr in card["tracks"]:
+        total_lines += len(tr["lines"])
+        seq = ""
+        for i, ln in enumerate(tr["lines"]):
+            ar = "  → " if i else "    "
+            seq += f'<div class="ln"><span class="ar">{ar}</span>{hl_step(ln)}</div>'
+        tracks_html += (
+            f'<div class="track"><div class="tlabel">{html.escape(tr["label"])}'
+            f' &nbsp;·&nbsp; {highlight(tr["expr"])}</div>'
+            f'<div class="seq">{seq}</div></div>'
+        )
+    h = 300 + total_lines * 36 + len(card["tracks"]) * 70
+    title = card["title"].replace("`:step`", "<code>:step</code>")
+    doc = STEPS_HTML.format(css=CSS, h=h, pill=html.escape(card["pill"]),
+                            title=title, tracks=tracks_html, cap=html.escape(card["cap"]))
+    return _emit(card["name"], doc, outdir, chrome, 1200, h)
+
+
 def _emit(name, doc, outdir, chrome, w, h):
     htmlp = outdir / f"{name}.html"
     pngp = outdir / f"nlir-{name}.png"
@@ -770,6 +854,9 @@ def main():
     for c in GRID:
         if not args.only or c["name"] == args.only:
             render_grid(c, outdir, chrome)
+    for c in STEPS:
+        if not args.only or c["name"] == args.only:
+            render_steps(c, outdir, chrome)
     if not args.only:
         render_contact_sheet(outdir, chrome)
 
