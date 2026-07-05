@@ -209,7 +209,7 @@ async function run(){
   out.innerHTML = '<span class="placeholder">running…</span>';
   const r = await nlir.evaluate(expr, configJson(), contextJson(), state.settings.mode);
   if (!r.ok){ out.innerHTML = `<span class="err">${r.error}</span>`; return; }
-  out.innerHTML = `<span class="result">${r.result.replace(/</g,'&lt;')}</span>` + (r.mock ? '<span class="mock">mock — live when P1&#39;s wasm lands</span>' : '');
+  out.innerHTML = `<span class="result">${r.result.replace(/</g,'&lt;')}</span>` + (r.mock ? '<span class="mock">preview mock — the live site runs the real wasm</span>' : '');
   save();
 }
 async function step(){

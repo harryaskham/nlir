@@ -160,6 +160,20 @@ cat > "$out/.foot.html" <<'HTML'
 <footer>nlir · natural-language IR — a config-defined operator language. Site generated from README.md + SPEC.md + the showcase cards by <a href="https://github.com/harryaskham/nlir/blob/main/scripts/build-docs.sh">build-docs.sh</a>.</footer>
 HTML
 
+# --- workspace (nlir-wasm P2/P4): the in-browser playground. P7 (pages.yml) co-builds
+# the wasm pkg/ + copies config.example.yaml into site/workspace/ BEFORE this runs; we copy
+# the whole dir and surface it (nav link + hero "Try it live") ONLY when pkg/ is present, so
+# the live site debuts the real evaluator, never the standalone mock. ---
+if [ -d "$root/site/workspace" ]; then
+  rm -rf "$out/workspace"
+  cp -a "$root/site/workspace" "$out/workspace"
+  if [ -d "$root/site/workspace/pkg" ]; then
+    sed -i 's#<a href="showcase.html">Showcase</a>#<a href="workspace/">Workspace</a>\n  <a href="showcase.html">Showcase</a>#' "$out/.nav.html"
+    sed -i 's#<div class="cta">#<div class="cta">\n    <a class="primary" href="workspace/">Try it live →</a>#' "$out/.hero.html"
+    sed -i 's#<a class="primary" href="showcase.html">Explore the showcase →</a>#<a class="ghost" href="showcase.html">Explore the showcase</a>#' "$out/.hero.html"
+  fi
+fi
+
 render() { # render <src.md> <title> <out.html> [hero:0|1]
   local hero=()
   [ "${4:-0}" = 1 ] && hero=(--include-before-body="$out/.hero.html")
