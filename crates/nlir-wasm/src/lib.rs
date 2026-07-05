@@ -514,13 +514,90 @@ async fn graph_frames_async_inner(
     let frames = nlir::eval::step_frames_async(expr, &cfg, &mut ctx, parsed_mode, &realiser)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(frames
-        .iter()
-        .map(|frame| {
-            serde_json::json!({
-                "svg": nlir::graph_svg::render(&frame.graph),
-                "reduced": frame.reduced.as_ref().map(nlir::graph::NodeId::dotted),
+    Ok(frames.iter().map(frame_json).collect())
+}
+
+/// One frame's `{ svg, reduced }` JSON — the single source of frame shape shared
+/// by the batch (`graphFramesAsync`) and streaming (`graphFramesStreaming`) paths,
+/// so streamed and batched frames stay byte-for-byte identical (bd-89eb89).
+fn frame_json(frame: &nlir::graph::Frame) -> serde_json::Value {
+    serde_json::json!({
+        "svg": nlir::graph_svg::render(&frame.graph),
+        "reduced": frame.reduced.as_ref().map(nlir::graph::NodeId::dotted),
+    })
+}
+
+/// `graphFramesStreaming(expr, configJson, contextJson, mode, realisers, onFrame)
+/// -> Promise<{ ok, count | error }>` — the STREAMING twin of [`graph_frames_async`]:
+/// drives msm-0's `step_frames_streaming_async` and fires `onFrame({svg, reduced})`
+/// the moment each frame's realisation resolves (live llm graph animation), instead
+/// of collecting the whole Vec first. Frames go through the shared [`frame_json`], so
+/// they're byte-for-byte identical to `graphFrames`/`graphFramesAsync` — aur-1's G5
+/// scrubber/animate() consumes streamed and batched frames the same way. The frames
+/// arrive via `onFrame`, not the return (which reports the total count). Mirrors
+/// aur-2's `stepStream` shape for the graph path (bd-89eb89).
+#[wasm_bindgen(js_name = graphFramesStreaming)]
+pub async fn graph_frames_streaming(
+    expr: String,
+    config_json: String,
+    context_json: String,
+    mode: String,
+    realisers: JsValue,
+    on_frame: js_sys::Function,
+) -> JsValue {
+    match graph_frames_streaming_inner(
+        &expr,
+        &config_json,
+        &context_json,
+        &mode,
+        &realisers,
+        &on_frame,
+    )
+    .await
+    {
+        Ok(count) => payload(&serde_json::json!({ "ok": true, "count": count })),
+        Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
+async fn graph_frames_streaming_inner(
+    expr: &str,
+    config_json: &str,
+    context_json: &str,
+    mode: &str,
+    realisers: &JsValue,
+    on_frame: &js_sys::Function,
+) -> Result<usize, String> {
+    let cfg = parse_config(config_json)?;
+    let parsed_mode = parse_mode(mode)?;
+    let mut ctx = parse_context(context_json, &cfg)?;
+    // Cell so the per-arm closures need only a shared borrow (they are `Fn`,
+    // hence valid `impl FnMut`); read back the total after the stream drains.
+    let count = std::cell::Cell::new(0usize);
+    match parsed_mode {
+        Mode::Det => {
+            nlir::eval::step_frames_streaming(expr, &cfg, &mut ctx, Mode::Det, |frame| {
+                count.set(count.get() + 1);
+                let _ = on_frame.call1(&JsValue::NULL, &payload(&frame_json(frame)));
             })
-        })
-        .collect())
+            .map_err(|e| e.to_string())?;
+        }
+        Mode::Llm => {
+            let realiser = JsRealiser::from_js(realisers);
+            nlir::eval::step_frames_streaming_async(
+                expr,
+                &cfg,
+                &mut ctx,
+                Mode::Llm,
+                &realiser,
+                |frame| {
+                    count.set(count.get() + 1);
+                    let _ = on_frame.call1(&JsValue::NULL, &payload(&frame_json(frame)));
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(count.get())
 }
