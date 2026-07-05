@@ -127,6 +127,7 @@ prompts:
 operators: # `%` = operand under replacement; `%%` = literal %
   subject:
     op: "#"
+    template: "subject: %"  # det-stub (det mode); model+prompt below realise llm mode
     description: |
       The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category.
     arity: 1
@@ -187,6 +188,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       %
   summary:
     op: "~"
+    template: "summary: %"  # det-stub (det mode); model+prompt below realise llm mode
     description: |
       The essence in one short sentence — drops specifics for the gist. Saturates (~~x is approximately ~x); folds a list to its consensus.
     arity: 1
@@ -198,6 +200,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       %
   formal:
     op: "@"
+    template: "formal: %"  # det-stub (det mode); model+prompt below realise llm mode
     description: |
       Rewrites in a formal, professional register, meaning preserved. Saturates after one pass; distributes over &.
     arity: 1
@@ -209,6 +212,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       %
   simplify:
     op: ":"
+    template: "simple: %"  # det-stub (det mode); model+prompt below realise llm mode
     description: |
       Rewrites in plain, simple language (strips jargon). The one op that reliably maps per-item over a list.
     arity: 1
@@ -220,6 +224,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       %
   expand:
     op: ">"
+    template: "expanded: %"  # det-stub (det mode); model+prompt below realise llm mode
     description: |
       Adds detail and explanation (lengthens). Forks over | (keeps paths distinct), integrates over &.
     arity: 1
