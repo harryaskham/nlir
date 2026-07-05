@@ -373,6 +373,14 @@ SIMPLE = [
              "re-review, will be required.",
          cap="the BLUF (bottom line up front) — [~&[FACTS], @&[FACTS]]: a skimmable one-line headline "
              "first (~&), then the full formal detail (@&). Same facts — skim on top, depth below"),
+    dict(name="terse-status",
+         expr="~&['shipped the auth migration','blocked on the staging db provision','starting the "
+              "search reindex next']",
+         pill="llm · claude-sonnet-5",
+         out="Shipped the auth migration, blocked on staging DB provisioning, and starting the search "
+             "reindex next.",
+         cap="the terse status — ~&[DONE, BLOCKED, NEXT]: the ~ tone keeps a standup/status ping tight — "
+             "done, blocked, next, in one line. Completes the tone trio (@ formal · : warm · ~ terse)"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
