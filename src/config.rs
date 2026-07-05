@@ -1645,6 +1645,29 @@ context:
     }
 
     #[test]
+    fn config_roundtrips_through_json_for_wasm_boundary() {
+        // nlir-wasm (epic bd-360d0c) takes config as JSON at the wasm boundary
+        // (JS does YAML->JSON via js-yaml), then `serde_json::from_str::<Config>`.
+        // serde_yaml lives only in the native loader, never in the `Config` type,
+        // so `Config` must round-trip through JSON. This guards the boundary: a
+        // serde_yaml-only field added to `Config` would silently break wasm.
+        let cfg: Config =
+            serde_yaml::from_str(EXAMPLE_CONFIG).expect("example config must deserialize");
+        let json = serde_json::to_string(&cfg).expect("Config must serialize to JSON");
+        let from_json: Config = serde_json::from_str(&json)
+            .expect("Config must deserialize from JSON (nlir-wasm config-as-JSON boundary)");
+        assert_eq!(
+            cfg, from_json,
+            "Config must round-trip through JSON so the nlir-wasm config-as-JSON boundary holds"
+        );
+        // A JSON-loaded config still evaluates deterministically (no realiser).
+        let mut ctx = crate::context::Context::empty(&from_json.context);
+        let value = crate::eval::evaluate("2+3*4", &from_json, &mut ctx, Mode::Det)
+            .expect("det eval over a JSON-loaded config");
+        assert_eq!(value.render(&ctx.sep()), "14");
+    }
+
+    #[test]
     fn scaffold_writes_when_missing_and_preserves_existing() {
         let tmp = crate::test_support::TempPath::new("nlir-scaffold", "");
         let dir = tmp.path();
