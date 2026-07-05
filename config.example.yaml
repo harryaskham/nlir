@@ -334,6 +334,17 @@ operators: # `%` = operand under replacement; `%%` = literal %
     result: number
     reduce: pow
 
+  # Glyph operators (bd-44c294): bind ANY sigil (a word, or a multibyte glyph —
+  # no ASCII-scarcity cost, like Δ) to a FORM or a BUILTIN, as an alt to
+  # command:/prompt:. Uncomment to try; the user owns their config's sigil space.
+  #
+  # form:  the operator applies a form to its operands ($0, $1, …):
+  #   square:   { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }    # □5 → 25
+  #   steelman: { op: "⇑", arity: 1, fixity: prefix, form: "{~(>@$0)}" }  # ⇑x = summarise(expand(formalise(x)))
+  # builtin:  bind a glyph to the map/fold engine:
+  #   mapop:  { op: "↦", arity: 2, fixity: infix, builtin: map }   # {$0*$0}↦[1,2,3] → [1,4,9]
+  #   foldop: { op: "⊘", arity: 2, fixity: infix, builtin: fold }  # {$0+$1}⊘[1,2,3,4] → 10
+
 tests:
   det-echo: { mode: det, expr: "xxx_2", expected: "xxx xxx" }
   det-not: { mode: det, expr: "!foo", expected: "not foo" }

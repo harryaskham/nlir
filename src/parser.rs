@@ -756,6 +756,48 @@ impl Parser<'_> {
     }
 }
 
+/// The highest positional argument index `$N` (N >= 0) referenced at THIS form
+/// level — NOT descending into a nested `{…}` quote (which opens its own arg
+/// scope). Used to infer a `form:` operator's arity (arity = max + 1) when
+/// `arity:` is absent (bd-44c294). `None` when no positional arg is referenced.
+#[must_use]
+pub fn max_positional(expr: &Expr) -> Option<usize> {
+    match expr {
+        Expr::StackIndex(n) if *n >= 0 => Some(*n as usize),
+        // A nested quote opens its own argument scope — skip it.
+        Expr::Quote(_)
+        | Expr::StackIndex(_)
+        | Expr::StackPeek
+        | Expr::Bare(_)
+        | Expr::Number(_)
+        | Expr::Quoted { .. }
+        | Expr::ContextRead(_)
+        | Expr::Value(_) => None,
+        Expr::Group(inner) | Expr::Serial(inner) => max_positional(inner),
+        Expr::Message { index, .. } => max_positional(index),
+        Expr::MessageRange { start, end, .. } => {
+            max_opt(max_positional(start), max_positional(end))
+        }
+        Expr::Assign { value, .. } => max_positional(value),
+        Expr::List(items) => items.iter().filter_map(max_positional).max(),
+        Expr::Apply { operands, .. } => operands.iter().filter_map(max_positional).max(),
+        Expr::FormApply { form, args } => {
+            let mut m = max_positional(form);
+            for a in args {
+                m = max_opt(m, max_positional(a));
+            }
+            m
+        }
+    }
+}
+
+fn max_opt(a: Option<usize>, b: Option<usize>) -> Option<usize> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.max(y)),
+        (x, None) | (None, x) => x,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -252,6 +252,13 @@ pub struct OperatorConfig {
     pub model: Option<String>,
     /// LLM prompt template (`%` = operand under replacement; `%%` = literal `%`).
     pub prompt: Option<String>,
+    /// A FORM this operator is realised by (bd-44c294): the operator applies the
+    /// form to its operands (`$0`, `$1`, …) — sugar for `{form}%(operands)`. Turns
+    /// any form into a first-class glyph/word operator, an alt to command/prompt.
+    pub form: Option<String>,
+    /// A BUILTIN this operator is realised by (bd-44c294): `map` or `fold`, so a
+    /// glyph can be bound to the higher-order engine (`{$0*$0}↦[1,2,3]`).
+    pub builtin: Option<String>,
 }
 
 impl OperatorConfig {
@@ -1159,12 +1166,23 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
             || op.template.is_some()
             || op.join.is_some()
             || op.model.is_some()
-            || op.prompt.is_some();
+            || op.prompt.is_some()
+            || op.form.is_some()
+            || op.builtin.is_some();
         if !has_realisation {
             errs.push(ValidationError::new(
                 &loc,
-                "operator has no realisation (need command/reduce/template/join or model+prompt)",
+                "operator has no realisation (need command/reduce/template/join/form/builtin or model+prompt)",
             ));
+        }
+        // A `builtin:` operator (bd-44c294) must name a known higher-order builtin.
+        if let Some(builtin) = &op.builtin {
+            if !matches!(builtin.as_str(), "map" | "fold") {
+                errs.push(ValidationError::new(
+                    &loc,
+                    format!("builtin {builtin:?} is unknown (expected `map` or `fold`)"),
+                ));
+            }
         }
 
         if let Some(model) = &op.model {

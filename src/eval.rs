@@ -700,11 +700,24 @@ impl<'a> Evaluator<'a> {
     /// (`$0` = acc, `$1` = item), seeded by the first element.
     fn eval_higher_order(&mut self, name: &str, args: &[Expr]) -> Result<Value, EvalError> {
         let (body, items) = self.higher_order_operands(name, args)?;
+        self.run_higher_order(name, &body, items)
+    }
+
+    /// The value-level map/fold core (bd-14af74): `map` applies `body` per item
+    /// (`$0` = item) collecting a list; `fold` reduces left-to-right (`$0` = acc,
+    /// `$1` = item), seeded by the first element. Shared by the `$map`/`$fold`
+    /// named builtins and a `builtin:`-realised glyph operator (bd-44c294).
+    fn run_higher_order(
+        &mut self,
+        name: &str,
+        body: &Expr,
+        items: Vec<Value>,
+    ) -> Result<Value, EvalError> {
         if name == "map" {
             let mut out = Vec::with_capacity(items.len());
             for item in items {
                 self.arg_frames.push(vec![item]);
-                let mapped = self.eval(&body);
+                let mapped = self.eval(body);
                 self.arg_frames.pop();
                 out.push(mapped?);
             }
@@ -714,14 +727,80 @@ impl<'a> Evaluator<'a> {
         let mut iter = items.into_iter();
         let mut acc = iter
             .next()
-            .ok_or_else(|| EvalError::Unsupported(format!("`${name}` needs a non-empty list")))?;
+            .ok_or_else(|| EvalError::Unsupported(format!("`{name}` needs a non-empty list")))?;
         for item in iter {
             self.arg_frames.push(vec![acc, item]);
-            let folded = self.eval(&body);
+            let folded = self.eval(body);
             self.arg_frames.pop();
             acc = folded?;
         }
         Ok(acc)
+    }
+
+    /// Realise a `form:`-backed operator (bd-44c294): apply the operator's form to
+    /// its already-evaluated operands, binding them to `$0`, `$1`, … — i.e.
+    /// `{form}%(operands)`. The form source is parsed with the config grammar.
+    fn apply_form_op(&mut self, form_src: &str, operands: &[Value]) -> Result<Value, EvalError> {
+        let body = self.parse_op_form(form_src)?;
+        self.arg_frames.push(operands.to_vec());
+        let result = self.eval(&body);
+        self.arg_frames.pop();
+        result
+    }
+
+    /// Realise a `builtin:`-backed operator (bd-44c294): dispatch `map`/`fold`
+    /// over the already-evaluated `(form, list)` operands.
+    fn apply_builtin_op(&mut self, name: &str, operands: &[Value]) -> Result<Value, EvalError> {
+        let (body, items) = builtin_op_operands(name, operands)?;
+        self.run_higher_order(name, &body, items)
+    }
+
+    /// Parse a `form:` operator's source into its body expression, unwrapping the
+    /// outer `{…}` quote if present (bd-44c294).
+    fn parse_op_form(&self, form_src: &str) -> Result<Expr, EvalError> {
+        let expr = parse_stored_form(form_src, self.config).ok_or_else(|| {
+            EvalError::Unsupported(format!("operator `form:` did not parse: `{form_src}`"))
+        })?;
+        Ok(match expr {
+            Expr::Quote(inner) => *inner,
+            other => other,
+        })
+    }
+
+    /// Async twin of [`run_higher_order`](Self::run_higher_order) (bd-44c294): the
+    /// map/fold core through the async realiser, so a `builtin:` glyph operator
+    /// (or `$map`/`$fold`) may realise llm ops per item. Owned `name`/`body` so
+    /// they move into the boxed future.
+    fn run_higher_order_async<'e, R: crate::realiser::Realiser>(
+        &'e mut self,
+        name: String,
+        body: Expr,
+        items: Vec<Value>,
+        realiser: &'e R,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, EvalError>> + 'e>> {
+        Box::pin(async move {
+            if name == "map" {
+                let mut out = Vec::with_capacity(items.len());
+                for item in items {
+                    self.arg_frames.push(vec![item]);
+                    let mapped = self.eval_async(&body, realiser).await;
+                    self.arg_frames.pop();
+                    out.push(mapped?);
+                }
+                return Ok(Value::list(out));
+            }
+            let mut iter = items.into_iter();
+            let mut acc = iter.next().ok_or_else(|| {
+                EvalError::Unsupported(format!("`{name}` needs a non-empty list"))
+            })?;
+            for item in iter {
+                self.arg_frames.push(vec![acc, item]);
+                let folded = self.eval_async(&body, realiser).await;
+                self.arg_frames.pop();
+                acc = folded?;
+            }
+            Ok(acc)
+        })
     }
 
     /// Resolve the shared `(form, list)` operands for a `map`/`fold` builtin: the
@@ -824,6 +903,16 @@ impl<'a> Evaluator<'a> {
         // operand coercion (which would otherwise flatten the form to source).
         if op == "_" && matches!(operands.first(), Some(Value::Form(_))) {
             return self.compose_form(&operands);
+        }
+
+        // Glyph operators (bd-44c294): a `builtin:`/`form:`-realised operator
+        // dispatches BEFORE operand coercion — the operands go RAW to the builtin
+        // (map/fold over a `(form, list)`) or the form (bound to `$0`, `$1`, …).
+        if let Some(builtin) = op_cfg.builtin.as_deref() {
+            return self.apply_builtin_op(builtin, &operands);
+        }
+        if let Some(form_src) = op_cfg.form.as_deref() {
+            return self.apply_form_op(form_src, &operands);
         }
 
         let sep = self.sep();
@@ -1057,6 +1146,23 @@ impl<'a> Evaluator<'a> {
             // composes the form N times (sync — no realiser await needed).
             if op == "_" && matches!(operands.first(), Some(Value::Form(_))) {
                 return self.compose_form(&operands);
+            }
+
+            // Glyph operators (bd-44c294), async: same pre-coercion dispatch as
+            // the sync path, through the async realiser (a form/builtin op may
+            // realise llm ops per item).
+            if let Some(builtin) = op_cfg.builtin.clone() {
+                let (body, items) = builtin_op_operands(&builtin, &operands)?;
+                return self
+                    .run_higher_order_async(builtin, body, items, realiser)
+                    .await;
+            }
+            if let Some(form_src) = op_cfg.form.clone() {
+                let body = self.parse_op_form(&form_src)?;
+                self.arg_frames.push(operands.clone());
+                let result = self.eval_async(&body, realiser).await;
+                self.arg_frames.pop();
+                return result;
             }
 
             let sep = self.sep();
@@ -1880,6 +1986,31 @@ fn parse_stored_form(source: &str, config: &Config) -> Option<Expr> {
     program.statements.into_iter().next()
 }
 
+/// Extract the `(form-body, items)` for a `builtin:` map/fold glyph operator from
+/// its two already-evaluated operands (bd-44c294): first must be a `{…}` form, the
+/// second a list (a lone non-list value becomes a one-element list).
+fn builtin_op_operands(name: &str, operands: &[Value]) -> Result<(Expr, Vec<Value>), EvalError> {
+    if operands.len() != 2 {
+        return Err(EvalError::Unsupported(format!(
+            "`{name}` operator takes (form, list); got {} operand(s)",
+            operands.len()
+        )));
+    }
+    let body = match &operands[0] {
+        Value::Form(inner) => (**inner).clone(),
+        _ => {
+            return Err(EvalError::Unsupported(format!(
+                "`{name}` operator's first operand must be a {{…}} form"
+            )));
+        }
+    };
+    let items = match &operands[1] {
+        Value::List(items) => items.clone(),
+        other => vec![other.clone()],
+    };
+    Ok((body, items))
+}
+
 /// Build the per-run realisation cache key (bd-1d078c): the operator sigil,
 /// mode, model alias, grouping, and rendered operand texts uniquely identify a
 /// realisation result, so identical subcalls dedupe.
@@ -2391,6 +2522,64 @@ operators:
         let mut ctx2 = Context::empty(&cfg.context);
         let out2 = evaluate("map={$0+100};$map%5", &cfg, &mut ctx2, Mode::Det).expect("user map");
         assert_eq!(out2.render(&ctx2.sep()), "105");
+    }
+
+    #[test]
+    fn glyph_operators_form_and_builtin() {
+        // bd-44c294: a `form:`-backed operator applies its form to operands
+        // ($0,$1,…); a `builtin:`-backed operator dispatches map/fold. User picks
+        // the (here multibyte) glyph in config — no core-sigil cost.
+        let yaml = r##"
+operators:
+  sq:     { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
+  add2:   { op: "⊕", arity: 2, fixity: infix,  form: "{$0+$1}" }
+  mapop:  { op: "↦", arity: 2, fixity: infix,  builtin: map }
+  foldop: { op: "⊘", arity: 2, fixity: infix,  builtin: fold }
+  add: { op: "+", arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
+  mul: { op: "*", arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("g.yaml")).unwrap();
+        let check = |src: &str, expected: &str| {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = evaluate(src, &cfg, &mut ctx, Mode::Det).expect(src);
+            assert_eq!(out.render(&ctx.sep()), expected, "for {src}");
+        };
+        check("□5", "25"); // form-op: square
+        check("2⊕3", "5"); // form-op: add2 (infix)
+        check("{$0*$0}↦[1,2,3]", "1\n4\n9"); // builtin map-op
+        check("{$0+$1}⊘[1,2,3,4]", "10"); // builtin fold-op
+    }
+
+    #[test]
+    fn glyph_operators_async_matches_sync() {
+        // bd-44c294: the async eval path dispatches form/builtin glyph ops too
+        // (so a form-op with llm sub-ops works); matches sync in det mode.
+        use crate::realiser::{NativeRealiser, block_on_ready};
+        let yaml = r##"
+operators:
+  sq:     { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
+  mapop:  { op: "↦", arity: 2, fixity: infix,  builtin: map }
+  foldop: { op: "⊘", arity: 2, fixity: infix,  builtin: fold }
+  add: { op: "+", arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
+  mul: { op: "*", arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("g.yaml")).unwrap();
+        for (src, expected) in [
+            ("□5", "25"),
+            ("{$0*$0}↦[1,2,3]", "1\n4\n9"),
+            ("{$0+$1}⊘[1,2,3,4]", "10"),
+        ] {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = block_on_ready(evaluate_async(
+                src,
+                &cfg,
+                &mut ctx,
+                Mode::Det,
+                &NativeRealiser,
+            ))
+            .expect(src);
+            assert_eq!(out.render(&ctx.sep()), expected, "async {src}");
+        }
     }
 
     #[test]
