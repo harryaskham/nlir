@@ -145,7 +145,12 @@ jobs:
 
       - name: Build docs site
         shell: bash
-        run: bash scripts/build-docs.sh "$PWD/site"
+        # Output to _site (NOT $PWD/site): the workspace SOURCE lives at site/workspace/,
+        # and build-docs.sh does `rm -rf "$out/workspace"` — if out==$root/site that deletes
+        # the source workspace (+ the pkg/ we just co-built into it) and the subsequent
+        # `cp -a site/workspace ...` dies with "cannot stat site/workspace". A distinct output
+        # dir avoids the source/output collision.
+        run: bash scripts/build-docs.sh "$PWD/_site"
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -153,7 +158,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deploy
