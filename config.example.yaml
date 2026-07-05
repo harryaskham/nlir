@@ -394,6 +394,16 @@ tests:
   # spelling out the form per element yields a real 3-element list.
   cookbook-list-firstclass: { mode: det, expr: "[1,4,9]", expected: "1\n4\n9" }
   cookbook-manual-map:      { mode: det, expr: "sq={$0*$0};[$sq%1,$sq%2,$sq%3]", expected: "1\n4\n9" }
+  # map/fold higher-order builtins (bd-14af74): $map applies a form per-item →
+  # a list; $fold reduces with a 2-arg form; named forms + map-reduce compose.
+  cookbook-map-square:  { mode: det, expr: "$map%({$0*$0},[1,2,3])", expected: "1\n4\n9" }
+  cookbook-map-inc:     { mode: det, expr: "$map%({$0+1},[10,20,30])", expected: "11\n21\n31" }
+  cookbook-map-named:   { mode: det, expr: "sq={$0*$0};$map%($sq,[1,2,3])", expected: "1\n4\n9" }
+  cookbook-fold-sum:    { mode: det, expr: "$fold%({$0+$1},[1,2,3,4])", expected: "10" }
+  cookbook-fold-product: { mode: det, expr: "$fold%({$0*$1},[1,2,3,4])", expected: "24" }
+  cookbook-map-reduce:  { mode: det, expr: "inc={$0+1};$fold%({$0+$1},$map%($inc,[1,2,3]))", expected: "9" }
+  cookbook-fold-map-sq: { mode: det, expr: "$fold%({$0+$1},$map%({$0*$0},[1,2,3]))", expected: "14" }
+  cookbook-map-nested:  { mode: det, expr: "$map%({$fold%({$0+$1},$0)},[[1,2],[3,4]])", expected: "3\n7" }
   msg:
     mode: det
     context:

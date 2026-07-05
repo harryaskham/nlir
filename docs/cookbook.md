@@ -123,33 +123,45 @@ dbl={$0*2};((($dbl)_3)%1)+((($dbl)_2)%1)     → 12
 
 ---
 
-## 5. Map over a list — manual today, a builtin soon
+## 5. Map and fold over a list — `$map` / `$fold`
 
-Lists are **first-class values** and render **sep-joined** — `[1,4,9]` evaluates
-to the three-line result `1` / `4` / `9`, not a single number. (If you ever see
-`-> 9`, you're looking at the *last line* of a multi-line result — the
-`nlir: EXPR -> RESULT` summary prints it inline; use `--quiet`, don't
-`tail -1`.)
-
-So you can **map by hand today** — spell out the form applied to each element,
-and you get a real list back:
+`$map` applies a form to **each** element of a list and gives back the list of
+results; `$fold` reduces a list to one value with a two-argument form. Both are
+builtin forms, called through the usual apply — the primitive that makes
+list-processing programs click (bd-14af74):
 
 ```
-sq={$0*$0};[$sq%1,$sq%2,$sq%3]        -> 1 / 4 / 9   (a three-element list)
+$map%({$0*$0},[1,2,3])            -> 1 / 4 / 9      (square each)
+$map%({$0+1},[10,20,30])          -> 11 / 21 / 31   (increment each)
+$fold%({$0+$1},[1,2,3,4])         -> 10             (sum)
+$fold%({$0*$1},[1,2,3,4])         -> 24             (product)
 ```
 
-What's *not* built yet is applying a form over a **dynamic** list without
-writing out each element — a true `map`. Note `{$0+1}%[1,2,3]` is **not** it:
-there the list is an *argument frame* (`$0=1, $1=2, $2=3`), so it returns `2`.
-The per-item map is tracked in **bd-14af74**; the team-settled shape needs **no
-new syntax** — `map`/`fold` are builtin forms called through the usual apply:
+Named forms work as the mapper too:
 
 ```
-$map%({$0*$0},[1,2,3])        -> 1 / 4 / 9   # NOT YET — bd-14af74
-$fold%({$0+$1},[1,2,3,4])     -> 10          # NOT YET — bd-14af74
+sq={$0*$0};$map%($sq,[1,2,3])     -> 1 / 4 / 9
 ```
 
-Today the fixed `:` (simplify) op is the one op that maps per item over a list.
+And they compose — real **map-reduce** and nested higher-order programs:
+
+```
+inc={$0+1};$fold%({$0+$1},$map%($inc,[1,2,3]))       -> 9      (increment each, then sum)
+$fold%({$0+$1},$map%({$0*$0},[1,2,3]))               -> 14     (sum of squares — fold∘map)
+$map%({$fold%({$0+$1},$0)},[[1,2],[3,4]])            -> 3 / 7  (sum each sub-list — a mapper that folds)
+```
+
+Because the mapping form can be *any* form, in `--mode llm` you run a language
+transform over every item at once — `$map%({~$0},[…])` distils each element,
+`$map%({@$0},[…])` formalises each. That's the payoff: one expression over a
+whole list.
+
+Don't confuse `$map` with the argument frame: `{$0+1}%[1,2,3]` is **not** a map —
+there the list binds as arguments (`$0=1, $1=2, $2=3`), returning `2`. Use
+`$map%(form,list)` for per-item. (`map`/`fold` are reserved only in apply
+position — a context key you define named `map` still wins.) You can also still
+build a list by hand — `sq={$0*$0};[$sq%1,$sq%2,$sq%3]` -> `1 / 4 / 9` — when the
+elements aren't uniform.
 
 ---
 
