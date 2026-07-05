@@ -184,7 +184,7 @@ impl Value {
             // Every value has a deterministic string form.
             TypeName::String => Some(Value::String(self.render(sep))),
             TypeName::Number => match self {
-                Value::String(s) => s.trim().parse::<f64>().ok().map(Value::Number),
+                Value::String(s) => parse_number_str(s).map(Value::Number),
                 _ => None,
             },
             TypeName::Bool => match self {
@@ -258,6 +258,63 @@ pub fn format_number(n: f64) -> String {
     // Non-integral, or beyond exact-integer precision, or non-finite
     // (NaN / inf): defer to the standard shortest representation.
     format!("{n}")
+}
+
+/// Parse a string into a number using only **deterministic**, offline rules —
+/// the number forms nlir coerces without a model round-trip. Tries, in order:
+/// a plain float (`"42"`, `"3.5"`, `"-5"`, `"1e3"`, `"+3"`); a hex (`"0xFF"`) or
+/// binary (`"0b101"`) integer literal (optional sign); a comma-grouped integer
+/// (`"1,000"`); a percentage (`"50%"` → `0.5`); and a simple fraction
+/// (`"1/2"` → `0.5`). Returns `None` for anything else, so richer text (spelled
+/// numbers, ranges, …) still defers to the LLM coercion / loud-error layer.
+#[must_use]
+#[allow(clippy::cast_precision_loss)]
+fn parse_number_str(raw: &str) -> Option<f64> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    // Plain float: ints, decimals, signs, scientific notation.
+    if let Ok(n) = s.parse::<f64>() {
+        return Some(n);
+    }
+    // Hex / binary integer literals, with an optional leading sign.
+    let (sign, body) = if let Some(rest) = s.strip_prefix('-') {
+        (-1.0_f64, rest)
+    } else {
+        (1.0_f64, s.strip_prefix('+').unwrap_or(s))
+    };
+    if let Some(hex) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
+        if let Ok(n) = i64::from_str_radix(hex, 16) {
+            return Some(sign * n as f64);
+        }
+    }
+    if let Some(bin) = body.strip_prefix("0b").or_else(|| body.strip_prefix("0B")) {
+        if let Ok(n) = i64::from_str_radix(bin, 2) {
+            return Some(sign * n as f64);
+        }
+    }
+    // Comma-grouped thousands: "1,000" -> 1000.
+    if s.contains(',') {
+        if let Ok(n) = s.replace(',', "").parse::<f64>() {
+            return Some(n);
+        }
+    }
+    // Percentage: "50%" -> 0.5.
+    if let Some(pct) = s.strip_suffix('%') {
+        if let Ok(n) = pct.trim().parse::<f64>() {
+            return Some(n / 100.0);
+        }
+    }
+    // Simple fraction: "1/2" -> 0.5 (guards divide-by-zero).
+    if let Some((num, den)) = s.split_once('/') {
+        if let (Ok(a), Ok(b)) = (num.trim().parse::<f64>(), den.trim().parse::<f64>()) {
+            if b != 0.0 {
+                return Some(a / b);
+            }
+        }
+    }
+    None
 }
 
 /// Maximum length of the source-value snippet embedded in a [`CoerceError`]
@@ -553,6 +610,44 @@ mod tests {
         // Non-numeric text has no deterministic rule (defers to LLM/error layer).
         assert_eq!(
             Value::string("ten").coerce_deterministic(TypeName::Number, "\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn coerce_string_to_number_handles_offline_special_forms() {
+        // Hex, binary, comma-grouped, percent, and simple-fraction literals all
+        // coerce deterministically (no LLM round-trip) alongside plain floats.
+        let cases = [
+            ("0xFF", 255.0),
+            ("0X10", 16.0),
+            ("0b101", 5.0),
+            ("-0x10", -16.0),
+            ("1,000", 1000.0),
+            ("1,234,567", 1_234_567.0),
+            ("50%", 0.5),
+            ("5%", 0.05),
+            ("1/2", 0.5),
+            ("3/4", 0.75),
+            // Plain forms are unaffected.
+            ("42", 42.0),
+            ("1e3", 1000.0),
+            ("+3", 3.0),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                Value::string(input).coerce_deterministic(TypeName::Number, "\n"),
+                Some(Value::number(expected)),
+                "deterministic coercion of {input:?}",
+            );
+        }
+        // Divide-by-zero fraction and non-numeric text still defer (None).
+        assert_eq!(
+            Value::string("1/0").coerce_deterministic(TypeName::Number, "\n"),
+            None
+        );
+        assert_eq!(
+            Value::string("a murder of crows").coerce_deterministic(TypeName::Number, "\n"),
             None
         );
     }
