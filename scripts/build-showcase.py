@@ -89,6 +89,14 @@ SIMPLE = [
          cap="the reasoned no \u2014 decline a proposal (!^-1) on your stated grounds (& '…'), argued and "
              "professional (@). the honest counterpart to the yes: say no, and say why. reusable to push "
              "back on any suggestion."),
+    dict(name="brain-dump",
+         expr="'onboarding has too many steps'; 'users drop off at email verification'; 'but we need verification for security'; &; ~$",
+         pill="llm \u00b7 the stack \u00b7 scattered thoughts \u2192 the point",
+         out="Onboarding has too many steps \u2014 particularly email verification \u2014 causing user drop-off, "
+             "despite it being needed for security.",
+         cap="the brain-dump \u2014 jot your scattered thoughts onto the stack (one per `;`), fold them together "
+             "(`&`), distil to the takeaway (`~$`). think out loud, get the point. `$` is the top of the stack "
+             "\u2014 your working memory."),
     dict(name="grounded-counter",
          expr="@(^-1 & '- but scoped to just the hot 10% of users' & ^_-1)",
          pill="llm · reads your chat",
