@@ -19,7 +19,15 @@ on:
       - SPEC.md
       - scripts/build-docs.sh
       - showcase/**
+      - site/workspace/**
       - .github/workflows/pages.yml
+      # P7 (bd-c69da6): rebuild the site when the wasm sources change so the
+      # co-built in-page evaluator stays in lockstep with the shipped core.
+      - crates/**
+      - src/**
+      - Cargo.toml
+      - Cargo.lock
+      - config.example.yaml
   workflow_dispatch:
 
 permissions:
@@ -36,7 +44,7 @@ jobs:
   build-deploy:
     name: build + deploy docs
     runs-on: [self-hosted, azure-ephemeral]
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -54,6 +62,86 @@ jobs:
             SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
             $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends pandoc
           fi
+
+      # --- P7 (bd-c69da6): co-build the nlir-wasm pkg/ into site/workspace/ from
+      # THIS commit, BEFORE build-docs.sh runs (build-docs.sh cp -a's site/workspace/
+      # wholesale and surfaces the "Workspace" nav + "Try it live" hero ONLY when
+      # site/workspace/pkg/ is present). The wasm is built from $GITHUB_SHA = the site
+      # commit, so the in-page evaluator is byte-for-byte the shipped core and the
+      # version stamp is intrinsic (no separate build to drift). Toolchain mirrors the
+      # green wasm.yml: the runner ships SYSTEM Rust with no rustup / no cc by default.
+      - name: Detect the nlir-wasm crate
+        id: detect
+        shell: bash
+        run: |
+          if [ -f crates/nlir-wasm/Cargo.toml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "nlir-wasm crate absent — the site ships the workspace UNLINKED (no pkg/)."
+          fi
+
+      - name: Move cargo home off the SMB build-cache (bd-f35766 rustup hardlink fix)
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: |
+          if [[ "${CARGO_HOME:-}" == /mnt/build-cache/* ]]; then
+            echo "CARGO_HOME=$RUNNER_TEMP/nlir-wasm-cargo-home" >> "$GITHUB_ENV"
+          fi
+
+      - name: Ensure curl and rustup are reachable for the toolchain install (bd-7e465a)
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: |
+          for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
+            if [ -d "$d" ]; then echo "$d" >> "$GITHUB_PATH"; fi
+          done
+          for d in "$HOME/.cargo/bin" "${CARGO_HOME:-/nonexistent}/bin"; do
+            if [ -x "$d/rustup" ]; then echo "$d" >> "$GITHUB_PATH"; fi
+          done
+          exit 0
+
+      - name: Install Rust toolchain + wasm32 target
+        if: steps.detect.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install C toolchain (cc linker for wasm-pack / host build scripts)
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: |
+          if ! command -v cc >/dev/null 2>&1; then
+            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends build-essential
+          fi
+
+      - name: Use anonymous https for public crate deps
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+
+      - name: Install wasm-pack
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: command -v wasm-pack >/dev/null 2>&1 || cargo install wasm-pack --locked
+
+      - name: Co-build wasm pkg/ into site/workspace/ (P7 — same commit as the site)
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Release build (wasm-pack applies wasm-opt) so the embedded evaluator is small
+          # + is the shipped core built from this very commit.
+          ( cd crates/nlir-wasm && wasm-pack build --target web --out-dir pkg )
+          rm -rf site/workspace/pkg
+          cp -a crates/nlir-wasm/pkg site/workspace/pkg
+          cp -a config.example.yaml site/workspace/config.example.yaml
+          # Version stamp: record the exact commit the embedded wasm was built from
+          # (WASM commit == site commit == GITHUB_SHA by construction).
+          printf '%s\n' "${GITHUB_SHA:-unknown}" > site/workspace/pkg/BUILD_COMMIT
+          echo "co-built wasm pkg from ${GITHUB_SHA:-unknown}:"
+          ls -la site/workspace/pkg/
 
       - name: Build docs site
         shell: bash
