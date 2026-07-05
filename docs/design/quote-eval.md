@@ -26,20 +26,20 @@ else (map, fold, do-N-times, macros) rides on top.
   (so it round-trips) and can be bound (`f = '(...)`), passed, and applied.
 - **Application** — `f APPLY args`: evaluate `f` to a form, bind `args`
   positionally to `$0, $1, …`, evaluate the form's body under those bindings,
-  yield the result. `f#x`, `f#[x,y]`, `f#(x,y)` are equivalent (single arg,
+  yield the result. `f.x`, `f.[x,y]`, `f.(x,y)` are equivalent (single arg,
   list, tuple).
 - **Parameters** — inside a form, `$0 $1 …` are the positional argument holes,
   bound at application time (reusing the existing `$N` positional read syntax).
 - **Tuple/list** — `a,b,c ≡ [a,b,c]` (a top-level comma constructor), so
-  `f#(x,y)` and `f#[x,y]` unify.
+  `f.(x,y)` and `f.[x,y]` unify.
 
 ### What it unlocks
-- **Lambda**: `sum = {$0 + $1}; sum#(2,3)` → 5.
+- **Lambda**: `sum = {$0 + $1}; sum.(2,3)` → 5.
 - **map — the structural per-item map the string-ops CAN'T do** (aur-0's
   op-over-collection law): today `op[list]` is NOT a structural map — it folds
   the list to JOINED TEXT and applies `op` once (`:` is the one op that reliably
   maps per-item; `&` weaves; `#`/`~`/`<` fold; `@`/`>` are non-deterministic).
-  So there is **no general per-item map today**. `map#({:$0}, [a,b,c])` is
+  So there is **no general per-item map today**. `map.({:$0}, [a,b,c])` is
   precisely that: it returns a **LIST** of results (`[:a, :b, :c]`), not a join.
   Forms are what make a real `map`/`fold` expressible.
 - **do-N-times** (see D5): `{>$0}_3` — apply a form N times (lift `_`).
