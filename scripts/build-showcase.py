@@ -127,6 +127,14 @@ SIMPLE = [
              "live question, verbatim: \u201chow do we handle refunds and corrections in an "
              "append-only model?\u201d",
          cap="catch up in one glance \u2014 bind the thread-so-far as a summary, then emit it + their live question raw"),
+    dict(name="exec-brief", expr="@~0^*-1", pill="llm · reads your whole thread",
+         src="a 5-turn incident thread — 500s after the 2pm deploy \u2192 2026-expiry bug \u2192 rollback? \u2192 hotfix + 'brief the VP in 10 min'",
+         out="The 2:00 PM deployment introduced a defect in the checkout process, causing valid "
+             "cards with a 2026 expiration date to be incorrectly rejected. As the deployment also "
+             "included a live fraud-rule migration, reverting it was considered too risky. "
+             "Consequently, the team will implement an expedited hotfix to the expiration date "
+             "validation logic ahead of the upcoming VP briefing.",
+         cap="brief the VP in 10 minutes \u2014 a messy incident thread becomes one formal, forwardable paragraph"),
 ]
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------

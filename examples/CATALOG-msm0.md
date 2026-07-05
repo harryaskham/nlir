@@ -59,6 +59,13 @@ lane split): moves that address a **range** of the conversation, not just the la
 Captures below are real `--mode llm` (copilot/claude) runs on a 5-turn billing-design thread
 (*event-sourcing? → simpler ledger → "how do refunds work?"*).
 
+**▶ Every capture here is a live execution, not theory.** Reproduce any of them:
+```sh
+cd <checkout> && printf '%s' '{"_messages":[{"role":"user","content":"..."}, ...]}' > /tmp/ctx.json
+target/release/nlir --mode llm --config config.example.yaml --context-file /tmp/ctx.json --quiet -e 'EXPR'
+```
+The showcase cards carry the same real outputs (their `llm · reads your whole thread` pill marks the live backend).
+
 ### ★ CATCH-UP — `p=~0^*-2;[$p,^_-1]`
 Rejoin any conversation in one glance: the thread-so-far **distilled**, then their **live
 question verbatim**. (Bind the all-but-last background as a summary `p`, then emit
@@ -85,3 +92,14 @@ the through-line, which is itself useful.)
 *selects* which slice of the conversation you mean; the operator (`~`, `#`, `[]`) *transforms*
 it. Single-message reply/amend moves (aur-1) and composer slots (aur-2) compose ON TOP of
 whatever these select.
+
+### ★ EXEC BRIEF — `@~0^*-1`
+"Brief the VP in 10 minutes." A messy multi-turn incident thread → one formal, forwardable
+paragraph. `~0^*-1` distills the whole thread; `@` lifts it to a professional register. The
+formal-register companion to CATCH-UP (catch *yourself* up vs brief *someone else* up). Real
+capture on a 5-turn incident thread (500s after deploy → 2026-expiry bug → rollback? → hotfix):
+> The 2:00 PM deployment introduced a defect in the checkout process, causing valid cards with
+> a 2026 expiration date to be incorrectly rejected. As the deployment also included a live
+> fraud-rule migration, reverting it was considered too risky. Consequently, the team will
+> implement an expedited hotfix to the expiration date validation logic ahead of the upcoming
+> VP briefing.
