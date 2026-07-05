@@ -334,6 +334,20 @@ GRID = [
              ("@'…'  the alternative", "Migrate incrementally \u2014 one route at a time, behind a feature flag \u2014 so "
               "features keep shipping throughout the process."),
          ]),
+    dict(name="weighed-decision", expr="[~>@^-1, ~>!^-1, @(^-1 & 'decision: <your call>')]",
+         pill="llm · for / against / your call",
+         claim="[agent] break the monolith into microservices — independent deploys, scale the hot paths separately",
+         cap="the weighed decision \u2014 deliberate on an agent's actual proposal BOTH ways (~>@^-1 the case for, "
+             "~>!^-1 the case against), THEN land your own call (@(^-1 & 'decision: …')). steelman both sides, "
+             "then decide \u2014 the whole arc in one line. reusable on any proposal you have to rule on.",
+         cols=1, cells=[
+             ("~>@^-1  the case for", "Migrating to microservices would let teams deploy independently and scale "
+              "services individually \u2014 improving release speed, cost efficiency, and resilience."),
+             ("~>!^-1  the case against", "Keeping the monolith avoids a migration that wouldn't reliably deliver "
+              "its promised independent deploys or hot-path scaling \u2014 at real operational cost."),
+             ("@(^-1 & 'decision: …')  your verdict", "Decompose, but narrowly: extract only the two highest-traffic "
+              "services now, and keep the rest a monolith for the time being."),
+         ]),
 ]
 
 # --- lightweight nlir syntax highlighter --------------------------------------
