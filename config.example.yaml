@@ -60,7 +60,7 @@ sessions:
 models:
   haiku:
     type: anthropic_messages
-    base_url: https://api.anthropic.com/v1
+    base_url: $ANTHROPIC_BASE_URL
     api_key: $ANTHROPIC_API_KEY
     model: claude-haiku-4-5
     format: json
@@ -90,13 +90,9 @@ models:
     format: text
     command: pi --no-extensions --no-session --model github-copilot/claude-sonnet-4.6 --system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
   # Direct HTTP against a LiteLLM proxy speaking the Anthropic Messages API.
-  # Replace base_url with your own proxy; NOTE the explicit :4000 port here
-  # (a bare host + /v1 hits port 80). The key is read from the environment, so
-  # if yours lives in a file, export it first, e.g.:
-  #   export LITELLM_MASTER_KEY=$(cat "$CACOPHONY_LITELLM_MASTER_KEY_FILE")
   direct:
     type: anthropic_messages
-    base_url: http://helsinki.miku-owl.ts.net:4000/v1
+    base_url: ${LITELLM_BASE_URL}/v1
     api_key: $LITELLM_MASTER_KEY
     model: claude-sonnet-5
     format: text
