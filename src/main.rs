@@ -808,6 +808,157 @@ fn repl_eval(cli: &Cli, expr: &str) {
 }
 
 /// Run a REPL `:cmd` meta-command as the matching `nlir` subcommand (bd-c2ac59).
+/// Interactive step-through of an expression's evaluation (`:step EXPR`, Harry
+/// ask #1 — "press Tab to expand the next eval step"). On a TTY it enters raw
+/// mode, shows the parsed expression, and lets the user drive: Tab/Space reduces
+/// one step, Enter runs to completion, q/Esc/Ctrl-C cancels. On a non-TTY (pipes,
+/// tests) it degrades to a single full evaluation so scripted REPL use is
+/// unchanged.
+///
+/// Engine (bd-9c366d): the per-step reducer is msm-0's `Evaluator::step_once`
+/// (`Step::Reduced(Expr)` / `Done(Value)`), driven by ONE `Evaluator` so the
+/// run-scoped stack + realise cache persist across steps and `key=RHS` writes
+/// land in ctx. Each partially-reduced tree is reprinted via the
+/// precedence-aware `Expr::render_step()` (reduced nodes shown as «…»).
+fn run_step_view(cli: &Cli, expr_str: &str) -> Result<(), i32> {
+    use std::io::{IsTerminal, Write};
+
+    let cfg = resolve_config(cli)?;
+    let Ok(mut ctx) = open_context(cli) else {
+        return Err(1);
+    };
+    let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
+    let mode = settings.mode;
+    let sep = ctx.sep();
+
+    // Parse to a single-statement Expr (MVP; multi-statement stepping arrives
+    // with the engine).
+    let sigils = nlir::config::operator_sigils(&cfg);
+    let tokens = match nlir::lexer::tokenize(expr_str, &sigils) {
+        Ok(t) => t,
+        Err(error) => {
+            eprintln!("nlir step: {error}");
+            return Err(1);
+        }
+    };
+    let program = match nlir::parser::parse_program(&tokens, &cfg.operators) {
+        Ok(p) => p,
+        Err(error) => {
+            eprintln!("nlir step: {error}");
+            return Err(1);
+        }
+    };
+    let Some(cur) = program.statements.into_iter().next() else {
+        return Ok(());
+    };
+
+    // Non-TTY (pipes/tests): degrade to a single full evaluation so scripted REPL
+    // use is unchanged.
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        match nlir::eval::evaluate(expr_str, &cfg, &mut ctx, mode) {
+            Ok(value) => {
+                let _ = ctx.save();
+                println!("{}", value.render(&sep));
+            }
+            Err(error) => eprintln!("nlir step: {error}"),
+        }
+        return Ok(());
+    }
+
+    eprintln!("nlir step — Tab/Space: next step · Enter: run to completion · q/Esc: cancel");
+    if crossterm::terminal::enable_raw_mode().is_err() {
+        match nlir::eval::evaluate(expr_str, &cfg, &mut ctx, mode) {
+            Ok(value) => println!("{}", value.render(&sep)),
+            Err(error) => eprintln!("nlir step: {error}"),
+        }
+        return Ok(());
+    }
+    // Restore cooked mode on ANY exit from here (incl. a panic) so a broken step
+    // never leaves the operator's terminal in raw mode.
+    let _raw = RawModeGuard;
+    // Drive the small-step engine: build ONE evaluator so the stack + realise
+    // cache persist across steps and `key=RHS` writes land in ctx. Each Tab
+    // reduces one redex and reprints the tree; Enter drains to the final value.
+    let outcome = {
+        let mut ev = nlir::eval::Evaluator::new(&cfg, &mut ctx, mode);
+        let mut cur = cur;
+        loop {
+            let _ = write!(std::io::stdout(), "\r\n  {}\r\n", cur.render_step());
+            let _ = std::io::stdout().flush();
+            match read_step_key() {
+                StepKey::Step => match ev.step_once(&cur) {
+                    Ok(nlir::eval::Step::Reduced(next)) => cur = next,
+                    Ok(nlir::eval::Step::Done(value)) => break Some(value.render(&sep)),
+                    Err(error) => break Some(format!("error: {error}")),
+                },
+                StepKey::Run => {
+                    break loop {
+                        match ev.step_once(&cur) {
+                            Ok(nlir::eval::Step::Reduced(next)) => cur = next,
+                            Ok(nlir::eval::Step::Done(value)) => break Some(value.render(&sep)),
+                            Err(error) => break Some(format!("error: {error}")),
+                        }
+                    };
+                }
+                StepKey::Cancel => break None,
+            }
+        }
+    };
+
+    let _ = crossterm::terminal::disable_raw_mode();
+    let _ = writeln!(std::io::stdout());
+    match outcome {
+        Some(value) => {
+            let _ = ctx.save();
+            println!("{value}");
+        }
+        None => eprintln!("nlir step: cancelled"),
+    }
+    Ok(())
+}
+
+/// RAII guard: leaves raw mode when dropped, so any early return or panic in the
+/// step view restores the terminal.
+struct RawModeGuard;
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = crossterm::terminal::disable_raw_mode();
+    }
+}
+
+/// One step-view control action, decoded from a raw-mode key press.
+enum StepKey {
+    Step,
+    Run,
+    Cancel,
+}
+
+/// Block in raw mode until the user presses a step-view control key. Non-key and
+/// non-press events are ignored; a read error is treated as cancel.
+fn read_step_key() -> StepKey {
+    use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    loop {
+        match read() {
+            Ok(Event::Key(KeyEvent {
+                code,
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
+            })) => match code {
+                KeyCode::Tab | KeyCode::Char(' ') => return StepKey::Step,
+                KeyCode::Enter => return StepKey::Run,
+                KeyCode::Char('q') | KeyCode::Esc => return StepKey::Cancel,
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    return StepKey::Cancel;
+                }
+                _ => {}
+            },
+            Ok(_) => {}
+            Err(_) => return StepKey::Cancel,
+        }
+    }
+}
+
 fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
     let parts: Vec<&str> = meta.split_whitespace().collect();
     match parts.as_slice() {
@@ -839,9 +990,10 @@ fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
                 text: tail.join(" "),
             },
         ),
+        ["step", tail @ ..] if !tail.is_empty() => run_step_view(cli, &tail.join(" ")),
         _ => {
             eprintln!(
-                "nlir repl: unknown meta-command ':{meta}' (try :set KEY VALUE, :get KEY, :append-message [--role R] TEXT, :quit)"
+                "nlir repl: unknown meta-command ':{meta}' (try :step EXPR, :set KEY VALUE, :get KEY, :append-message [--role R] TEXT, :quit)"
             );
             Err(2)
         }
