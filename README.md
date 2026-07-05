@@ -225,14 +225,16 @@ nlir -e '{2+3}'               # → {(2 + 3)}   (a form — code as data, not ru
 nlir -e '{$0+1}%5'            # → 6           (apply a form to an argument)
 nlir -e '{$0+$1}%(2,3)'       # → 5           (tuple args; %(2,3) ≡ %[2,3])
 nlir -e 'sq={$0*$0};$sq%5'    # → 25          (a named lambda: bind, then apply)
+nlir -e '({$0+1}_3)%5'        # → 8           (do-N-times: compose a form N times)
 ```
 
 The argument frame is **hygienic** — a form's `$0` is its argument, not whatever
 is on the run stack (`9;{$0}%7` → `7`). Application binds tighter than `,` (pass a
-tuple with `%(a,b)`). A **macro** is just a form whose body is a transform,
-applied to text, so the same quote+apply machinery gives you reusable moves.
-Quote + apply is the substrate the rest of the functional layer rides on
-(do-something-N-times, map/fold over forms).
+tuple with `%(a,b)`) and tighter than `_` (parenthesise the compose: `({form}_N)%x`).
+A **macro** is just a form whose body is a transform, applied to text, so the same
+quote+apply machinery gives you reusable moves. Together — quoted forms,
+application, named lambdas/macros, and do-N-times — these are the programmable
+layer map/fold over forms builds on.
 
 ## CLI surface
 

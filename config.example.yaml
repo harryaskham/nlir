@@ -379,6 +379,7 @@ tests:
   do-n-inc3: { mode: det, expr: "({$0+1}_3)%5", expected: "8" }
   do-n-dbl2: { mode: det, expr: "({$0*2}_2)%3", expected: "12" }
   do-n-id0:  { mode: det, expr: "({$0+1}_0)%5", expected: "5" }
+  do-n-named: { mode: det, expr: "g=({$0+1}_3);$g%5", expected: "8" }
   msg:
     mode: det
     context:
