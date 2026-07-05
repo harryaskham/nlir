@@ -182,6 +182,11 @@ struct ReplArgs {
     /// messages) before starting the loop (bd-ff485a).
     #[arg(long = "continue")]
     continue_session: bool,
+
+    /// Resume a saved REPL session: `--resume` shows a picker, `--resume
+    /// <n|ts|path>` restores that session directly (bd-2275f6).
+    #[arg(long, value_name = "ID", num_args = 0..=1)]
+    resume: Option<Option<String>>,
 }
 
 #[derive(Debug, Args)]
@@ -1162,11 +1167,6 @@ fn list_sessions(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     sessions
 }
 
-/// The most recent saved session, if any.
-fn most_recent_session(dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    list_sessions(dir).into_iter().next()
-}
-
 /// Archive the current context store to `sessions/<ts>.json`. Skips an empty
 /// store, and skips when byte-identical to the most-recent archive (no dupes).
 /// Returns the archive path when one was written.
@@ -1177,10 +1177,14 @@ fn archive_session(context_path: &std::path::Path) -> Option<std::path::PathBuf>
         return None;
     }
     let dir = sessions_dir(context_path);
-    if let Some(recent) = most_recent_session(&dir) {
-        if std::fs::read(&recent).ok().as_deref() == Some(bytes.as_slice()) {
-            return None;
-        }
+    // Skip if byte-identical to ANY existing archive — e.g. we just restored a
+    // session and exited, or nothing changed. Checking only the most-recent
+    // would let a restored older session re-archive as a duplicate (bd-ff485a).
+    if list_sessions(&dir)
+        .iter()
+        .any(|session| std::fs::read(session).ok().as_deref() == Some(bytes.as_slice()))
+    {
+        return None;
     }
     std::fs::create_dir_all(&dir).ok()?;
     let ts = std::time::SystemTime::now()
@@ -1225,11 +1229,162 @@ fn restore_session(cli: &Cli, session: &std::path::Path) -> Result<(), i32> {
     Ok(())
 }
 
+/// A one-line summary of a session: `[ts] N msg, K key — “first message…”`.
+fn session_summary(path: &std::path::Path) -> String {
+    let ts = session_ts(path);
+    let detail = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .map(|value| {
+            let messages = value.get("_messages").and_then(serde_json::Value::as_array);
+            let msg_count = messages.map_or(0, Vec::len);
+            let key_count = value.as_object().map_or(0, |obj| {
+                obj.keys().filter(|k| k.as_str() != "_messages").count()
+            });
+            let first: String = messages
+                .and_then(|arr| arr.first())
+                .and_then(|m| m.get("content"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .chars()
+                .take(48)
+                .collect();
+            format!("{msg_count} msg, {key_count} key — “{first}”")
+        })
+        .unwrap_or_else(|| "(unreadable)".to_owned());
+    format!("[{ts}] {detail}")
+}
+
+/// Print saved sessions (most-recent first), numbered, with a preview.
+fn print_sessions(sessions: &[std::path::PathBuf]) {
+    eprintln!("nlir: saved sessions (most recent first):");
+    for (index, path) in sessions.iter().enumerate().take(30) {
+        eprintln!("  {:>2}) {}", index + 1, session_summary(path));
+    }
+}
+
+/// Interactive picker: print the list + read a 1-based choice from stdin. Only
+/// safe BEFORE the REPL loop holds the stdin lock (i.e. at `--resume` startup).
+fn pick_session(sessions: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+    print_sessions(sessions);
+    eprint!(
+        "nlir: resume which? [1-{}, Enter to skip]: ",
+        sessions.len().min(30)
+    );
+    let _ = io::stderr().flush();
+    let mut line = String::new();
+    if io::stdin().read_line(&mut line).ok()? == 0 {
+        return None;
+    }
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let choice: usize = trimmed.parse().ok()?;
+    sessions.get(choice.checked_sub(1)?).cloned()
+}
+
+/// Resolve a session selector: a 1-based list index (small n), a bare unix-ts
+/// (`sessions/<ts>.json`), or a direct file path.
+fn resolve_session_selector(
+    sel: &str,
+    dir: &std::path::Path,
+    sessions: &[std::path::PathBuf],
+) -> Option<std::path::PathBuf> {
+    if let Ok(n) = sel.parse::<u64>() {
+        // A small number is a 1-based list index; a large one is a unix ts.
+        if (1..1_000_000).contains(&n) && (n as usize) <= sessions.len() {
+            return sessions.get((n as usize) - 1).cloned();
+        }
+        let candidate = dir.join(format!("{sel}.json"));
+        return candidate.is_file().then_some(candidate);
+    }
+    let as_path = std::path::PathBuf::from(sel);
+    as_path.is_file().then_some(as_path)
+}
+
+/// `:resume` lists saved sessions; `:resume <n|ts|path>` restores one (bd-414aee).
+fn run_resume(cli: &Cli, sel: Option<&str>) -> Result<(), i32> {
+    let Ok(cfg) = resolve_config(cli) else {
+        return Err(1);
+    };
+    let Some(path) = effective_context_path(cli, &cfg) else {
+        eprintln!("nlir: no context store configured");
+        return Err(1);
+    };
+    let dir = sessions_dir(&path);
+    let sessions = list_sessions(&dir);
+    if sessions.is_empty() {
+        eprintln!("nlir: no saved sessions");
+        return Ok(());
+    }
+    match sel {
+        None => {
+            print_sessions(&sessions);
+            eprintln!("nlir: `:resume <n>` restores one");
+            Ok(())
+        }
+        Some(sel) => match resolve_session_selector(sel, &dir, &sessions) {
+            Some(session) => restore_session(cli, &session),
+            None => {
+                eprintln!("nlir: no session matching '{sel}'");
+                Err(2)
+            }
+        },
+    }
+}
+
+/// Restore a saved session before the REPL loop starts, per `--continue` (most
+/// recent) / `--resume` (interactive picker or a direct id). Runs in the
+/// dispatcher, before either loop takes the stdin lock, so `--resume`'s picker
+/// can read a choice safely. bd-ff485a / bd-2275f6.
+fn restore_session_at_startup(cli: &Cli, args: &ReplArgs) {
+    if !args.continue_session && args.resume.is_none() {
+        return;
+    }
+    let Ok(cfg) = resolve_config(cli) else {
+        return;
+    };
+    let Some(path) = effective_context_path(cli, &cfg) else {
+        return;
+    };
+    let dir = sessions_dir(&path);
+    let sessions = list_sessions(&dir);
+    if sessions.is_empty() {
+        eprintln!("nlir: no saved sessions to resume");
+        return;
+    }
+    if args.continue_session {
+        let _ = restore_session(cli, &sessions[0]);
+    } else if let Some(resume) = &args.resume {
+        let chosen = match resume {
+            Some(id) => resolve_session_selector(id, &dir, &sessions),
+            None => pick_session(&sessions),
+        };
+        match chosen {
+            Some(session) => {
+                let _ = restore_session(cli, &session);
+            }
+            None => {
+                if let Some(id) = resume {
+                    eprintln!("nlir: no session matching '{id}'");
+                }
+            }
+        }
+    }
+}
+
 fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
     use std::io::IsTerminal;
 
     // Fail fast on a bad config before entering the loop.
     resolve_config(cli)?;
+
+    // Restore a saved session (--continue / --resume) before dispatching to
+    // either loop, so both paths start from the resumed context and --resume's
+    // picker reads its choice before the loop takes the stdin lock (bd-ff485a /
+    // bd-2275f6).
+    restore_session_at_startup(cli, args);
 
     // Use the rich rustyline line editor (history, arrow-key line editing,
     // Ctrl-A/Ctrl-E, Ctrl-C/Ctrl-D) only on a real interactive TTY. `--raw` and
@@ -1249,21 +1404,8 @@ fn run_repl(cli: &Cli, args: &ReplArgs) -> Result<(), i32> {
 fn run_repl_plain(cli: &Cli, prompts: bool) -> Result<(), i32> {
     if prompts {
         eprintln!(
-            "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:set`/`:get`/`:append-message`/`:quit`); Ctrl-D to exit."
+            "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:resume`/`:set`/`:get`/`:append-message`/`:quit`); Ctrl-D to exit."
         );
-    }
-    // --continue: restore the most recent saved session before the loop (bd-ff485a).
-    if args.continue_session {
-        if let Ok(cfg) = resolve_config(cli) {
-            if let Some(path) = effective_context_path(cli, &cfg) {
-                match most_recent_session(&sessions_dir(&path)) {
-                    Some(session) => {
-                        let _ = restore_session(cli, &session);
-                    }
-                    None => eprintln!("nlir: no saved sessions to --continue"),
-                }
-            }
-        }
     }
     let stdin = io::stdin();
     let mut input = stdin.lock();
@@ -1345,7 +1487,7 @@ fn run_repl_interactive(cli: &Cli) -> Result<(), i32> {
     }
 
     eprintln!(
-        "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:set`/`:get`/`:append-message`/`:quit`); ↑/↓ history, Ctrl-A/Ctrl-E line edit, Ctrl-C cancels the line, Ctrl-D exits."
+        "nlir repl — one expression per line; end a line with `\\` to continue; `:cmd` runs `nlir cmd` (`:new`/`:resume`/`:set`/`:get`/`:append-message`/`:quit`); ↑/↓ history, Ctrl-A/Ctrl-E line edit, Ctrl-C cancels the line, Ctrl-D exits."
     );
 
     let mut pending = String::new();
@@ -1408,6 +1550,9 @@ fn run_repl_interactive(cli: &Cli) -> Result<(), i32> {
         }
         let _ = editor.save_history(path);
     }
+    // Archive this session on exit (:quit and Ctrl-D both break the loop above,
+    // so the plain path's repl_meta_command :quit archive doesn't run here).
+    archive_repl_session(cli);
     result
 }
 
@@ -1625,6 +1770,8 @@ fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
             std::process::exit(0)
         }
         ["new"] => run_new(cli),
+        ["resume"] => run_resume(cli, None),
+        ["resume", sel] => run_resume(cli, Some(sel)),
         ["set", tail @ ..] if !tail.is_empty() => run_set(
             cli,
             &SetArgs {
@@ -1654,7 +1801,7 @@ fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
         ["step", tail @ ..] if !tail.is_empty() => run_step_view(cli, &tail.join(" ")),
         _ => {
             eprintln!(
-                "nlir repl: unknown meta-command ':{meta}' (try :new, :step EXPR, :set KEY VALUE, :get KEY, :append-message [--role R] TEXT, :quit)"
+                "nlir repl: unknown meta-command ':{meta}' (try :new, :resume [n], :step EXPR, :set KEY VALUE, :get KEY, :append-message [--role R] TEXT, :quit)"
             );
             Err(2)
         }
