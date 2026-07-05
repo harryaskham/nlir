@@ -138,8 +138,33 @@ machinery.
   hygienic — an explicit argument frame, not the shared stack.)
 
 ## Free-sigil map (aur-1, operator-consolidator lane)
-Form-quote + form-apply + the macro-hole marker need **3 free sigils** (backtick
-is TAKEN = serial). aur-1 to enumerate the full free single-char + 2-char
-candidate set and the collision map here, so we pin all three cleanly in one
-pass once Harry rules reuse-vs-fresh. Parser-lead default pending that: form-quote
-`{…}`, form-apply + macro-hole from the free set.
+
+**Full single-char ASCII census** (so we pick from the real free set):
+
+- **Taken** (every glyph an operator or structural role): `# ! ~ @ : > < ? & | _ + - * /`
+  (operators, plus multi-char `** ~> ~>? Δ`), and the structural chars `$` (context
+  read), `^` (message views + suffixes `^_ ^* ^/ ^!`), `;` (statement sep), `=` (assign),
+  `,` (list sep), `'` / `"` (raw / interpolating string), `( )` (group), `[ ]` (list),
+  and `` ` `` (**serial** — backtick is TAKEN, confirmed).
+- **Free** — the *only* unused single-char ASCII punctuation is **`{ }  %  .  \`** (five glyphs):
+  - **`{ }`** — clean, zero lexer conflict; brackets pair naturally with `()`.
+  - **`%`** — clean, zero conflict.
+  - **`.`** — free as an operator, but the lexer must disambiguate it from the decimal
+    point in numbers (`3.14`); usable with care.
+  - **`\`** — free, but overlaps string-escape handling → more lexer edge cases.
+
+### Recommendation — the functional layer costs just **2 fresh glyphs**
+Macro *holes* reuse the existing positional `$N` reads (D4), so no third sigil is needed
+until macros-that-build-forms (splice) land later. So:
+- **form-quote = `{…}`** (+1 msm-0): `{a + b}` = the form, `(a + b)` = the value — the cleanest
+  mnemonic (code-as-data braces vs grouping parens), zero lexer conflict.
+- **form-apply = `%`** (infix): `f % x` ≡ `f % [x,y]` ≡ `f % (x,y)`. `%` is the cleanest of the
+  free set (no decimal/escape overlap), and `#` stays subject-only (no overload). *Alt* if
+  Harry prefers a call-dot: `.` — but it needs decimal disambiguation.
+- **holes = `$0 $1 …`** (reuse `$N`, D4) — no new sigil.
+- **deferred: macro-splice** (forms that build forms) → a 3rd glyph from the remaining free
+  set (`\` or `.`), pinned when macros land.
+
+Net: the whole quote/eval/apply layer is **2 new glyphs (`{}` + `%`)**, both clean-free,
+with **zero migration and zero overload** — backtick, `#`, and `'` all stay exactly as they are.
+That is the concrete case for the FRESH path (D1/D2): it is not just cheaper, it is *nearly free*.
