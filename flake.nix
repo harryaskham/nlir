@@ -77,12 +77,12 @@
           chmod -R u+w "$out"
           # Cargo.toml: the 3 git deps -> path deps to the flake-input sources.
           substituteInPlace "$out/Cargo.toml" \
-            --replace-fail 'mcp-cli = { git = "ssh://git@github.com/harryaskham/mcp-cli", branch = "main" }' \
-                           'mcp-cli = { path = "${mcp-cli}" }' \
-            --replace-fail 'updatable-cli = { git = "ssh://git@github.com/harryaskham/updatable-cli", branch = "main" }' \
-                           'updatable-cli = { path = "${updatableCliPatched}" }' \
-            --replace-fail 'feedback-cli = { git = "ssh://git@github.com/harryaskham/feedback-cli", branch = "main" }' \
-                           'feedback-cli = { path = "${feedbackCliPatched}" }'
+            --replace-fail 'mcp-cli = { git = "ssh://git@github.com/harryaskham/mcp-cli", branch = "main", optional = true }' \
+                           'mcp-cli = { path = "${mcp-cli}", optional = true }' \
+            --replace-fail 'updatable-cli = { git = "ssh://git@github.com/harryaskham/updatable-cli", branch = "main", optional = true }' \
+                           'updatable-cli = { path = "${updatableCliPatched}", optional = true }' \
+            --replace-fail 'feedback-cli = { git = "ssh://git@github.com/harryaskham/feedback-cli", branch = "main", optional = true }' \
+                           'feedback-cli = { path = "${feedbackCliPatched}", optional = true }'
           # Drop the now-unused top-level [patch] table (deps are direct paths).
           ${pkgs.gnused}/bin/sed -i '\#^\[patch\.#,$d' "$out/Cargo.toml"
           # Strip the 3 git source lines from Cargo.lock so importCargoLock sees

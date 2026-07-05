@@ -47,11 +47,11 @@ pub trait Realiser {
 ///
 /// Native-only: its bodies use `std::process::Command` / HTTP, which do not
 /// build on `wasm32-unknown-unknown` — a WASM host supplies its own [`Realiser`].
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NativeRealiser;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 impl Realiser for NativeRealiser {
     fn llm<'a>(&'a self, call: &'a LlmCall) -> RealiseFuture<'a> {
         Box::pin(async move { crate::llm::run_llm(call) })
@@ -88,7 +88,7 @@ pub fn block_on_ready<T>(fut: impl Future<Output = T>) -> T {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
 

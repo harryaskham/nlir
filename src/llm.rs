@@ -13,6 +13,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+#[cfg(feature = "native")]
 use std::process::Command;
 
 use crate::config::{Config, ModelConfig, ModelFormat, ModelKind, PromptDef, TypeName};
@@ -197,6 +198,7 @@ fn text_open_tag_len(s: &str) -> Option<usize> {
 /// The shell used to run `type: command` backends. The SPEC command examples use
 /// bash features (`${NLIR_ARGS[0]}` array indexing, `$((…))`), so command
 /// realisations run under bash rather than POSIX `sh`.
+#[cfg(feature = "native")]
 const COMMAND_SHELL: &str = "bash";
 
 /// Why [`run_command_backend`] failed.
@@ -270,6 +272,18 @@ impl From<ExtractError> for CommandError {
 /// - [`CommandError::Spawn`] when the backend shell cannot be launched.
 /// - [`CommandError::NonZeroExit`] when the command exits non-zero.
 /// - [`CommandError::Extract`] when the output cannot be parsed.
+#[cfg(not(feature = "native"))]
+pub fn run_command_backend(
+    _model: &ModelConfig,
+    _env: &[(&str, &str)],
+) -> Result<String, CommandError> {
+    Err(CommandError::Spawn(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "native command backend unavailable in wasm build",
+    )))
+}
+
+#[cfg(feature = "native")]
 pub fn run_command_backend(
     model: &ModelConfig,
     env: &[(&str, &str)],
@@ -446,6 +460,7 @@ pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// Default `max_tokens` for an anthropic request when `output_config` does not
 /// override it (the Anthropic Messages API requires the field).
+#[cfg(feature = "native")]
 const DEFAULT_MAX_TOKENS: u64 = 4096;
 
 /// Why [`run_anthropic_backend`] failed.
@@ -514,6 +529,17 @@ impl From<ExtractError> for AnthropicError {
 /// - [`AnthropicError::Http`] on a transport error or non-2xx status.
 /// - [`AnthropicError::BadResponse`] when the response has no readable text.
 /// - [`AnthropicError::Extract`] when the text cannot be parsed.
+#[cfg(not(feature = "native"))]
+pub fn run_anthropic_backend(
+    _model: &ModelConfig,
+    _vars: &BTreeMap<String, String>,
+) -> Result<String, AnthropicError> {
+    Err(AnthropicError::Http(
+        "native anthropic backend unavailable in wasm build".to_owned(),
+    ))
+}
+
+#[cfg(feature = "native")]
 pub fn run_anthropic_backend(
     model: &ModelConfig,
     vars: &BTreeMap<String, String>,
@@ -555,6 +581,7 @@ pub fn run_anthropic_backend(
 /// Anthropic API expects), the rest form the `messages` array, and each content
 /// string has its `${NLIR_*}` references substituted. `output_config`'s top-level
 /// object keys are merged in last, so config can supply/override any field.
+#[cfg(feature = "native")]
 fn build_anthropic_request(
     model: &ModelConfig,
     model_id: &str,
@@ -594,6 +621,7 @@ fn build_anthropic_request(
 
 /// Concatenate the `text` of every text block in an Anthropic response's
 /// `content` array. Returns `None` when there is no text content.
+#[cfg(feature = "native")]
 fn anthropic_text(envelope: &serde_json::Value) -> Option<String> {
     let content = envelope.get("content")?.as_array()?;
     let mut text = String::new();
@@ -1018,6 +1046,17 @@ pub fn realise_llm(
 ///
 /// # Errors
 /// Returns [`RealiseError::OperatorCommand`] on spawn failure or a non-zero exit.
+#[cfg(not(feature = "native"))]
+pub fn run_operator_command(
+    _command: &str,
+    _operands: &[String],
+) -> Result<String, RealiseError> {
+    Err(RealiseError::OperatorCommand(
+        "native operator-command backend unavailable in wasm build".to_owned(),
+    ))
+}
+
+#[cfg(feature = "native")]
 pub fn run_operator_command(command: &str, operands: &[String]) -> Result<String, RealiseError> {
     let script = format!("{}\n{command}", nlir_args_declaration(operands));
     let output = std::process::Command::new("bash")
