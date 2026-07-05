@@ -115,6 +115,7 @@ const MOCK = {
     const k = knownOut(expr) || '⟨realised⟩';
     return { ok:true, steps:[{expr}, {expr:`→ «${k}»`}], mock:true };
   },
+  async stepStream(expr,c,x,md,r,onStep){ const res = await this.step(expr); (res.steps||[]).forEach(s => onStep((s && s.expr != null) ? s.expr : s)); return { ok:res.ok, count:(res.steps||[]).length, mock:true }; },
   operators(){ return MOCK_OPERATORS; },
   parse(expr){ return { ok:true, ast:expr }; },
   graph(){ return { ok:true, svg:PLACEHOLDER_SVG, mock:true }; },
@@ -140,6 +141,7 @@ let wasmReal = false;
     nlir = {
       async evaluate(e,c,x,md,r){ return O(await m.evaluate(e,c,x,md,r)); },
       async step(e,c,x,md,r){ const rr = O(await m.step(e,c,x,md,r)); if (rr.steps) rr.steps = A(rr.steps); return rr; },
+      async stepStream(e,c,x,md,r,onStep){ return O(await m.stepStream(e,c,x,md,r,onStep)); },
       operators(c){ return A(m.operators(c)); },
       parse(e,c){ return O(m.parse(e,c)); },
       graph(e,c){ return O(m.graph(e,c)); },
@@ -368,15 +370,21 @@ async function step(){
   const expr = getExpr().trim(); if (!expr) return;
   const out = $('output'); out.innerHTML = '';
   const box = $('steps'); box.innerHTML = '<span class="placeholder">stepping…</span>';
-  const r = await nlir.step(expr, configJson(), contextJson(), wasmMode(), realisers());
-  box.innerHTML = '';
-  if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
-  r.steps.forEach((s,i) => {
+  // Live streaming (bd-89eb89): each reduction appends the moment its realisation resolves
+  // (in llm mode you watch the reasoning unfold), via aur-2's stepStream export.
+  let i = 0;
+  const onStep = (txt) => {
+    if (i === 0) box.innerHTML = '';
     const d = document.createElement('div'); d.className = 'step';
-    const txt = (s && typeof s === 'object') ? (s.expr ?? '') : s;
-    d.innerHTML = `<span class="n">${i}</span><span class="x">${hl(String(txt))}</span>` + (i===r.steps.length-1 && r.mock ? '<span class="note">mock</span>' : '');
-    box.appendChild(d);
-  });
+    d.innerHTML = `<span class="n">${i}</span><span class="x">${hl(String(txt))}</span>`;
+    box.appendChild(d); i++;
+  };
+  try {
+    const r = await nlir.stepStream(expr, configJson(), contextJson(), wasmMode(), realisers(), onStep);
+    if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
+    if (i === 0) box.innerHTML = '<span class="placeholder">(no steps)</span>';
+    else if (r.mock && box.lastChild){ const note = document.createElement('span'); note.className = 'note'; note.textContent = 'mock'; box.lastChild.appendChild(note); }
+  } catch (e){ box.innerHTML = `<span class="err">${e}</span>`; }
 }
 
 // ---- graph (G5): dataflow graph panel + step-frame animation with node highlight ----
