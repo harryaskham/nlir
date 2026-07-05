@@ -49,6 +49,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | crisp proposal | `@&[:PROBLEM, FIX, TRADEOFF, ASK]` | a mini-RFC | aur-2 |
 | scoped commitment | `@&[DELIVERABLE, BY_WHEN, DEPENDENCY]` | a promise + its fine print | aur-2 |
 | risk heads-up | `@&[RISK, WHY_NOW, RECOMMENDATION]` | flag a risk, unprompted, with a fix | aur-2 |
+| postmortem note | `@&[OWN_THE_MISS, ROOT_CAUSE, PREVENTION]` | own a mistake gracefully | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
 | honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |
@@ -78,7 +79,7 @@ claim · `~` digest a long reference). Gotcha: flag a *gap* plainly, don't `!` i
 meaning); keep slots consistent.
 Moves: diplomatic counter-reply · weighed recommendation · partial-accept counter-offer ·
 empathetic redirect · briefed handoff · review verdict · terse status ping · crisp proposal ·
-scoped commitment · risk heads-up.
+scoped commitment · risk heads-up · postmortem note.
 → `examples/CATALOG-aur2.md` · `examples/move-aur2-*.sh` · cards `nlir-composer-reply`, `nlir-empathetic-redirect`
 
 ### REPLY / AMEND — answer a live suggestion (aur-1)

@@ -153,6 +153,15 @@ SIMPLE = [
              "making changes. So starting Friday, every change will be tested first before it's allowed in.",
          cap="the empathetic redirect — validate + agree + reframe + fix woven into one warm message; the "
              "leading : dials a WARM tone (swap @ for a formal announcement, same slots)"),
+    dict(name="postmortem",
+         expr="@&['i own the incident, my change took down checkout for twenty minutes','the root cause was a missing null check on the new coupon path','ive added a test for that path and a canary deploy step so it cannot recur']",
+         pill="llm · claude-sonnet-5",
+         out="I take full responsibility for this incident. My change caused a twenty-minute outage of the "
+             "checkout system, and the root cause was identified as a missing null check on the new coupon "
+             "path. I have since added a test covering that path, as well as a canary deployment step, to "
+             "prevent this issue from recurring.",
+         cap="the postmortem note — own the miss + root cause + prevention woven into one graceful "
+             "accountability memo; the hardest message to write well, in three slots"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
