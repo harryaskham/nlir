@@ -672,7 +672,9 @@ impl<'a> Evaluator<'a> {
         // context does not define the name — a user-defined `map`/`fold` form still
         // wins (normal form apply below).
         if let Expr::ContextRead(name) = form {
-            if matches!(name.as_str(), "map" | "fold") && self.context.get(name).is_none() {
+            if matches!(name.as_str(), "map" | "fold" | "scan" | "filter")
+                && self.context.get(name).is_none()
+            {
                 return self.eval_higher_order(name, args);
             }
         }
@@ -720,6 +722,38 @@ impl<'a> Evaluator<'a> {
                 let mapped = self.eval(body);
                 self.arg_frames.pop();
                 out.push(mapped?);
+            }
+            return Ok(Value::list(out));
+        }
+        if name == "scan" {
+            // running fold (J's `\`): [acc0, acc1, …] where acc0 = items[0] and
+            // acc_i = body(acc_{i-1}, items[i]) — prefix sums, running consensus.
+            let mut iter = items.into_iter();
+            let Some(first) = iter.next() else {
+                return Ok(Value::list(Vec::new()));
+            };
+            let mut acc = first.clone();
+            let mut out = vec![first];
+            for item in iter {
+                self.arg_frames.push(vec![acc.clone(), item]);
+                let next = self.eval(body);
+                self.arg_frames.pop();
+                acc = next?;
+                out.push(acc.clone());
+            }
+            return Ok(Value::list(out));
+        }
+        if name == "filter" {
+            // keep items whose predicate body ($0 = item) is truthy (APL compress).
+            let sep = self.sep();
+            let mut out = Vec::new();
+            for item in items {
+                self.arg_frames.push(vec![item.clone()]);
+                let verdict = self.eval(body);
+                self.arg_frames.pop();
+                if verdict?.coerce(TypeName::Bool, &sep)?.as_bool() == Some(true) {
+                    out.push(item);
+                }
             }
             return Ok(Value::list(out));
         }
@@ -786,6 +820,35 @@ impl<'a> Evaluator<'a> {
                     let mapped = self.eval_async(&body, realiser).await;
                     self.arg_frames.pop();
                     out.push(mapped?);
+                }
+                return Ok(Value::list(out));
+            }
+            if name == "scan" {
+                let mut iter = items.into_iter();
+                let Some(first) = iter.next() else {
+                    return Ok(Value::list(Vec::new()));
+                };
+                let mut acc = first.clone();
+                let mut out = vec![first];
+                for item in iter {
+                    self.arg_frames.push(vec![acc.clone(), item]);
+                    let next = self.eval_async(&body, realiser).await;
+                    self.arg_frames.pop();
+                    acc = next?;
+                    out.push(acc.clone());
+                }
+                return Ok(Value::list(out));
+            }
+            if name == "filter" {
+                let sep = self.sep();
+                let mut out = Vec::new();
+                for item in items {
+                    self.arg_frames.push(vec![item.clone()]);
+                    let verdict = self.eval_async(&body, realiser).await;
+                    self.arg_frames.pop();
+                    if verdict?.coerce(TypeName::Bool, &sep)?.as_bool() == Some(true) {
+                        out.push(item);
+                    }
                 }
                 return Ok(Value::list(out));
             }
@@ -1030,7 +1093,7 @@ impl<'a> Evaluator<'a> {
                     // same reserved-name detection as `eval_higher_order`, driven
                     // through the async realiser so the mapping form may be llm.
                     if let Expr::ContextRead(name) = form.as_ref() {
-                        if matches!(name.as_str(), "map" | "fold")
+                        if matches!(name.as_str(), "map" | "fold" | "scan" | "filter")
                             && self.context.get(name).is_none()
                         {
                             if args.len() != 2 {
@@ -1051,27 +1114,9 @@ impl<'a> Evaluator<'a> {
                                 Value::List(items) => items,
                                 other => vec![other],
                             };
-                            if name == "map" {
-                                let mut out = Vec::with_capacity(items.len());
-                                for item in items {
-                                    self.arg_frames.push(vec![item]);
-                                    let mapped = self.eval_async(&hbody, realiser).await;
-                                    self.arg_frames.pop();
-                                    out.push(mapped?);
-                                }
-                                return Ok(Value::list(out));
-                            }
-                            let mut iter = items.into_iter();
-                            let mut acc = iter.next().ok_or_else(|| {
-                                EvalError::Unsupported(format!("`${name}` needs a non-empty list"))
-                            })?;
-                            for item in iter {
-                                self.arg_frames.push(vec![acc, item]);
-                                let folded = self.eval_async(&hbody, realiser).await;
-                                self.arg_frames.pop();
-                                acc = folded?;
-                            }
-                            return Ok(acc);
+                            return self
+                                .run_higher_order_async(name.clone(), hbody, items, realiser)
+                                .await;
                         }
                     }
                     // Form application (bd-5dd86f), async: eval the form + args
@@ -2624,6 +2669,30 @@ operators:
         check("□5*2", "50");
         check("□5+□3", "34"); // two glyph ops as parallel operands
         check("{$0+$1}⊘({$0*$0}↦[1,2,3])", "14"); // builtin nested under builtin
+    }
+
+    #[test]
+    fn scan_and_filter_higher_order_builtins() {
+        // The catamorphism family beyond map/fold (aur-0 gap-ranking): scan =
+        // running fold (J's `\`); filter = keep-if (APL compress). Word-builtins
+        // ($scan/$filter), composable with map/fold, no new sigils.
+        let yaml = r##"
+operators:
+  add: { op: "+", arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
+  mul: { op: "*", arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("sf.yaml")).unwrap();
+        let check = |src: &str, expected: &str| {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = evaluate(src, &cfg, &mut ctx, Mode::Det).expect(src);
+            assert_eq!(out.render(&ctx.sep()), expected, "for {src}");
+        };
+        // scan: running fold — prefix sums.
+        check("$scan%({$0+$1},[1,2,3,4])", "1\n3\n6\n10");
+        // filter: keep truthy items (identity predicate over a bool list).
+        check("$filter%({$0},[true,false,true,false])", "true\ntrue");
+        // scan composes over a map result (running sum of squares).
+        check("$scan%({$0+$1},$map%({$0*$0},[1,2,3]))", "1\n5\n14");
     }
 
     #[test]
