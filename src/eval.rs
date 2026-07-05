@@ -665,6 +665,17 @@ impl<'a> Evaluator<'a> {
     /// (`$0/$1/…`), evaluate the form's body under it, then pop. A non-form
     /// callee is an error — the left of `%` must be a `{…}` form.
     fn eval_form_apply(&mut self, form: &Expr, args: &[Expr]) -> Result<Value, EvalError> {
+        // Higher-order builtin forms `$map`/`$fold` (bd-14af74): `$map%(f,list)`
+        // applies form `f` to each list item (`$0` = the item) collecting a list;
+        // `$fold%(f,list)` reduces left-to-right (`$0` = acc, `$1` = item). They are
+        // reserved names detected ONLY in application position, and only when the
+        // context does not define the name — a user-defined `map`/`fold` form still
+        // wins (normal form apply below).
+        if let Expr::ContextRead(name) = form {
+            if matches!(name.as_str(), "map" | "fold") && self.context.get(name).is_none() {
+                return self.eval_higher_order(name, args);
+            }
+        }
         let body = match self.eval(form)? {
             Value::Form(inner) => *inner,
             _ => {
@@ -681,6 +692,65 @@ impl<'a> Evaluator<'a> {
         let result = self.eval(&body);
         self.arg_frames.pop();
         result
+    }
+
+    /// Apply a higher-order builtin (`map`/`fold`, bd-14af74) over a list. Shared
+    /// operand shape `args = [form, list]`; `map` applies `form` to each item
+    /// (`$0` = item) collecting a [`Value::List`]; `fold` reduces left-to-right
+    /// (`$0` = acc, `$1` = item), seeded by the first element.
+    fn eval_higher_order(&mut self, name: &str, args: &[Expr]) -> Result<Value, EvalError> {
+        let (body, items) = self.higher_order_operands(name, args)?;
+        if name == "map" {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                self.arg_frames.push(vec![item]);
+                let mapped = self.eval(&body);
+                self.arg_frames.pop();
+                out.push(mapped?);
+            }
+            return Ok(Value::list(out));
+        }
+        // fold
+        let mut iter = items.into_iter();
+        let mut acc = iter
+            .next()
+            .ok_or_else(|| EvalError::Unsupported(format!("`${name}` needs a non-empty list")))?;
+        for item in iter {
+            self.arg_frames.push(vec![acc, item]);
+            let folded = self.eval(&body);
+            self.arg_frames.pop();
+            acc = folded?;
+        }
+        Ok(acc)
+    }
+
+    /// Resolve the shared `(form, list)` operands for a `map`/`fold` builtin: the
+    /// first arg must be a `{…}` form; the second is coerced to a list (a lone
+    /// non-list value becomes a one-element list).
+    fn higher_order_operands(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+    ) -> Result<(Expr, Vec<Value>), EvalError> {
+        if args.len() != 2 {
+            return Err(EvalError::Unsupported(format!(
+                "`${name}` takes (form, list); got {} argument(s)",
+                args.len()
+            )));
+        }
+        let body = match self.eval(&args[0])? {
+            Value::Form(inner) => *inner,
+            _ => {
+                return Err(EvalError::Unsupported(format!(
+                    "`${name}`'s first argument must be a {{…}} form"
+                )));
+            }
+        };
+        let items = match self.eval(&args[1])? {
+            Value::List(items) => items,
+            other => vec![other],
+        };
+        Ok((body, items))
     }
 
     fn eval_apply(&mut self, op: &str, operand_exprs: &[Expr]) -> Result<Value, EvalError> {
@@ -865,6 +935,54 @@ impl<'a> Evaluator<'a> {
                     self.eval_apply_async(op, operands, realiser).await
                 }
                 Expr::FormApply { form, args } => {
+                    // Higher-order builtins `$map`/`$fold` (bd-14af74), async twin:
+                    // same reserved-name detection as `eval_higher_order`, driven
+                    // through the async realiser so the mapping form may be llm.
+                    if let Expr::ContextRead(name) = form.as_ref() {
+                        if matches!(name.as_str(), "map" | "fold")
+                            && self.context.get(name).is_none()
+                        {
+                            if args.len() != 2 {
+                                return Err(EvalError::Unsupported(format!(
+                                    "`${name}` takes (form, list); got {} argument(s)",
+                                    args.len()
+                                )));
+                            }
+                            let hbody = match self.eval_async(&args[0], realiser).await? {
+                                Value::Form(inner) => *inner,
+                                _ => {
+                                    return Err(EvalError::Unsupported(format!(
+                                        "`${name}`'s first argument must be a {{…}} form"
+                                    )));
+                                }
+                            };
+                            let items = match self.eval_async(&args[1], realiser).await? {
+                                Value::List(items) => items,
+                                other => vec![other],
+                            };
+                            if name == "map" {
+                                let mut out = Vec::with_capacity(items.len());
+                                for item in items {
+                                    self.arg_frames.push(vec![item]);
+                                    let mapped = self.eval_async(&hbody, realiser).await;
+                                    self.arg_frames.pop();
+                                    out.push(mapped?);
+                                }
+                                return Ok(Value::list(out));
+                            }
+                            let mut iter = items.into_iter();
+                            let mut acc = iter.next().ok_or_else(|| {
+                                EvalError::Unsupported(format!("`${name}` needs a non-empty list"))
+                            })?;
+                            for item in iter {
+                                self.arg_frames.push(vec![acc, item]);
+                                let folded = self.eval_async(&hbody, realiser).await;
+                                self.arg_frames.pop();
+                                acc = folded?;
+                            }
+                            return Ok(acc);
+                        }
+                    }
                     // Form application (bd-5dd86f), async: eval the form + args
                     // (may await), push the argument frame, eval the body, pop.
                     let body = match self.eval_async(form, realiser).await? {
@@ -2241,6 +2359,38 @@ operators:
             streamed.len() >= 2,
             "reducible expr streams multiple frames"
         );
+    }
+
+    #[test]
+    fn map_fold_higher_order_builtins() {
+        // bd-14af74: `$map%(f,list)` applies form `f` per item -> a list; `$fold`
+        // reduces left-to-right ($0=acc, $1=item), seeded by the first element.
+        let cfg = config();
+        for (src, expected) in [
+            ("$map%({$0*$0},[1,2,3])", "1\n4\n9"),
+            ("$map%({$0+1},[1,2,3])", "2\n3\n4"),
+            ("$fold%({$0+$1},[1,2,3,4])", "10"),
+            ("$fold%({$0*$1},[1,2,3,4])", "24"),
+        ] {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = evaluate(src, &cfg, &mut ctx, Mode::Det).expect(src);
+            assert_eq!(out.render(&ctx.sep()), expected, "for {src}");
+        }
+    }
+
+    #[test]
+    fn map_of_named_form_and_user_key_shadows_builtin() {
+        let cfg = config();
+        // A named form maps just like an inline one ($sq resolves to the form).
+        let mut ctx = Context::empty(&cfg.context);
+        let out = evaluate("sq={$0*$0};$map%($sq,[1,2,3])", &cfg, &mut ctx, Mode::Det)
+            .expect("named map");
+        assert_eq!(out.render(&ctx.sep()), "1\n4\n9");
+        // A user-defined `map` context key WINS over the builtin (backward-compat):
+        // $map then applies the user's form, not the map builtin.
+        let mut ctx2 = Context::empty(&cfg.context);
+        let out2 = evaluate("map={$0+100};$map%5", &cfg, &mut ctx2, Mode::Det).expect("user map");
+        assert_eq!(out2.render(&ctx2.sep()), "105");
     }
 
     #[test]
