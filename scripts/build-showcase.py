@@ -340,6 +340,14 @@ SIMPLE = [
              "exceed two percent.",
          cap="the templated message — bind a value once (svc='...'), reuse it as \"$svc\" across the "
              "message; change it in one place and every mention updates. Interpolation needs double quotes"),
+    dict(name="computed-constant",
+         expr="budget='2500'*'12';@&[\"our annual infra budget is $budget dollars\",\"at $budget we can "
+              "just afford two more regions\"]",
+         pill="llm · claude-sonnet-5",
+         out="Our annual infrastructure budget is $30,000, which is sufficient to accommodate two "
+             "additional regions.",
+         cap="the computed constant — bind the RESULT of a calc once (budget='2500'*'12'), reuse it as "
+             "\"$budget\" everywhere. Computed once ($30,000), always consistent — even works offline"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
