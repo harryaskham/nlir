@@ -380,6 +380,16 @@ tests:
   do-n-dbl2: { mode: det, expr: "({$0*2}_2)%3", expected: "12" }
   do-n-id0:  { mode: det, expr: "({$0+1}_0)%5", expected: "5" }
   do-n-named: { mode: det, expr: "g=({$0+1}_3);$g%5", expected: "8" }
+  # cookbook (docs/cookbook.md): flagship multi-layer form programs — named
+  # lambdas composed/nested/iterated into real deterministic little programs.
+  cookbook-compose:    { mode: det, expr: "inc={$0+1};dbl={$0*2};$inc%($dbl%5)", expected: "11" }
+  cookbook-nest:       { mode: det, expr: "sq={$0*$0};$sq%($sq%2)", expected: "16" }
+  cookbook-tree:       { mode: det, expr: "add={$0+$1};$add%($add%(1,2),$add%(3,4))", expected: "10" }
+  cookbook-pipeline:   { mode: det, expr: "inc={$0+1};dbl={$0*2};$dbl%($inc%($dbl%3))", expected: "14" }
+  cookbook-pythagoras: { mode: det, expr: "sq={$0*$0};add={$0+$1};$add%($sq%3,$sq%4)", expected: "25" }
+  cookbook-poly:       { mode: det, expr: "poly={($0*$0)+(2*$0)+1};$poly%5", expected: "36" }
+  cookbook-repeat-named: { mode: det, expr: "inc={$0+1};(($inc)_10)%0", expected: "10" }
+  cookbook-iterated:   { mode: det, expr: "inc={$0+1};sq={$0*$0};$sq%($inc%($inc%($inc%2)))", expected: "25" }
   msg:
     mode: det
     context:

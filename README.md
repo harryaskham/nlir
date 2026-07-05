@@ -236,6 +236,10 @@ quote+apply machinery gives you reusable moves. Together — quoted forms,
 application, named lambdas/macros, and do-N-times — these are the programmable
 layer map/fold over forms builds on.
 
+**Build something with them:** the [cookbook](docs/cookbook.md) is a worked
+catalogue of multi-layer programs — named functions, composition, nesting, and
+do-N chains — every deterministic output verified end-to-end.
+
 ## CLI surface
 
 ```sh
