@@ -154,6 +154,9 @@ struct ShowArgs {
     /// Rasterise the graph SVG to a PNG file (via resvg).
     #[arg(long, value_name = "PATH")]
     png: Option<PathBuf>,
+    /// Encode the per-step graph frames as an animated PNG (APNG) at this path.
+    #[arg(long, value_name = "PATH")]
+    save_animation: Option<PathBuf>,
     /// Write one graph SVG per evaluation step (the animation frames) to a
     /// directory (--out DIR, default a temp dir) instead of the single static
     /// graph. The frame source G4's kitty animation / --save-animation consume.
@@ -617,12 +620,10 @@ fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
     Ok(())
 }
 
-/// Rasterise an SVG document string to PNG bytes via resvg (graph-viz G4,
-/// native-only). `nlir show --png` + the kitty animation build on this; the
-/// browser (G5) renders the SAME SVG directly, so PNG and DOM stay identical.
-/// System fonts are loaded so the SVG's 'Fira Code' labels render (falling back
-/// to a monospace face if Fira Code is not installed on the host).
-fn svg_to_png(svg: &str) -> Result<Vec<u8>, String> {
+/// Rasterise an SVG document string to a tiny-skia pixmap via resvg (graph-viz
+/// G4, native-only). System fonts are loaded so the SVG's 'Fira Code' labels
+/// render (falling back to a monospace face if Fira Code is not installed).
+fn svg_to_pixmap(svg: &str) -> Result<resvg::tiny_skia::Pixmap, String> {
     use resvg::{tiny_skia, usvg};
     let mut opt = usvg::Options::default();
     opt.fontdb_mut().load_system_fonts();
@@ -631,9 +632,84 @@ fn svg_to_png(svg: &str) -> Result<Vec<u8>, String> {
     let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height())
         .ok_or_else(|| "rasterise: could not allocate the pixmap".to_string())?;
     resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
-    pixmap
+    Ok(pixmap)
+}
+
+/// Rasterise an SVG document string to PNG bytes (graph-viz G4). `nlir show
+/// --png` uses this; the browser (G5) renders the SAME SVG directly, so PNG and
+/// DOM stay identical.
+fn svg_to_png(svg: &str) -> Result<Vec<u8>, String> {
+    svg_to_pixmap(svg)?
         .encode_png()
         .map_err(|error| format!("encode png: {error}"))
+}
+
+/// Encode a sequence of graph-frame SVGs as an animated PNG (APNG) for
+/// `nlir show --save-animation` (graph-viz G4). Frames shrink as the graph
+/// collapses, so each is composited top-left onto a fixed max-size transparent
+/// canvas — the animation never resizes. Pixels are demultiplied (tiny-skia is
+/// premultiplied) so colours are correct in the PNG.
+fn save_animation_apng(
+    svgs: &[String],
+    path: &std::path::Path,
+    delay_ms: u16,
+) -> Result<(), String> {
+    use resvg::tiny_skia;
+    if svgs.is_empty() {
+        return Err("no frames to animate".to_string());
+    }
+    let frames: Vec<tiny_skia::Pixmap> = svgs
+        .iter()
+        .map(|svg| svg_to_pixmap(svg))
+        .collect::<Result<_, _>>()?;
+    let max_w = frames
+        .iter()
+        .map(tiny_skia::Pixmap::width)
+        .max()
+        .unwrap_or(1);
+    let max_h = frames
+        .iter()
+        .map(tiny_skia::Pixmap::height)
+        .max()
+        .unwrap_or(1);
+    let file = std::fs::File::create(path)
+        .map_err(|error| format!("create {}: {error}", path.display()))?;
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), max_w, max_h);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .set_animated(frames.len() as u32, 0)
+        .map_err(|error| format!("apng: {error}"))?;
+    let mut writer = encoder
+        .write_header()
+        .map_err(|error| format!("apng header: {error}"))?;
+    for frame in &frames {
+        let mut canvas = tiny_skia::Pixmap::new(max_w, max_h)
+            .ok_or_else(|| "apng: could not allocate the canvas".to_string())?;
+        canvas.draw_pixmap(
+            0,
+            0,
+            frame.as_ref(),
+            &tiny_skia::PixmapPaint::default(),
+            tiny_skia::Transform::identity(),
+            None,
+        );
+        let mut rgba = Vec::with_capacity((max_w * max_h * 4) as usize);
+        for px in canvas.pixels() {
+            let c = px.demultiply();
+            rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+        }
+        writer
+            .set_frame_delay(delay_ms, 1000)
+            .map_err(|error| format!("apng delay: {error}"))?;
+        writer
+            .write_image_data(&rgba)
+            .map_err(|error| format!("apng frame: {error}"))?;
+    }
+    writer
+        .finish()
+        .map_err(|error| format!("apng finish: {error}"))?;
+    Ok(())
 }
 
 /// `nlir show 'EXPR'` — render EXPR's computational dataflow graph as a
@@ -644,11 +720,12 @@ fn svg_to_png(svg: &str) -> Result<Vec<u8>, String> {
 /// draw byte-identical graphs. Prints the SVG to stdout, or `--out FILE` writes it.
 fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
     let cfg = resolve_config(cli)?;
-    if args.frames {
-        // --frames: one graph SVG per small-step reduction (nlir::eval::step_frames,
-        // the same engine as `nlir step`). Frame 0 is the initial graph; each next
-        // frame is one reduction; binding edges persist until each $key read reduces.
-        // These are the animation frames G4 (kitty) + --save-animation rasterise.
+    if args.frames || args.save_animation.is_some() {
+        // --frames / --save-animation: one graph per small-step reduction
+        // (nlir::eval::step_frames, the same engine as `nlir step`). Frame 0 is the
+        // initial graph; each next frame is one reduction; binding edges persist
+        // until each $key read reduces. --frames writes the SVGs; --save-animation
+        // rasterises them into one animated PNG.
         let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
         let mut ctx = open_context(cli)?;
         let frames = match nlir::eval::step_frames(&args.expr, &cfg, &mut ctx, settings.mode) {
@@ -662,28 +739,46 @@ fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
         if let Err(error) = ctx.save() {
             eprintln!("nlir: context write-through: {error}");
         }
-        let dir = args
-            .out
-            .clone()
-            .unwrap_or_else(|| std::env::temp_dir().join("nlir-graph-frames"));
-        if let Err(error) = std::fs::create_dir_all(&dir) {
-            eprintln!("nlir show: creating {}: {error}", dir.display());
-            return Err(1);
-        }
-        for (i, frame) in frames.iter().enumerate() {
-            let svg = nlir::graph_svg::render(&frame.graph);
-            let path = dir.join(format!("frame-{i:03}.svg"));
-            if let Err(error) = std::fs::write(&path, &svg) {
-                eprintln!("nlir show: writing {}: {error}", path.display());
+        let svgs: Vec<String> = frames
+            .iter()
+            .map(|frame| nlir::graph_svg::render(&frame.graph))
+            .collect();
+        if let Some(anim) = &args.save_animation {
+            if let Err(error) = save_animation_apng(&svgs, anim, 700) {
+                eprintln!("nlir show: {error}");
                 return Err(1);
             }
+            if !cli.quiet {
+                eprintln!(
+                    "nlir show: wrote a {}-frame animation to {}",
+                    svgs.len(),
+                    anim.display()
+                );
+            }
         }
-        if !cli.quiet {
-            eprintln!(
-                "nlir show: wrote {} animation frame(s) to {}",
-                frames.len(),
-                dir.display()
-            );
+        if args.frames {
+            let dir = args
+                .out
+                .clone()
+                .unwrap_or_else(|| std::env::temp_dir().join("nlir-graph-frames"));
+            if let Err(error) = std::fs::create_dir_all(&dir) {
+                eprintln!("nlir show: creating {}: {error}", dir.display());
+                return Err(1);
+            }
+            for (i, svg) in svgs.iter().enumerate() {
+                let path = dir.join(format!("frame-{i:03}.svg"));
+                if let Err(error) = std::fs::write(&path, svg) {
+                    eprintln!("nlir show: writing {}: {error}", path.display());
+                    return Err(1);
+                }
+            }
+            if !cli.quiet {
+                eprintln!(
+                    "nlir show: wrote {} animation frame(s) to {}",
+                    svgs.len(),
+                    dir.display()
+                );
+            }
         }
         return Ok(());
     }

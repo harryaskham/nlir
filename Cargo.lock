@@ -713,6 +713,7 @@ dependencies = [
  "crossterm",
  "feedback-cli",
  "mcp-cli",
+ "png",
  "resvg",
  "schemars",
  "serde",
