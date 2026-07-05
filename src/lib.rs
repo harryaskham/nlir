@@ -26,6 +26,7 @@ use feedback_cli::{FeedbackConfig, ReportStrategy, Reporter, WebhookConfig};
 #[cfg(feature = "native")]
 use mcp_cli::{ErrorCategory, StructuredError, ToolRouter};
 
+pub mod command_vm;
 pub mod config;
 pub mod context;
 pub mod eval;
