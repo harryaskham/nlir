@@ -30,6 +30,7 @@
         <div class="seg" id="modeSeg">
           <button data-mode="det" class="on">det</button>
           <button data-mode="llm">llm</button>
+          <button data-mode="ondevice">on-device</button>
         </div>
         <button class="run" id="runBtn">Run ▸</button>
         <button class="step" id="stepBtn">Step ↓</button>
@@ -84,6 +85,12 @@
         <input class="v" id="newVal" placeholder="value" spellcheck="false">
         <button class="ghost" id="addKv">+ set</button>
       </div>
+    </section>
+
+    <section class="panel" id="odPanel" hidden>
+      <h2>On-device <span class="hint">— zero-key, zero-egress</span></h2>
+      <div class="od-status" id="odStatus">checking availability…</div>
+      <p class="hint">Runs llm-mode idioms on Gemini Nano inside your browser — no key, no network egress. Slower + lower-quality than a hosted model; the first run may download the model. Needs Chrome with built-in AI (the Prompt API).</p>
     </section>
 
     <section class="panel" id="llmPanel" hidden>

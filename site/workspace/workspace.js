@@ -286,7 +286,38 @@ function realisers(){
       },
     };
   }
+  if (state.settings.mode === 'ondevice'){
+    const LM = onDeviceApi();
+    if (LM) return { llm: async (call) => {
+      const c = unmap(call), vars = unmap(c.vars);
+      const session = await LM.create();
+      try { return await session.prompt((vars && vars.NLIR_PROMPT) || ''); }
+      finally { try { session.destroy && session.destroy(); } catch (_) {} }
+    } };
+  }
   return {};
+}
+// On-device realiser (Chrome built-in Prompt API / window.ai): zero-key, zero-egress,
+// capability-gated. Resolves the API across its naming variants; det + BYO-key stay baseline.
+function onDeviceApi(){
+  return self.LanguageModel || (self.ai && self.ai.languageModel) || (window.ai && window.ai.languageModel) || null;
+}
+async function checkOnDevice(){
+  const el = $('odStatus'); if (!el) return;
+  const LM = onDeviceApi();
+  if (!LM){ el.textContent = '\u26a0 not available \u2014 this browser has no built-in AI (needs Chrome with the Prompt API).'; el.className = 'od-status warn'; return; }
+  el.textContent = 'checking\u2026'; el.className = 'od-status';
+  try {
+    let a = 'unavailable';
+    if (LM.availability) a = await LM.availability();
+    else if (LM.capabilities){ const c = await LM.capabilities(); a = c && c.available; }
+    const ready = a === 'available' || a === 'readily';
+    const dl = a === 'downloadable' || a === 'downloading' || a === 'after-download';
+    el.textContent = ready ? '\u2713 ready \u2014 Gemini Nano is available; run llm-mode with no key.'
+      : dl ? '\u2b73 available after a one-time model download (the first run fetches it).'
+      : '\u26a0 not available on this device.';
+    el.className = 'od-status' + (ready ? ' ok' : dl ? '' : ' warn');
+  } catch (e){ el.textContent = '\u26a0 availability check failed: ' + e; el.className = 'od-status warn'; }
 }
 async function run(){
   const expr = getExpr().trim(); if (!expr) return;
@@ -355,9 +386,11 @@ async function animate(){
 function setMode(m){
   state.settings.mode = m; save();
   document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode===m));
-  $('modeBadge').textContent = m==='det' ? 'det · key-free' : 'llm · needs a realiser';
+  $('modeBadge').textContent = m==='det' ? 'det · key-free' : m==='ondevice' ? 'on-device · private' : 'llm · needs a realiser';
   $('modeBadge').className = 'badge' + (m==='llm' ? ' warn' : '');
   $('llmPanel').hidden = m!=='llm';
+  $('odPanel').hidden = m!=='ondevice';
+  if (m==='ondevice') checkOnDevice();
 }
 
 // ---- wire ----

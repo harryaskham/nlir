@@ -32,6 +32,9 @@ nav .brand .dot { color:var(--violet); } nav .brand .sub { font-family:var(--san
 nav a { color:var(--muted); font-weight:500; font-size:.9rem; } nav a:hover { color:var(--teal); text-decoration:none; }
 .badge { font-family:var(--mono); font-size:.72rem; padding:.2rem .6rem; border-radius:999px; border:1px solid rgba(52,211,153,.4); color:var(--mint); background:rgba(16,185,129,.1); }
 .badge.warn { border-color:rgba(251,191,36,.4); color:#fcd34d; background:rgba(245,158,11,.1); }
+.od-status { font-family:var(--mono); font-size:.85rem; padding:.5rem .7rem; border-radius:10px; border:1px solid var(--code-border); background:var(--code-bg); color:var(--muted); margin-bottom:.55rem; line-height:1.4; }
+.od-status.ok { border-color:rgba(52,211,153,.45); color:var(--mint); }
+.od-status.warn { border-color:rgba(251,191,36,.4); color:#fcd34d; }
 
 /* layout */
 .wrap { max-width:80rem; margin:0 auto; padding:1.6rem 1.4rem 4rem; display:grid; grid-template-columns:1fr 22rem; gap:1.4rem; align-items:start; }
