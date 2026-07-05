@@ -867,7 +867,9 @@ impl<'a> Evaluator<'a> {
             // serially inside (bd-f66c32).
             let operands = if operand_exprs.len() > 1
                 && self.parallelism > 1
-                && operand_exprs.iter().all(is_parallel_safe)
+                && operand_exprs
+                    .iter()
+                    .all(|e| is_parallel_safe(e, self.config))
             {
                 let cache_on = self.context.cache();
                 eval_operands_parallel(
@@ -1667,22 +1669,35 @@ fn realise_command(command: &str, operands: &[Value], sep: &str) -> Result<Value
 /// access (`$` / `$N`), and no nullary operator (an `Apply` with no operands
 /// pops the stack). Reads (`$name`, `^`) are fine because the parallel section
 /// never writes context.
-fn is_parallel_safe(expr: &Expr) -> bool {
+fn is_parallel_safe(expr: &Expr, config: &Config) -> bool {
     match expr {
         Expr::Bare(_) | Expr::Quoted { .. } | Expr::Number(_) | Expr::ContextRead(_) => true,
         Expr::StackPeek | Expr::StackIndex(_) | Expr::Assign { .. } => false,
-        Expr::Message { index, .. } => is_parallel_safe(index),
-        Expr::MessageRange { start, end, .. } => is_parallel_safe(start) && is_parallel_safe(end),
-        Expr::Group(inner) | Expr::Serial(inner) => is_parallel_safe(inner),
+        Expr::Message { index, .. } => is_parallel_safe(index, config),
+        Expr::MessageRange { start, end, .. } => {
+            is_parallel_safe(start, config) && is_parallel_safe(end, config)
+        }
+        Expr::Group(inner) | Expr::Serial(inner) => is_parallel_safe(inner, config),
         // A quoted form is inert data (its inner is not evaluated) — pure/safe.
         Expr::Quote(_) => true,
         // Form application evaluates a body (may read the stack / arg frame) —
         // not parallel-safe.
         Expr::FormApply { .. } => false,
-        Expr::List(items) => items.iter().all(is_parallel_safe),
-        // A nullary op (empty operands) pops the stack — not parallel-safe.
-        Expr::Apply { operands, .. } => {
-            !operands.is_empty() && operands.iter().all(is_parallel_safe)
+        Expr::List(items) => items.iter().all(|e| is_parallel_safe(e, config)),
+        // A nullary op (empty operands) pops the stack; a form:/builtin: glyph
+        // operator (bd-44c294) applies a form / higher-order over an arg frame,
+        // exactly like FormApply — neither is parallel-safe (the parallel operand
+        // path is a free fn with no Evaluator arg-frame to bind $0/$1).
+        Expr::Apply { op, operands, .. } => {
+            if operands.is_empty() {
+                return false;
+            }
+            if let Some(cfg) = config.operators.values().find(|c| c.op == *op) {
+                if cfg.form.is_some() || cfg.builtin.is_some() {
+                    return false;
+                }
+            }
+            operands.iter().all(|e| is_parallel_safe(e, config))
         }
         // A reduced value is pure (no context write, no stack, no op).
         Expr::Value(_) => true,
@@ -2580,6 +2595,35 @@ operators:
             .expect(src);
             assert_eq!(out.render(&ctx.sep()), expected, "async {src}");
         }
+    }
+
+    #[test]
+    fn glyph_operators_nest_under_parallel_ops() {
+        // bd-44c294 regression (found by aur-0): a form:/builtin: glyph op used as
+        // an OPERAND of a parallel (mixfix) op, or nested under another glyph op,
+        // must still dispatch. The parallel operand path is a free fn with no
+        // arg-frame, so glyph ops must route sequential (is_parallel_safe=false).
+        let yaml = r##"
+defaults:
+  parallelism: 4
+operators:
+  sq:     { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
+  mapop:  { op: "↦", arity: 2, fixity: infix,  builtin: map }
+  foldop: { op: "⊘", arity: 2, fixity: infix,  builtin: fold }
+  add: { op: "+", arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
+  mul: { op: "*", arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("g.yaml")).unwrap();
+        let check = |src: &str, expected: &str| {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = evaluate(src, &cfg, &mut ctx, Mode::Det).expect(src);
+            assert_eq!(out.render(&ctx.sep()), expected, "for {src}");
+        };
+        check("□5+1", "26"); // form-op as parallel-op operand
+        check("1+□5", "26");
+        check("□5*2", "50");
+        check("□5+□3", "34"); // two glyph ops as parallel operands
+        check("{$0+$1}⊘({$0*$0}↦[1,2,3])", "14"); // builtin nested under builtin
     }
 
     #[test]
