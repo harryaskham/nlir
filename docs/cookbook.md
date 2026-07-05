@@ -165,6 +165,65 @@ elements aren't uniform.
 
 ---
 
+## 6. Mixed det + llm — algorithms for thoughts and concepts
+
+The real power: map/fold give you a **deterministic skeleton** (the iteration and
+reduction are pure), while each per-step form can be a **fuzzy language
+transform**. That's a small, repeatable algorithm for operating on thoughts and
+concepts — the structure is code, the judgement is the model. Run these with
+`--mode llm`. The language-transform outputs below are real captures
+(claude-sonnet-5); the fuzzy-arithmetic result is the exact sum of the numbers
+the model extracts (its det-mode error, shown below, is the captured proof of
+the split).
+
+**Transform every item** — a deterministic `$map` scaffold, an llm lens per
+element:
+
+```
+$map%({~$0}, ['the meeting ran long relitigating the roadmap',
+              'the deploy failed twice on a flaky integration test'])
+  -> The meeting ran over time due to repeated debate over the roadmap.
+     The deploy failed twice due to a flaky integration test.
+
+$map%({@$0}, ['lmk if any Qs','pls advise'])          # formalise each
+  -> Please let me know if you have any questions.
+     Please advise at your earliest convenience.
+
+$map%({#$0}, […two thoughts…])                        # topic-label each
+  -> the roadmap
+     deploy failure
+```
+
+**Fuzzy in, exact out** — the sharpest mix: a *deterministic* reduce folding over
+*llm* extraction.
+
+```
+$fold%({$0+$1}, ['3 apples','5 oranges','2 pears'])   -> 10   (--mode llm)
+```
+
+Why it's a genuine mix: in `--mode det` this exact expression **errors** —
+`cannot coerce '3 apples' to number` — so the `+` reduce is deterministic and the
+string→number extraction is the llm step. The model reads 3, 5, 2; the sum is
+exact. The same shape tallies votes — `$fold%({$0+$1}, ['yes','no','yes','yes'])`
+maps yes→1 / no→0 (llm) then sums (det).
+
+**Distil a list into a running consensus** — each fold step weaves then gists:
+
+```
+$fold%({~($0&$1)}, ['we should ship Friday',
+                    'the auth change needs more testing',
+                    'QA is worried about the migration'])
+  -> Shipping Friday is at risk because the auth change needs more testing
+     and QA has concerns about the migration.
+```
+
+Three opinions fold into one balanced sentence. Swap `~` for `@` for a formal
+synthesis, or wrap the whole thing in `#` to tag the theme. That's the north
+star: terse programs that reason over ideas — structure you can trust, judgement
+where you want it.
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.
@@ -190,6 +249,6 @@ the operator lenses (`~` gist, `@` formal, `:` plain, `>` expand, `<` shorten,
 A form lets you name a reusable **tone** or **transform** and apply it to
 different inputs — for example a "make it a courteous one-liner" form, or a
 "summarise then formalise" pipeline — the same `$name%input` shape as the
-arithmetic examples above, but each layer is a language transform. Once
-per-item map (bd-14af74) lands, the same forms will run over a whole list of
-messages at once.
+arithmetic examples above, but each layer is a language transform. With
+`$map`/`$fold` (§6) those same transforms run over a whole list of messages,
+notes, or ideas at once.
