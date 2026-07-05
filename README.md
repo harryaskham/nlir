@@ -85,11 +85,16 @@ A few moves to start with:
 The full phrasebook — every move, its shape, and a copy-paste template, across all four
 lanes — lives in **[`examples/POWERMOVES.md`](examples/POWERMOVES.md)**.
 
-And two ways to learn it live: **`nlir help`** prints every operator — sigil, name,
-and what it does — derived straight from your config; and **`nlir step '<expr>'`** (or
+And three ways to learn it live: **`nlir help`** prints every operator — sigil, name,
+and what it does — derived straight from your config; **`nlir step '<expr>'`** (or
 **`:step <expr>`** in the repl, pressing Tab to advance) walks an expression through
 evaluation one reduction at a time, so you can watch the sigils unfold into English
-step by step.
+step by step; and **`nlir show '<expr>'`** draws the expression's computational
+**dataflow graph** — every value and operation a node, with variable bindings
+resolved into edges — as SVG, a PNG (`--png`), an animated PNG of the reduction
+(`--save-animation`), or live in a kitty terminal (`--kitty` / `--animate`). It uses
+the same renderer as the in-browser workspace, so the terminal and the web draw
+byte-identical graphs.
 
 ![nlir :step — evaluation unfolds one redex per Tab, deterministic ops instantly and each LLM op one realisation at a time](showcase/nlir-step-through.png)
 
@@ -215,6 +220,14 @@ nlir append-message [--role user] "text"
 
 # interactive REPL (one expr per submission; trailing `\` continues; :cmd == nlir cmd)
 nlir repl [--context-file F] [--raw]
+
+# computational dataflow graph (the AST with variable bindings resolved into edges)
+nlir show 'EXPR'                          # print the graph as SVG (in a kitty terminal: the image)
+nlir show 'EXPR' --png g.png              # rasterise the graph to a PNG
+nlir show 'EXPR' --frames DIR             # one graph SVG per evaluation step
+nlir show 'EXPR' --save-animation g.apng  # animated PNG of the step-by-step reduction
+nlir show 'EXPR' --kitty                  # force the in-terminal kitty display (e.g. through tmux)
+nlir show 'EXPR' --animate --kitty        # live kitty animation of the reduction
 
 # plumbing
 nlir parse 'EXPR'     # tokenise / inspect the parse
