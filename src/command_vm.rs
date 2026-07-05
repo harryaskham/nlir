@@ -732,6 +732,23 @@ mod tests {
         assert_eq!(run(ECHO, &["ab", "4"]).unwrap(), "ab ab ab ab");
     }
 
+    /// Edge cases surfaced by aur-0's command-VM QA (bd-89bcb7). These document
+    /// that the VM faithfully reproduces the shipped op's NATIVE bash semantics.
+    #[test]
+    fn echo_op_edge_cases() {
+        // Degenerate N≤1 → one (min-1) copy, NOT empty: the script sets out="$t"
+        // first, then `for i in $(seq 1 $((n-1)))` runs zero times (seq 1 0 /
+        // seq 1 -1 are empty). Native `bash -c` gives the identical x_0→"x", so
+        // this is the native↔wasm parity guarantee, not a VM quirk. Intended.
+        assert_eq!(run(ECHO, &["x", "0"]).unwrap(), "x");
+        assert_eq!(run(ECHO, &["x", "1"]).unwrap(), "x");
+        // A multi-word single arg keeps its internal space (NLIR_ARGS[0] is one arg).
+        assert_eq!(
+            run(ECHO, &["multi word", "2"]).unwrap(),
+            "multi word multi word"
+        );
+    }
+
     #[test]
     fn assignment_and_expansion() {
         assert_eq!(run("a=hi; printf '%s' \"$a\"", &[]).unwrap(), "hi");
