@@ -110,15 +110,32 @@ gen_gallery() {
   if [ -f "$out/showcase/nlir-showreel.png" ]; then
     printf '%s\n' '<p class="hero"><a href="showcase/nlir-showreel.png"><img src="showcase/nlir-showreel.png" alt="nlir showreel — a grid of expression-to-language cards"></a></p>'
   fi
-  printf '%s\n' '<div class="gallery">'
+  # helper: emit one <figure> for a card file (nlir-<name>.png), if it exists.
+  emit_fig() {
+    local base="$1" cap
+    [ -e "$out/showcase/$base" ] || return 0
+    cap="${base#nlir-}"; cap="${cap%.png}"; cap="${cap//-/ }"
+    printf '<figure><a href="showcase/%s"><img src="showcase/%s" alt="%s" loading="lazy"></a><figcaption>%s</figcaption></figure>\n' \
+      "$base" "$base" "$cap" "$cap"
+  }
+  # Featured: the language-of-thought MOVES (all four lanes), in curated order, so
+  # visitors see the headline feature first instead of an alphabetical pile. New
+  # cards teammates add fall into "All cards" below automatically (no maintenance).
+  featured="considered-reply honest-yes reasoned-no counter-offer weighed-decision pitch-check brain-dump grounded-counter self-summarizing-memo full-layered-reply composer-reply empathetic-redirect weighed-recommendation catchup exec-brief two-sides handoff tone-knob perspective-wheel deliberation"
+  printf '%s\n' '<h2>The language of thought — reusable moves</h2>' \
+    '<p>The moves you can retype yourself: reply to an agent with your amendment, weigh a decision, dump a thought, pressure-test a pitch — a few sigils each. Full phrasebook in <a href="https://github.com/harryaskham/nlir/blob/main/examples/POWERMOVES.md">POWERMOVES.md</a>.</p>' \
+    '<div class="gallery">'
+  for name in $featured; do emit_fig "nlir-$name.png"; done
+  printf '%s\n' '</div>'
+  printf '%s\n' '<h2>All cards</h2>' '<div class="gallery">'
   if [ -d "$out/showcase" ]; then
     for png in "$out"/showcase/*.png; do
       [ -e "$png" ] || continue
       base="$(basename "$png")"
       [ "$base" = "nlir-showreel.png" ] && continue
-      cap="${base#nlir-}"; cap="${cap%.png}"; cap="${cap//-/ }"
-      printf '<figure><a href="showcase/%s"><img src="showcase/%s" alt="%s" loading="lazy"></a><figcaption>%s</figcaption></figure>\n' \
-        "$base" "$base" "$cap" "$cap"
+      nm="${base#nlir-}"; nm="${nm%.png}"
+      case " $featured " in *" $nm "*) continue;; esac
+      emit_fig "$base"
     done
   fi
   printf '%s\n' '</div>' '</main>'
