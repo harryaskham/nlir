@@ -41,4 +41,8 @@ say "NAMED LIBRARY (needs a model) — define a move once, then call it by name"
 run "steelman={~(>@\$0)}; \$steelman % 'we should rewrite it in Rust'"
 run "gist={~\$0}; \$gist % 'so basically after all this we should just ship it Friday and see'"
 
-say "A form {…} is code-as-data; % runs it. Name it and you have a reusable library of moves."
+say "DO-N-TIMES — compose a form N times (% binds tighter than _, so parenthesise)"
+run '({$0+1}_3) % 5'          # 8 — add-one, three times: 5→6→7→8
+run "({~\$0}_3) % 'we keep circling back to whether mobile has the bandwidth for the onboarding flow before launch'"   # distil ×3 — the telephone game
+
+say "A form {…} is code-as-data; % runs it, _ composes it. Name it and you have a reusable library of moves."
