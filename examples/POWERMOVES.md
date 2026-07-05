@@ -63,6 +63,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | clarifying reframe | `[:RESTATE_THEIR_ASK, 'IS_THAT_RIGHT'?]` | confirm you understood before you act | aur-2 |
 | the PR summary (pipe) | `git diff \| nlir -e '[#$_stdin, ~$_stdin]'` | a diff → PR title + description (nlir as a smart pipe) | aur-2 |
 | the code-review comment (pipe) | `<code> \| nlir -e '@&[~$_stdin, POINT_1, POINT_2]'` | weave a code summary + your review notes into one polished comment | aur-2 |
+| the fix-it (pipe) | `<error> \| nlir -e '~(>"the most likely fix for: $_stdin")'` | pipe a traceback → the likely fix (triage says what's wrong; this fixes it) | aur-2 |
 | postmortem note | `@&[OWN_THE_MISS, ROOT_CAUSE, PREVENTION]` | own a mistake gracefully | aur-2 |
 | meeting recap | `@&[DECIDED, STILL_OPEN, ACTION_ITEMS]` | decision + open questions + owners | aur-2 |
 | the nudge | `:&[REMINDER, WHY_IT_MATTERS, LOW_PRESSURE_ASK]` | a warm follow-up, not a pushy chase | aur-2 |
