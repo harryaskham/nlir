@@ -1,0 +1,128 @@
+# Design proposal: quote-eval — forms, application, and the functional layer
+
+Status: **PROPOSAL / awaiting decisions** (bd-5dd86f). Repurposes core sigils
+(`'`, application) that touch everyone's moves → needs team +1s AND Harry's
+greenlight before implementing.
+
+## Motivation
+
+Today nlir is a *transform pipeline*: operators consume operand values and
+produce values. It cannot yet treat an expression as **data** — pass a
+"recipe" around, bind it to a name, apply it to arguments, or repeat it. Harry's
+ask: the core functional concepts — **quoted forms, application, do-something-N-times,
+macros** — which together make nlir *programmable*, not just composable.
+
+The substrate for all of them is **homoiconic quote-eval**: a quoted form is the
+unevaluated AST as a first-class value; application binds arguments and evaluates
+it. A quoted form with positional holes is, in effect, a **lambda**; everything
+else (map, fold, do-N-times, macros) rides on top.
+
+## Concepts
+
+- **Quote** — `'FORM` yields a *form value* (`Value::Form(Expr)`): the AST of
+  `FORM`, unevaluated. `~'x` distils the *literal* `x`; `~x` distils the
+  *value* of `x`.
+- **Form** — a new `Value` variant carrying a `Box<Expr>`. Renders as its source
+  (so it round-trips) and can be bound (`f = '(...)`), passed, and applied.
+- **Application** — `f APPLY args`: evaluate `f` to a form, bind `args`
+  positionally to `$0, $1, …`, evaluate the form's body under those bindings,
+  yield the result. `f#x`, `f#[x,y]`, `f#(x,y)` are equivalent (single arg,
+  list, tuple).
+- **Parameters** — inside a form, `$0 $1 …` are the positional argument holes,
+  bound at application time (reusing the existing `$N` positional read syntax).
+- **Tuple/list** — `a,b,c ≡ [a,b,c]` (a top-level comma constructor), so
+  `f#(x,y)` and `f#[x,y]` unify.
+
+### What it unlocks
+- **Lambda**: `sum = '($0 + $1); sum#(2,3)` → 5.
+- **do-N-times / map / fold**: a `repeat`/`map`/`reduce` primitive that takes a
+  *form* + a count/list and applies it — e.g. `('(>$0))*3` (expand thrice), or
+  `map#('(:$0), [a,b,c])` (simplify each). (Exact spelling designed once the
+  quote/apply core lands.)
+- **Macros**: a form that *builds* a form (quote + splice + apply) — deferred to
+  a follow-up once quote-eval is proven.
+
+## Syntax decisions (the crux — each needs a call)
+
+> **Team lean (aur-1 + aur-2 + msm-0 parser read):** take the *cheap path* —
+> fresh sigils for form-quote and application, keeping `'`=string and
+> `#`=subject. Near-zero migration (~275 `.sh` + ~96 doc exprs stay as-is) and
+> fewer parser ambiguities than repurposing loaded sigils. The canonical
+> Lisp path (`'`=quote, strings→`"`) is kept below as the alternative — Harry's
+> aesthetic call.
+
+### D1. Form-quote sigil  — RECOMMENDED: a fresh sigil (keep `'`=string)
+- **Today**: `'…'` is the raw string literal; `"…"` is the interpolating string.
+  Both are used across ~275 `.sh` + ~96 doc exprs + config.
+- **Recommended (cheap):** give **form-quote its own fresh sigil**, leave strings
+  on `'`/`"` untouched → **zero migration**. Parser-lead read on candidates:
+  - `` `… `` **is TAKEN** — backtick is already the *serial* marker
+    (`Expr::Serial`). Not available.
+  - **`{FORM}` / `{…}`** — currently **unused**; brace reads as "a form/block";
+    unambiguous (no existing prefix/infix use). **My recommendation.**
+  - `\(…)` — usable but backslash overlaps escape handling; more lexer edge
+    cases than braces.
+  So: **`{a + b}` = the quoted form `a + b`** (a `Value::Form`), vs `(a + b)` =
+  the evaluated group. Clean visual: `{}` = code-as-data, `()` = grouping.
+- **Alternative (canonical, EXPENSIVE):** Harry's original — `'` becomes Lisp
+  quote and `"…"` becomes *the* string form. More idiomatic, but a fleet-wide
+  mechanical migration of every `'literal'` (~275 `.sh` + ~96 doc + 2 config),
+  landed as one coordinated sweep (aur-2 owns it if chosen).
+- **DECISION NEEDED (Harry, aesthetic):** cheap fresh sigil (`{…}`) vs canonical
+  `'`→quote migration.
+
+### D2. Application sigil — RECOMMENDED: a fresh sigil (keep `#`=subject)
+- `#` is the well-used **subject** operator (`#^-1`; central to the catalog), so
+  overloading it for application is ambiguous (context-overload — `#` on a form =
+  apply, on text = subject — is possible but adds a type-dependent parse).
+- **Recommended:** application gets its **own fresh infix sigil**, `#` stays
+  subject-only. `f<apply>x` ≡ `f<apply>[x,y]` ≡ `f<apply>(x,y)`. Candidate glyphs
+  to pin in review (need one that's not already an operator): a call-dot or a
+  fresh mark — pinned on Harry's aesthetic call. Application binds TIGHTER than
+  `,` (so `f<apply>a,b` = `(f<apply>a),b`; use `f<apply>(a,b)` to pass a tuple).
+- **DECISION NEEDED (Harry):** which apply glyph (or accept a proposed default).
+
+### D3. Comma as list/tuple — `a,b,c ≡ [a,b,c]`
+- Additive: `,` currently only separates items *inside* `[…]`; a top-level comma
+  list is new surface with low conflict. Adopt. (Ambiguity to design: `f#a,b`
+  — precedence of `,` vs application; resolved by making application bind tighter
+  than `,`, or requiring `f#(a,b)`.)
+
+### D4. `$0/$1` as form parameters
+- Reuse the existing positional `$N` reads as the form's argument holes, bound at
+  application time from an argument frame (distinct from the run stack). Clean:
+  no new sigil, and it reads naturally (`'($0 & $1)`).
+
+## Semantics sketch (once D1/D2 settle)
+- `Value::Form(Box<Expr>)` new variant; renders as its source; not coercible to
+  other types except by application.
+- `Expr::Quote(Box<Expr>)` new node: `eval` returns `Value::Form(inner.clone())`
+  **without** evaluating `inner`.
+- Application: `eval` the callee → `Form(body)`; evaluate `args`; push an
+  argument frame `{$0: a0, $1: a1, …}`; `eval(body)` under it; pop; yield.
+  `$N` reads consult the argument frame first, then the run stack (back-compat).
+- Native + wasm identical (pure eval-core; no new effectful surface).
+
+## Migration plan (on greenlight)
+1. Land the quote-eval **core** (Value::Form, Expr::Quote, application, `,`
+   constructor, `$N` param binding) behind the settled sigils — additive where
+   possible.
+2. Coordinate the **`'`→`"` sweep** (D1) as one fleet-wide pass: every
+   `'literal'` → `"literal"` across catalogs/`move-*.sh`/README/config, landed
+   together so no move breaks. (Team +1 + a shared checklist.)
+3. Layer the **functional primitives** (do-N-times / map / fold over forms), then
+   **macros**, as follow-ups.
+
+## Open questions for Harry / team
+- **D1**: `'`→quote migration — go? (breaking, fleet-wide)
+- **D2**: application sigil — which glyph?
+- **D3/D4**: comma-list + `$N` params as proposed?
+- Should forms be **hygienic** (params scoped per form) or dynamic? (Recommend
+  hygienic — an explicit argument frame, not the shared stack.)
+
+## Free-sigil map (aur-1, operator-consolidator lane)
+Form-quote + form-apply + the macro-hole marker need **3 free sigils** (backtick
+is TAKEN = serial). aur-1 to enumerate the full free single-char + 2-char
+candidate set and the collision map here, so we pin all three cleanly in one
+pass once Harry rules reuse-vs-fresh. Parser-lead default pending that: form-quote
+`{…}`, form-apply + macro-hole from the free set.
