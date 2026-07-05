@@ -56,6 +56,7 @@ whole ask, my amendment, my caveat] into one formal reply.
 | risk heads-up | `@&[RISK, WHY_NOW, RECOMMENDATION]` | flag a risk, unprompted, with a fix | aur-2 |
 | the escalation | `@&[BLOCKER, IMPACT, ~TRIED, ASK]` | raise a blocker upward as a decision request | aur-2 |
 | the feedback ask | `@&[WHAT_I_MADE, SPECIFIC_THING_TO_CHECK, BY_WHEN]` | request targeted review, not vague "thoughts?" | aur-2 |
+| change announcement | `@&[WHATS_CHANGING, EFFECTIVE_WHEN, WHAT_YOU_DO]` | announce a change, ending on the action | aur-2 |
 | postmortem note | `@&[OWN_THE_MISS, ROOT_CAUSE, PREVENTION]` | own a mistake gracefully | aur-2 |
 | meeting recap | `@&[DECIDED, STILL_OPEN, ACTION_ITEMS]` | decision + open questions + owners | aur-2 |
 | the nudge | `:&[REMINDER, WHY_IT_MATTERS, LOW_PRESSURE_ASK]` | a warm follow-up, not a pushy chase | aur-2 |
@@ -113,7 +114,7 @@ claim · `~` digest a long reference). Gotcha: flag a *gap* plainly, don't `!` i
 meaning); keep slots consistent.
 Moves: diplomatic counter-reply · weighed recommendation · partial-accept counter-offer ·
 empathetic redirect · briefed handoff · review verdict · terse status ping · crisp proposal ·
-scoped commitment · risk heads-up · the escalation (`~` digests what you tried) · the feedback ask · postmortem note · meeting recap · the nudge.
+scoped commitment · risk heads-up · the escalation (`~` digests what you tried) · the feedback ask · change announcement · postmortem note · meeting recap · the nudge.
 Slot rule: a slot takes plain content or ONE transform (`:`/`!`/`~`) — a full train in a slot
 (e.g. `:>'term'`) breaks the weave.
 List algebra (aur-0/aur-1 verified): `op[list]` = the op applied to the list *rendered as text* — NOT

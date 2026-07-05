@@ -439,6 +439,18 @@ SIMPLE = [
          cap="the feedback ask — @&[WHAT_I_MADE, THE_SPECIFIC_THING_TO_CHECK, BY_WHEN]: request TARGETED "
              "review — name the exact part you're unsure about and the deadline, so the reviewer spends "
              "their attention where it counts. Not a vague 'any thoughts?'"),
+    dict(name="change-announcement",
+         expr="@&['starting next monday we are moving all deploys to the new CI pipeline','the old "
+              "jenkins jobs will be switched off at the end of the month','please migrate your service "
+              "configs to the new format and ping the platform team if anything breaks']",
+         pill="llm · claude-sonnet-5",
+         out="Effective next Monday, all deployments will transition to the new CI pipeline. The "
+             "existing Jenkins jobs will be decommissioned at the end of the month. Please migrate your "
+             "service configurations to the new format accordingly, and notify the Platform Team "
+             "promptly should any issues arise.",
+         cap="the change announcement — @&[WHATS_CHANGING, EFFECTIVE_WHEN, WHAT_YOU_NEED_TO_DO]: a "
+             "deprecation / migration / policy shift answers what, when, and 'what do I do?' — ending "
+             "on the action turns an FYI into something people can act on"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
