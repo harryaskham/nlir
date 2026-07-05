@@ -813,10 +813,12 @@ fn coercion_model_key(config: &Config, target: TypeName, cli_model: Option<&str>
 pub enum RealiseError {
     /// The realisation model could not be resolved.
     Model(ModelResolveError),
-    /// The `command` backend failed.
+    /// The `command` model backend failed.
     Command(CommandError),
     /// The `anthropic_messages` backend failed.
     Anthropic(AnthropicError),
+    /// An operator `command:` snippet failed to spawn or exited non-zero.
+    OperatorCommand(String),
 }
 
 impl fmt::Display for RealiseError {
@@ -826,6 +828,9 @@ impl fmt::Display for RealiseError {
             RealiseError::Command(error) => write!(f, "realisation via command backend: {error}"),
             RealiseError::Anthropic(error) => {
                 write!(f, "realisation via anthropic backend: {error}")
+            }
+            RealiseError::OperatorCommand(message) => {
+                write!(f, "realisation via operator command: {message}")
             }
         }
     }
@@ -837,6 +842,7 @@ impl std::error::Error for RealiseError {
             RealiseError::Model(error) => Some(error),
             RealiseError::Command(error) => Some(error),
             RealiseError::Anthropic(error) => Some(error),
+            RealiseError::OperatorCommand(_) => None,
         }
     }
 }
@@ -911,6 +917,80 @@ pub fn realise_llm_preview(
     Ok(out)
 }
 
+/// The assembled, backend-ready form of an llm-mode realisation: the resolved
+/// [`ModelConfig`], the `NLIR_*` variable map (filled prompt + prompt
+/// fragments), and the operand strings (for the `command` backend's
+/// `NLIR_ARGS`). Produced by [`assemble_llm`] (pure — no I/O) and consumed by
+/// [`run_llm`] (effectful). This split IS the realiser seam (bd-bec201): a host
+/// (e.g. the WASM build) can run its OWN backend from an `LlmCall` (reading
+/// `vars[NLIR_PROMPT]` + the model id) instead of the native HTTP/subprocess one.
+#[derive(Debug, Clone)]
+pub struct LlmCall {
+    /// The resolved model backend (operator alias > cli override > defaults).
+    pub model: ModelConfig,
+    /// `NLIR_*` variables: the filled prompt (`NLIR_PROMPT`) plus fragments.
+    pub vars: BTreeMap<String, String>,
+    /// The rendered operand strings, for the `command` backend's `NLIR_ARGS`.
+    pub operands: Vec<String>,
+}
+
+/// Assemble an llm realisation WITHOUT running any backend (pure): resolve the
+/// model, fill the prompt from the operands, gather prompt fragments, and build
+/// the `NLIR_*` vars. The effectful half is [`run_llm`].
+///
+/// # Errors
+/// Returns [`RealiseError`] if the model cannot be resolved.
+pub fn assemble_llm(
+    model_alias: Option<&str>,
+    prompt_template: &str,
+    operands: &[String],
+    config: &Config,
+    cli_model: Option<&str>,
+    env_lookup: impl Fn(&str) -> Option<String>,
+) -> Result<LlmCall, RealiseError> {
+    let (_, model) = resolve_model(config, model_alias, cli_model).map_err(RealiseError::Model)?;
+    let filled = substitute_operands(prompt_template, operands);
+    let fragments = resolve_prompt_fragments(&config.prompts, &env_lookup);
+    let vars = assemble_nlir_vars(&filled, &fragments);
+    Ok(LlmCall {
+        model: model.clone(),
+        vars,
+        operands: operands.to_vec(),
+    })
+}
+
+/// Run an assembled [`LlmCall`] against the NATIVE backend (effectful): the
+/// `command` model kind shells out; `anthropic_messages` calls HTTP. This is the
+/// native realiser body — behaviour is identical to the pre-split [`realise_llm`].
+/// A WASM host supplies its own equivalent from the same [`LlmCall`].
+///
+/// # Errors
+/// Returns [`RealiseError`] if the backend call fails.
+pub fn run_llm(call: &LlmCall) -> Result<String, RealiseError> {
+    match call.model.kind {
+        ModelKind::Command => {
+            let env: Vec<(&str, &str)> = call
+                .vars
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            // Prepend the NLIR_ARGS bash array so command operators (e.g. the
+            // SPEC `echo`) can index `${NLIR_ARGS[k]}`.
+            let mut command_model = call.model.clone();
+            if let Some(command) = command_model.command.as_deref() {
+                command_model.command = Some(format!(
+                    "{}\n{command}",
+                    nlir_args_declaration(&call.operands)
+                ));
+            }
+            run_command_backend(&command_model, &env).map_err(RealiseError::Command)
+        }
+        ModelKind::AnthropicMessages => {
+            run_anthropic_backend(&call.model, &call.vars).map_err(RealiseError::Anthropic)
+        }
+    }
+}
+
 pub fn realise_llm(
     model_alias: Option<&str>,
     prompt_template: &str,
@@ -919,28 +999,42 @@ pub fn realise_llm(
     cli_model: Option<&str>,
     env_lookup: impl Fn(&str) -> Option<String>,
 ) -> Result<String, RealiseError> {
-    let (_, model) = resolve_model(config, model_alias, cli_model).map_err(RealiseError::Model)?;
-    let filled = substitute_operands(prompt_template, operands);
-    let fragments = resolve_prompt_fragments(&config.prompts, &env_lookup);
-    let vars = assemble_nlir_vars(&filled, &fragments);
+    let call = assemble_llm(
+        model_alias,
+        prompt_template,
+        operands,
+        config,
+        cli_model,
+        env_lookup,
+    )?;
+    run_llm(&call)
+}
 
-    match model.kind {
-        ModelKind::Command => {
-            let env: Vec<(&str, &str)> =
-                vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-            // Prepend the NLIR_ARGS bash array so command operators (e.g. the
-            // SPEC `echo`) can index `${NLIR_ARGS[k]}`.
-            let mut command_model = model.clone();
-            if let Some(command) = command_model.command.as_deref() {
-                command_model.command =
-                    Some(format!("{}\n{command}", nlir_args_declaration(operands)));
-            }
-            run_command_backend(&command_model, &env).map_err(RealiseError::Command)
-        }
-        ModelKind::AnthropicMessages => {
-            run_anthropic_backend(model, &vars).map_err(RealiseError::Anthropic)
-        }
+/// Run an operator `command:` snippet (effectful): prepend the `NLIR_ARGS` bash
+/// array so the snippet can index `${NLIR_ARGS[k]}`, execute under `bash -c`,
+/// and return stdout with a single trailing newline dropped (SPEC: stdout is the
+/// result). The native realiser body for operator commands; a WASM host runs the
+/// wasm-sh worker instead. `operands` are already rendered to strings.
+///
+/// # Errors
+/// Returns [`RealiseError::OperatorCommand`] on spawn failure or a non-zero exit.
+pub fn run_operator_command(command: &str, operands: &[String]) -> Result<String, RealiseError> {
+    let script = format!("{}\n{command}", nlir_args_declaration(operands));
+    let output = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(&script)
+        .output()
+        .map_err(|error| RealiseError::OperatorCommand(format!("failed to spawn bash: {error}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(RealiseError::OperatorCommand(format!(
+            "`{command}` exited with {}: {}",
+            output.status,
+            stderr.trim()
+        )));
     }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.strip_suffix('\n').unwrap_or(&stdout).to_owned())
 }
 
 #[cfg(test)]

@@ -542,6 +542,131 @@ impl<'a> Evaluator<'a> {
             &self.realise_cache,
         )
     }
+
+    /// Async mirror of [`eval`](Self::eval) (bd-bec201, nlir-wasm P0): the same
+    /// operand-first evaluation, but the two EFFECTFUL sites (operator
+    /// realisation + llm-mode operand coercion) `await` the injected
+    /// [`Realiser`] instead of calling the native backend directly. Pure nodes
+    /// (reads, literals, message views) delegate to the sync [`eval`](Self::eval)
+    /// — they can contain no effectful call. Operands evaluate SERIALLY (no
+    /// `thread::scope`; wasm has no threads — the seam is at realisation, not
+    /// scheduling). This is the entry the browser drives via `wasm-bindgen-futures`.
+    ///
+    /// # Errors
+    /// Propagates any [`EvalError`], including realiser failures.
+    fn eval_async<'e, R: crate::realiser::Realiser>(
+        &'e mut self,
+        expr: &'e Expr,
+        realiser: &'e R,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, EvalError>> + 'e>> {
+        Box::pin(async move {
+            match expr {
+                // Pure leaves: no effectful realisation reachable — reuse sync eval.
+                Expr::Bare(_)
+                | Expr::Quoted { .. }
+                | Expr::Number(_)
+                | Expr::ContextRead(_)
+                | Expr::StackPeek
+                | Expr::StackIndex(_)
+                | Expr::Message { .. }
+                | Expr::MessageRange { .. }
+                | Expr::Value(_) => self.eval(expr),
+                Expr::Group(inner) | Expr::Serial(inner) => self.eval_async(inner, realiser).await,
+                Expr::List(items) => {
+                    let mut values = Vec::with_capacity(items.len());
+                    for item in items {
+                        values.push(self.eval_async(item, realiser).await?);
+                    }
+                    Ok(Value::list(values))
+                }
+                Expr::Assign { key, value } => {
+                    let assigned = self.eval_async(value, realiser).await?;
+                    self.context
+                        .set(key.clone(), value_to_json(&assigned))
+                        .map_err(|error| EvalError::ContextWrite(error.to_string()))?;
+                    Ok(assigned)
+                }
+                Expr::Apply { op, operands, .. } => {
+                    self.eval_apply_async(op, operands, realiser).await
+                }
+            }
+        })
+    }
+
+    /// Async mirror of [`eval_apply`](Self::eval_apply): operand-first (serial)
+    /// eval, then `await` the async coercion + realisation. The per-run realise
+    /// cache is intentionally NOT consulted here (the async entry recomputes;
+    /// caching the async path is a follow-up).
+    fn eval_apply_async<'e, R: crate::realiser::Realiser>(
+        &'e mut self,
+        op: &'e str,
+        operand_exprs: &'e [Expr],
+        realiser: &'e R,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, EvalError>> + 'e>> {
+        Box::pin(async move {
+            // Clone the op config so we hold no borrow of `self.config` across the
+            // `&mut self` operand evaluations below.
+            let op_cfg = self
+                .config
+                .operators
+                .values()
+                .find(|configured| configured.op == op)
+                .ok_or_else(|| EvalError::UnknownOperator(op.to_owned()))?
+                .clone();
+
+            let (operands, grouped) = if operand_exprs.is_empty() {
+                let popped = match op_cfg.arity {
+                    Arity::Exact(k) => self.stack.pop_n(k as usize).ok_or_else(|| {
+                        EvalError::Stack(format!("`{op}` needs {k} value(s) on the stack to pop"))
+                    })?,
+                    Arity::Variadic => self.stack.pop_all(),
+                };
+                let grouped = vec![false; popped.len()];
+                (popped, grouped)
+            } else {
+                let grouped: Vec<bool> = operand_exprs
+                    .iter()
+                    .map(|expr| matches!(expr, Expr::Group(_)))
+                    .collect();
+                let mut operands = Vec::with_capacity(operand_exprs.len());
+                for expr in operand_exprs {
+                    operands.push(self.eval_async(expr, realiser).await?);
+                }
+                if op_cfg.arity == Arity::Variadic {
+                    spread_lists(operands, grouped)
+                } else {
+                    (operands, grouped)
+                }
+            };
+
+            let sep = self.sep();
+            let mut coerced = Vec::with_capacity(operands.len());
+            for value in &operands {
+                coerced.push(
+                    coerce_operand_async(
+                        value,
+                        op_cfg.operands,
+                        &sep,
+                        self.mode,
+                        self.config,
+                        realiser,
+                    )
+                    .await?,
+                );
+            }
+            realise_async(
+                op,
+                &op_cfg,
+                &coerced,
+                &grouped,
+                &sep,
+                self.mode,
+                self.config,
+                realiser,
+            )
+            .await
+        })
+    }
 }
 
 /// Coerce one operand to `target`: deterministic first, then (in llm mode) the
@@ -640,6 +765,145 @@ fn realise(
     }
 }
 
+/// Async mirror of [`realise`] (bd-bec201): deterministic realisation
+/// (`reduce:` / `template:` / `join:`) is pure and identical; the effectful
+/// `command:` and `llm` branches `await` the injected [`crate::realiser::Realiser`]
+/// instead of calling the native backend directly.
+#[allow(clippy::too_many_arguments)]
+async fn realise_async<R: crate::realiser::Realiser>(
+    op: &str,
+    op_cfg: &OperatorConfig,
+    operands: &[Value],
+    grouped: &[bool],
+    sep: &str,
+    mode: Mode,
+    config: &Config,
+    realiser: &R,
+) -> Result<Value, EvalError> {
+    if let Some(command) = &op_cfg.command {
+        let args: Vec<String> = operands.iter().map(|value| value.render(sep)).collect();
+        return realiser
+            .command(command, &args)
+            .await
+            .map(Value::string)
+            .map_err(|error| match error {
+                crate::llm::RealiseError::OperatorCommand(message) => EvalError::Command(message),
+                other => EvalError::Command(other.to_string()),
+            });
+    }
+    if let Some(reduce_op) = op_cfg.reduce {
+        return Ok(crate::realise::reduce(reduce_op, operands)?);
+    }
+    match mode {
+        Mode::Det => {
+            let rendered = parenthesise_grouped(operands, grouped, sep);
+            if let Some(template) = &op_cfg.template {
+                Ok(crate::realise::template(template, &rendered, sep))
+            } else if let Some(separator) = &op_cfg.join {
+                Ok(crate::realise::join(&rendered, separator, sep))
+            } else {
+                Err(EvalError::Unsupported(format!(
+                    "operator `{op}` has no deterministic (template/join/reduce) realisation"
+                )))
+            }
+        }
+        Mode::Llm => {
+            let Some(prompt) = op_cfg.prompt.as_deref() else {
+                return Err(EvalError::Unsupported(format!(
+                    "operator `{op}` has no llm realisation (needs a `prompt:`)"
+                )));
+            };
+            let rendered = parenthesise_grouped(operands, grouped, sep);
+            let args: Vec<String> = rendered.iter().map(|value| value.render(sep)).collect();
+            let call = crate::llm::assemble_llm(
+                op_cfg.model.as_deref(),
+                prompt,
+                &args,
+                config,
+                None,
+                |name| std::env::var(name).ok(),
+            )
+            .map_err(|error| EvalError::Llm(error.to_string()))?;
+            realiser
+                .llm(&call)
+                .await
+                .map(Value::string)
+                .map_err(|error| EvalError::Llm(error.to_string()))
+        }
+    }
+}
+
+/// Async mirror of [`coerce_operand`]: deterministic coercion is pure; the
+/// llm-mode type-coercion fallback `await`s the injected realiser.
+async fn coerce_operand_async<R: crate::realiser::Realiser>(
+    value: &Value,
+    target: TypeName,
+    sep: &str,
+    mode: Mode,
+    config: &Config,
+    realiser: &R,
+) -> Result<Value, EvalError> {
+    if let Some(coerced) = value.coerce_deterministic(target, sep) {
+        return Ok(coerced);
+    }
+    if matches!(mode, Mode::Llm) {
+        if let Some(type_cfg) = config.types.get(target.as_str()) {
+            if let Some(prompt) = type_cfg.prompt.as_deref() {
+                let rendered = value.render(sep);
+                let call = crate::llm::assemble_llm(
+                    type_cfg.model.as_deref(),
+                    prompt,
+                    std::slice::from_ref(&rendered),
+                    config,
+                    None,
+                    |name| std::env::var(name).ok(),
+                )
+                .map_err(|error| EvalError::Llm(error.to_string()))?;
+                let answer = realiser
+                    .llm(&call)
+                    .await
+                    .map_err(|error| EvalError::Llm(error.to_string()))?;
+                return Value::string(answer)
+                    .coerce(target, sep)
+                    .map_err(EvalError::Coerce);
+            }
+        }
+    }
+    value.coerce(target, sep).map_err(EvalError::Coerce)
+}
+
+/// Parse and evaluate `expr` through the injected [`crate::realiser::Realiser`]
+/// (bd-bec201, nlir-wasm P0): the async, SERIAL counterpart to [`evaluate`]. The
+/// browser drives this via `wasm-bindgen-futures` with a JS-callback realiser;
+/// native callers pass [`crate::realiser::NativeRealiser`]. `config` is already
+/// parsed (the wasm crate parses `config_json` -> [`Config`] at its boundary, so
+/// this entry stays format-agnostic). Deterministic evaluation never awaits.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any evaluation error.
+pub async fn evaluate_async<R: crate::realiser::Realiser>(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    realiser: &R,
+) -> Result<Value, EvalError> {
+    let sigils = crate::config::operator_sigils(config);
+    let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
+        EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
+    })?;
+    let program = parser::parse_program(&tokens, &config.operators)
+        .map_err(|error| EvalError::Parse(error.to_string()))?;
+    let mut evaluator = Evaluator::new(config, context, mode);
+    let mut last = None;
+    for statement in &program.statements {
+        let value = evaluator.eval_async(statement, realiser).await?;
+        evaluator.stack.push(value.clone());
+        last = Some(value);
+    }
+    last.ok_or(EvalError::EmptyProgram)
+}
+
 /// [`realise`] with per-run memoisation (bd-1d078c) shared across
 /// concurrently-evaluated operand subtrees via a `Mutex`-guarded cache. When
 /// `cache_on` (`_cache`, default true), identical realisations — same
@@ -704,25 +968,14 @@ fn parenthesise_grouped(operands: &[Value], grouped: &[bool], sep: &str) -> Vec<
 /// deterministic in both modes (bd-3c1e6d).
 fn realise_command(command: &str, operands: &[Value], sep: &str) -> Result<Value, EvalError> {
     let args: Vec<String> = operands.iter().map(|value| value.render(sep)).collect();
-    let script = format!("{}\n{command}", crate::llm::nlir_args_declaration(&args));
-    let output = std::process::Command::new("bash")
-        .arg("-c")
-        .arg(&script)
-        .output()
-        .map_err(|error| EvalError::Command(format!("failed to spawn bash: {error}")))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(EvalError::Command(format!(
-            "`{command}` exited with {}: {}",
-            output.status,
-            stderr.trim()
-        )));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // SPEC: stdout is the result; drop a single trailing newline.
-    Ok(Value::string(
-        stdout.strip_suffix('\n').unwrap_or(&stdout).to_owned(),
-    ))
+    // The bash spawn lives in llm.rs (the native realiser body, shared with the
+    // Realiser seam); preserve the historical EvalError::Command message text.
+    crate::llm::run_operator_command(command, &args)
+        .map(Value::string)
+        .map_err(|error| match error {
+            crate::llm::RealiseError::OperatorCommand(message) => EvalError::Command(message),
+            other => EvalError::Command(other.to_string()),
+        })
 }
 
 /// Whether an expression subtree can be evaluated concurrently with its
@@ -1096,6 +1349,21 @@ operators:
         // det mode has no model fallback: the same expression is a coercion error.
         let mut ctx = Context::empty(&cfg.context);
         assert!(evaluate("'five'+'five'", &cfg, &mut ctx, Mode::Det).is_err());
+
+        // The async entry (bd-bec201) reaches the SAME command backend through
+        // the injected NativeRealiser (coerce_operand_async -> realiser.llm):
+        // 'five'+'five' -> 5+5 -> 10, identical to the sync path.
+        use crate::realiser::{block_on_ready, NativeRealiser};
+        let mut ctx = Context::empty(&cfg.context);
+        let out = block_on_ready(evaluate_async(
+            "'five'+'five'",
+            &cfg,
+            &mut ctx,
+            Mode::Llm,
+            &NativeRealiser,
+        ))
+        .expect("async llm coercion");
+        assert_eq!(out.render(&ctx.sep()), "10");
     }
 
     #[test]
@@ -1341,6 +1609,29 @@ operators:
         let mut ctx = Context::empty(&cfg.context);
         let steps = step_trace("'hi'", &cfg, &mut ctx, Mode::Det).expect("step trace");
         assert_eq!(steps, vec!["hi".to_owned()]);
+    }
+
+    #[test]
+    fn evaluate_async_matches_sync_eval_in_det_mode() {
+        // The async entry (bd-bec201) must produce identical results to the sync
+        // path when no effectful realisation is reached. Driven with the
+        // NativeRealiser (its futures are ready-on-first-poll) via block_on_ready.
+        use crate::realiser::{NativeRealiser, block_on_ready};
+        for src in ["2+3*4", "x='ship'; $x"] {
+            let cfg = config();
+            let mut ctx_sync = Context::empty(&cfg.context);
+            let sync = evaluate(src, &cfg, &mut ctx_sync, Mode::Det).expect("sync eval");
+            let mut ctx_async = Context::empty(&cfg.context);
+            let asynced = block_on_ready(evaluate_async(
+                src,
+                &cfg,
+                &mut ctx_async,
+                Mode::Det,
+                &NativeRealiser,
+            ))
+            .expect("async eval");
+            assert_eq!(sync, asynced, "async/sync mismatch for `{src}`");
+        }
     }
 
     #[test]
