@@ -3,8 +3,11 @@ name: wasm
 # nlir-wasm CI build home (epic bd-360d0c, P7 bd-c69da6 — aur-2 / CI lane).
 #
 # CI is the CANONICAL wasm build home: the shipped in-page evaluator is built here
-# from the SAME commit as the native binary (rustup + wasm32-unknown-unknown +
-# wasm-pack), so source-rustc author nodes never need a local wasm toolchain.
+# from the SAME commit as the native binary (dtolnay/rust-toolchain +
+# wasm32-unknown-unknown + wasm-pack), so source-rustc author nodes never need a
+# local wasm toolchain. The toolchain setup mirrors ci.yml because the
+# self-hosted azure-ephemeral runner ships SYSTEM Rust with NO rustup on PATH
+# (bd-7e465a / bd-f35766) — a bare `rustup target add` dies with exit 127.
 #
 # GUARDED / EARLY: this job is a NO-OP until the P1 crate (bd-3fcf96) lands at
 # crates/nlir-wasm. The `detect` step gates every build step on the crate's
@@ -51,12 +54,44 @@ jobs:
             echo "nlir-wasm crate not present yet (P1 bd-3fcf96) — wasm build is a no-op until it lands."
           fi
 
-      - name: Add the wasm32 target + wasm-pack
+      - name: Move cargo home off the SMB build-cache (bd-f35766 rustup hardlink fix)
         if: steps.detect.outputs.present == 'true'
         shell: bash
         run: |
-          rustup target add wasm32-unknown-unknown
-          command -v wasm-pack >/dev/null 2>&1 || cargo install wasm-pack --locked
+          # A shared /mnt/build-cache CARGO_HOME is an SMB (Azure Files) mount that cannot
+          # hardlink (os error 95), breaking rustup's toolchain install. Pin CARGO_HOME to
+          # local disk when it's on that mount so the toolchain installs on a hardlink-capable fs.
+          if [[ "${CARGO_HOME:-}" == /mnt/build-cache/* ]]; then
+            echo "CARGO_HOME=$RUNNER_TEMP/nlir-wasm-cargo-home" >> "$GITHUB_ENV"
+          fi
+
+      - name: Ensure curl and rustup are reachable for the toolchain install (minimal step PATH)
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: |
+          # dtolnay/rust-toolchain runs `command -v rustup`; if absent it curl-installs rustup.
+          # This persistent runner's step shell has a minimal PATH with neither curl NOR rustup
+          # (bd-7e465a) — put the system bin dirs on PATH so curl is found for the fallback, and
+          # surface an on-disk rustup if present. Best-effort; trailing exit 0 so a final
+          # short-circuited test never trips the job.
+          for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
+            if [ -d "$d" ]; then echo "$d" >> "$GITHUB_PATH"; fi
+          done
+          for d in "$HOME/.cargo/bin" "${CARGO_HOME:-/nonexistent}/bin"; do
+            if [ -x "$d/rustup" ]; then echo "$d" >> "$GITHUB_PATH"; fi
+          done
+          exit 0
+
+      - name: Install Rust toolchain + wasm32 target
+        if: steps.detect.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: command -v wasm-pack >/dev/null 2>&1 || cargo install wasm-pack --locked
 
       - name: Build the wasm package (same commit as the native binary)
         if: steps.detect.outputs.present == 'true'
