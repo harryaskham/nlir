@@ -73,19 +73,19 @@ whole ask, my amendment, my caveat] into one formal reply.
 | decision record | `[@&[DECISION], 'OPEN'?, ...]` | the call you're making + the questions it leaves open | aur-2 |
 | myth-buster | `@&[!'MISCONCEPTION', 'REALITY']` | correct the record: reject the myth, state the truth | aur-2 |
 | FAQ entry | `['QUESTION'?, :'ANSWER', ...]` | jot Q + raw answer → a customer-ready Q&A pair | aur-2 |
-| glossary entry | `[~>'TERM', :'TERM']` | a term's crisp definition + a plain analogy, together | aur-2 |
-| compare-and-contrast | `~>'the difference between X and Y'` | the one crisp sentence on how two things differ | aur-2 |
+| glossary entry | `[~(>'TERM'), :'TERM']` | a term's crisp definition + a plain analogy, together | aur-2 |
+| compare-and-contrast | `~(>'the difference between X and Y')` | the one crisp sentence on how two things differ | aur-2 |
 | the changelog | `:['ITEM', 'ITEM', ...]` | terse notes → one polished release-note line each (LLM per-line tendency; `&` weaves structurally) | aur-2 |
 | reality-check | `@&['LEAD', <a live calc>, 'CLAUSE'?]` | a pointed question carrying a live computed figure | aur-2 |
 | templated message | `NAME='V'; @&["...$NAME..."]` | bind a value once, reuse it across the message (double quotes interpolate) | aur-2 |
 | computed constant | `NAME='<calc>'; @&["...$NAME..."]` | compute a figure once, reuse it consistently everywhere | aur-2 |
 | considered reply | `@(^-1 & 'AMENDMENT')` | amend the agent's last suggestion | aur-1 |
 | reasoned no | `@(!^-1 & 'GROUNDS')` | decline, with your reason | aur-1 |
-| honest yes | `[@(^-1 & 'AMENDMENT'), ~>!^-1]` | yes + an auto devil's-advocate | aur-1 |
-| steelman reply | `[~>@^-1, @(!^-1 & 'GROUNDS')]` | their case at its best, then your reasoned no | aur-1 |
+| honest yes | `[@(^-1 & 'AMENDMENT'), ~(>!^-1)]` | yes + an auto devil's-advocate | aur-1 |
+| steelman reply | `[~(>@^-1), @(!^-1 & 'GROUNDS')]` | their case at its best, then your reasoned no | aur-1 |
 | counter-offer | `[@(!^-1 & 'GROUNDS'), @'ALTERNATIVE']` | decline, then offer the path you'd back | aur-1 |
-| weighed decision | `[~>@^-1, ~>!^-1, @(^-1 & 'decision: CALL')]` | weigh a proposal both ways, then rule | aur-1 |
-| pitch-check | `[@~^_-1, ~>!^_-1]` | polish YOUR floated idea + preempt its objection | aur-1 |
+| weighed decision | `[~(>@^-1), ~(>!^-1), @(^-1 & 'decision: CALL')]` | weigh a proposal both ways, then rule | aur-1 |
+| pitch-check | `[@~^_-1, ~(>!^_-1)]` | polish YOUR floated idea + preempt its objection | aur-1 |
 | brain-dump | `'a';'b';'c';&;~$` | fold scattered thoughts (via the stack) into one takeaway | aur-1 |
 | fork | `>('A' \| 'B')` | lay two options out as a decision memo (kept distinct) | aur-1 |
 | tighten | `[<^-1, ~^-1]` | shorten two ways: `<` keeps every fact, `~` keeps the essence | aur-1 |
@@ -134,7 +134,7 @@ enable per-message ops like `@↦^_` = formalise EACH of their turns.)
 ### REPLY / AMEND — answer a live suggestion (aur-1)
 `@(^-1 & '<your amendment>')` — take the agent's last suggestion, fold in your twist, make it formal
 (the grouping is load-bearing).
-Moves: considered reply (agree+amend) · honest yes (amend + auto devil's-advocate `~>!^-1`) ·
+Moves: considered reply (agree+amend) · honest yes (amend + auto devil's-advocate `~(>!^-1)`) ·
 reasoned no (`@(!^-1 & grounds)`) · steelman reply (their best case, then your no) · counter-offer
 (decline, then offer a path) · weighed decision (weigh both ways, then rule) · pitch-check (polish +
 preempt your OWN floated idea) · decisive close (end a thread with a decision) · brain-dump
@@ -152,7 +152,7 @@ Moves: grounded counter · cited synthesis · **full layered reply** (the flagsh
 example: reply + modify + reference + caveat + restyle + self-reflect, in one line) ·
 self-summarizing memo · self-red-team (`k=@>'X';[$k,>!~$k]`).
 Which self-critique? **self-red-team** pressure-tests a NEW draft from a blank page; aur-1's
-**pitch-check** (`[@~^_-1, ~>!^_-1]`) refines an idea you already FLOATED in chat — same instinct
+**pitch-check** (`[@~^_-1, ~(>!^_-1)]`) refines an idea you already FLOATED in chat — same instinct
 (hear the objection before you send), two entry points.
 → `examples/CATALOG-aur0.md` · `examples/move-aur0-*.sh` · cards `nlir-full-layered-reply`, `nlir-grounded-counter`, `nlir-self-red-team`
 
