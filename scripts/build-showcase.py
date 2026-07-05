@@ -192,6 +192,21 @@ SIMPLE = [
 
 # --- grid cards: one claim + expr -> labelled lens outputs ---------------------
 GRID = [
+    dict(name="tone-knob", expr="[@~0^*-1, :~0^*-1, ~0^*-1]", pill="llm · one thread, three registers",
+         claim="a 5-turn incident thread — 500s after the 2pm deploy → 2026-expiry bug → hotfix + 'brief the VP'",
+         cap="the tone knob — one whole-thread SELECT (~0^*-1), three registers: @ formal (brief a VP) · : plain (onboard anyone) · ~ terse (a standup line)",
+         cols=1, cells=[
+             ("@~0^*-1   formal · brief up", "The 2:00 PM deployment introduced a defect that rejected valid "
+                            "cards with 2026 expiry dates. Given an active fraud-rule migration, the team elected "
+                            "an expedited hotfix over a risky rollback, ahead of a VP briefing."),
+             (":~0^*-1   plain · onboard anyone", "At 2pm the team changed the checkout page and it broke — "
+                            "now it says no to good cards. Rather than undo everything (risky, mid another "
+                            "fraud-detection change), they'll make one small quick fix, fast, before telling an "
+                            "important boss."),
+             ("~0^*-1   terse · a standup line", "The 2pm deploy broke checkout by rejecting valid 2026-expiry "
+                            "cards; the team is opting for a quick hotfix over a risky rollback (live fraud-rule "
+                            "migration), ahead of an imminent VP briefing."),
+         ]),
     dict(name="perspective-wheel", expr="[#x, ~x, >x, !x, @x, x?]", pill="llm · 6 lenses",
          claim="we should sunset the legacy API",
          cap="one claim, refracted along every axis of meaning — topic · length · polarity · register · mode",

@@ -128,6 +128,13 @@ had the syntax wrong. The role *views* already exist: `^` = assistant (our side)
 `^_*` mixed two view markers (`_` and `*`) — invalid, hence the empty-reduce error. No feature is
 missing; TWO-SIDES works today (below).
 
+**Role is DRIVER-RELATIVE (pin this for the pi plugin):** `^`/`^_` mean different sides depending
+on who's at the keyboard. When an AGENT drives nlir (my cards' context), `^_` = the user = "their
+side", `^` = the assistant = "our side". When HARRY drives nlir via the plugin, HE is the user, so
+`^_` = HIS own messages and `^` = the agent's (what he's replying to). Same sigils, mirrored by
+seat. (This makes aur-0's grounded-counter read exactly right: `^-1` = the agent's suggestion,
+`^_-1` = Harry's own constraint.)
+
 ### THE TWO-SIDES — `[~0^_-1, ~0^-1]`
 Split a debate/negotiation by ROLE: `^_` selects every USER turn (their side), `^` every ASSISTANT
 turn (our side); `~` distills each channel to its position. The role-channel SELECT (vs the
