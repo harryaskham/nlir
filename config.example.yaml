@@ -47,16 +47,17 @@ context:
 
 types: # coercion targets (deterministic parse first, LLM fallback)
   number:
-    model: haiku
+    model: sonnet
     prompt: |
       Interpret the text inside <text> as a single number. Return only the number.
 
       %
     schema: { type: object, properties: { result: { type: number } }, required: [result] }
   bool:
-    model: haiku
+    model: sonnet
     prompt: |
-      Interpret the text inside <text> as true or false.
+      Interpret the text inside <text> as a boolean. Return exactly `true` or `false`
+      in lowercase, with no other text, punctuation, capitalisation, or explanation.
 
       %
     schema: { type: object, properties: { result: { type: boolean } }, required: [result] }
