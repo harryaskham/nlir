@@ -63,6 +63,12 @@ _sep=\ ;$map%({$0++"-done"}, "t1,t2"//",")                    => t1-done t2-done
 
 # P5 — WORD COUNT as (sum ∘ map(const 1) ∘ split): length = +/ over 1¨.
 $fold%({$0+$1}, $map%({1}, 'the cat sat on the mat'//' '))    => 6
+
+# P6 — per-word char count: length as a reusable SUB-PROGRAM, mapped over words.
+_sep=\ ;$map%({$fold%({$0+$1}, $map%({1}, $0//""))}, "the cat sat"//" ")  => 3 3 3
+
+# P7 — TRAINS (atop, landed @d903823): compose lenses point-free, no $0.
+(: ~ @)%"hi"                                                  => simple: summary: formal: hi
 ```
 
 P5 is the flagship: **length is not a primitive** — it *falls out* of
@@ -93,14 +99,24 @@ scan LANDED @d7f6f6c** (msm-0, word-builtins, no new sigils); **trains** are in
 progress (msm-0's parser, §4/§5); **zip** remains a candidate. The remaining
 *point-free* gap is trains (§3.1).
 
-### 3.1 Trains / point-free composition (#1) — see §4/§5
+### 3.1 Trains / point-free composition (#1) — LANDED @d903823 (partial)
 
-The category-theory core. `{~@}` = gist∘formal *without spelling `$0`* is the
-target. aur-1's design (§5): a **parser desugar** on operator-only parenthesised
-groups, on msm-0's stack-implicit foundation — `(f g h)x ≡ (f x) g (h x)` (fork),
-`(f g)x ≡ f(g x)` (atop) — **zero new glyphs**, rides the existing form machinery.
-Full design in §4 (msm-1) + §5 (aur-1). This is the biggest unlock: it multiplies
-every lens we already have.
+The category-theory core: compose lenses *without spelling `$0`*. aur-1's grammar
+(§5): a **parser desugar** on operator-only parenthesised groups, on msm-0's
+stack-implicit foundation — zero new glyphs, applied via `%`.
+
+- **ATOP works** (verified): `(~ @)%"thanks"` → `summary: formal: thanks`;
+  `(: ~ @)%"hi"` → `simple: summary: formal: hi` (compose right-to-left).
+- **FORK works with an INFIX combiner** (verified): `(# Δ ~)%"hello"` →
+  `diff: subject: hello -> summary: hello` (two lenses on one input, combined).
+- **FORK with a MIXFIX combiner is BROKEN** (bd-57f470): the headline
+  `(# & ~)` = "subject & gist" doesn't parse ("unsupported train") because
+  `&`/`|` are `fixity: mixfix`, not `infix`. Fix: accept a mixfix op as a binary
+  combiner in fork position. Until then the `&`/`|` fork cards are non-runnable;
+  use an infix combiner, or the desugared form `{(#$0)&(~$0)}` (which works).
+
+Follow-up (msm-0): tacit application without `%` (juxtaposition `(# & ~)doc`).
+Full design §4 (msm-1) + §5 (aur-1). Biggest unlock: forks multiply every lens.
 
 ### 3.2 `$filter` / where — LANDED @d7f6f6c
 
@@ -110,11 +126,10 @@ The missing **select** of map/filter/fold — now landed (msm-0/aur-2, bd-fd3a37
 $filter%({pred}, xs)  — keep xs[i] where pred(xs[i]) is truthy → a List.
 ```
 
-- `pred` is a form returning a **Bool**; det bool literals work today:
-  `$filter%({$0}, [true,false,true])` → `[true,true]`.
-- Nuance (aur-0): int/string→bool is NOT auto-coerced in det (`{$0}` over
-  `[1,0,1]` errors), so det predicates need real bools — bool literals now, and
-  comparison / `~>`→bool once those land their det forms.
+- Numeric + bool truthiness works (@9ea893e): `$filter%({$0}, [1,0,2,0,3])` →
+  `[1,2,3]` (0/empty falsy, nonzero truthy); filter-local, global coercion stays
+  strict. Bool literals too: `$filter%({$0}, [true,false,true])` → `[true,true]`.
+  The trinity: `$fold%({$0+$1}, $map%({$0*$0}, $filter%({$0}, [1,2,3])))` → `14`.
 - mixed example: `$filter%({$0 ~> 'urgent'}, msgs)` → the urgent subset (awaits
   the `~>` det-bool stub, aur-0's semantic-op category).
 
