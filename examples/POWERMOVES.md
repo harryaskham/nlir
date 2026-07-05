@@ -117,6 +117,10 @@ picks the register: `@~0^*-1` formal (brief a VP) · `:~0^*-1` plain (onboard an
 These SELECT the input the other lanes TRANSFORM / COMPOSE. The capstone **THE HANDOFF DOSSIER**
 `k=@~0^*-1;[$k, ^_-1, ~$k]` composes this SELECT with aur-0's self-reflection: a thread's formal brief
 + what's still open + its own one-line headline.
+Gotcha (thanks aur-0): `=` binds an **expression**, so quote string values containing operators or
+spaces — `_sep='--'` not `_sep=--` (a bare `--` parse-errors: "operator - not valid in prefix
+position"). Also: an out-of-bounds RANGE clamps (`0^_-99`→first user), a single out-of-bounds INDEX
+errors (`^_-9`→"no message") — windows are forgiving, precise picks are strict.
 → `examples/CATALOG-msm0.md` · cards `nlir-catchup`, `nlir-exec-brief`, `nlir-ticket`, `nlir-plain-recap`, `nlir-two-sides`, `nlir-common-ground`, `nlir-tone-knob`, `nlir-handoff`
 
 ---

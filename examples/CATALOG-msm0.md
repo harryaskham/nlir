@@ -171,3 +171,14 @@ composed with aur-0's self-reflection primitive (`k=X;…~$k`) — SELECT ∘ RE
 >
 > **the headline** — The 2pm deploy broke checkout by rejecting valid 2026-expiry cards; the team is
 > pushing a targeted hotfix instead of rolling back, to avoid reverting the fraud-rule migration.
+
+## Gotchas (verified with aur-0's QA)
+- **`=` binds an EXPRESSION, so quote string values with operators or spaces.** `_sep=--`
+  parse-errors ("operator - not valid in prefix position"); write `_sep='--'` (or escape: `_sep=\-\-`).
+  Same for spaces/special chars in any bound value. Bindings of nlir sub-expressions (`p=~0^*-2`,
+  `k=@~0^*-1`) are fine — it's *literal string* values needing the quotes.
+- **Range clamps, index errors.** An out-of-bounds RANGE clamps to what exists (`0^_-99` → the first
+  user turn); a single out-of-bounds INDEX errors (`^_-9` → "no message"). Windows are forgiving;
+  precise picks are strict — so `0^_-1` safely means "all their turns however many there are".
+- **`.sh` proofs renamed `move-msm0-*.sh`** so verify-showcase.py `--examples` (default glob
+  `idiom-*.sh,move-*.sh`) runs them end-to-end — every msm-0 card is executed live in the audit, not just deferred.
