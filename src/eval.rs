@@ -209,6 +209,31 @@ pub fn step_frames(
     context: &mut Context,
     mode: Mode,
 ) -> Result<Vec<crate::graph::Frame>, EvalError> {
+    let mut frames = Vec::new();
+    step_frames_streaming(expr, config, context, mode, |frame| {
+        frames.push(frame.clone());
+    })?;
+    Ok(frames)
+}
+
+/// Stream each dataflow-graph FRAME as it is produced (bd-89eb89): the streaming
+/// twin of [`step_frames`], for the animate view. Instead of collecting every
+/// [`crate::graph::Frame`] into a `Vec` returned only at the end, it invokes
+/// `on_frame` with each frame the moment that reduction is taken — `on_frame`
+/// fires first with frame 0 (the initial graph, `reduced: None`), then once per
+/// reduction, in order. Frames are byte-for-byte identical to [`step_frames`]
+/// (now a thin collector over this), so `animate()` consumes streamed and batched
+/// frames the same way.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub fn step_frames_streaming(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    mut on_frame: impl FnMut(&crate::graph::Frame),
+) -> Result<(), EvalError> {
     use crate::graph::{Frame, Graph, reduced_between};
     let sigils = crate::config::operator_sigils(config);
     let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
@@ -223,24 +248,24 @@ pub fn step_frames(
 
     let mut evaluator = Evaluator::new(config, context, mode);
     let mut statements = program.statements.clone();
-    let mut frames = vec![Frame {
+    on_frame(&Frame {
         graph: Graph::frame(&statements, &original_bindings),
         reduced: None,
-    }];
+    });
     for i in 0..statements.len() {
         while let Step::Reduced(next) = evaluator.step_once(&statements[i])? {
             let before = Graph::frame(&statements, &original_bindings);
             statements[i] = next;
             let graph = Graph::frame(&statements, &original_bindings);
             let reduced = reduced_between(&before, &graph);
-            frames.push(Frame { graph, reduced });
+            on_frame(&Frame { graph, reduced });
         }
         // Push the finished statement's value so later `;`-statements resolve.
         if let Some(value) = as_value(&statements[i]) {
             evaluator.stack.push(value);
         }
     }
-    Ok(frames)
+    Ok(())
 }
 
 /// Async mirror of [`step_frames`] (graph-viz G2 through the realiser seam,
@@ -260,6 +285,29 @@ pub async fn step_frames_async<R: crate::realiser::Realiser>(
     mode: Mode,
     realiser: &R,
 ) -> Result<Vec<crate::graph::Frame>, EvalError> {
+    let mut frames = Vec::new();
+    step_frames_streaming_async(expr, config, context, mode, realiser, |frame| {
+        frames.push(frame.clone());
+    })
+    .await?;
+    Ok(frames)
+}
+
+/// Async streaming twin of [`step_frames_streaming`] (bd-89eb89): the live
+/// graph-animation source for llm mode (G5 browser / G4 `--save-animation`),
+/// firing `on_frame` the moment each step's realisation completes inside the
+/// per-step await loop. [`step_frames_async`] is now a thin collector over it.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub async fn step_frames_streaming_async<R: crate::realiser::Realiser>(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    realiser: &R,
+    mut on_frame: impl FnMut(&crate::graph::Frame),
+) -> Result<(), EvalError> {
     use crate::graph::{Frame, Graph, reduced_between};
     let sigils = crate::config::operator_sigils(config);
     let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
@@ -272,23 +320,23 @@ pub async fn step_frames_async<R: crate::realiser::Realiser>(
 
     let mut evaluator = Evaluator::new(config, context, mode);
     let mut statements = program.statements.clone();
-    let mut frames = vec![Frame {
+    on_frame(&Frame {
         graph: Graph::frame(&statements, &original_bindings),
         reduced: None,
-    }];
+    });
     for i in 0..statements.len() {
         while let Step::Reduced(next) = evaluator.step_once_async(&statements[i], realiser).await? {
             let before = Graph::frame(&statements, &original_bindings);
             statements[i] = next;
             let graph = Graph::frame(&statements, &original_bindings);
             let reduced = reduced_between(&before, &graph);
-            frames.push(Frame { graph, reduced });
+            on_frame(&Frame { graph, reduced });
         }
         if let Some(value) = as_value(&statements[i]) {
             evaluator.stack.push(value);
         }
     }
-    Ok(frames)
+    Ok(())
 }
 
 /// The operand-first evaluator: a config + context + a run-scoped stack. The
@@ -2172,6 +2220,27 @@ operators:
         ))
         .expect("async stream");
         assert_eq!(sync, streamed);
+    }
+
+    #[test]
+    fn step_frames_streaming_matches_batch() {
+        // bd-89eb89: the streaming frame form fires on_frame per reduction (frame 0
+        // + each step), and step_frames is now a thin collector over it, so the two
+        // frame sequences are identical (byte-for-byte for animate()).
+        let cfg = config();
+        let mut ctx_batch = Context::empty(&cfg.context);
+        let batch = step_frames("2+3*4", &cfg, &mut ctx_batch, Mode::Det).expect("batch frames");
+        let mut ctx_stream = Context::empty(&cfg.context);
+        let mut streamed = Vec::new();
+        step_frames_streaming("2+3*4", &cfg, &mut ctx_stream, Mode::Det, |f| {
+            streamed.push(f.clone());
+        })
+        .expect("stream frames");
+        assert_eq!(batch, streamed);
+        assert!(
+            streamed.len() >= 2,
+            "reducible expr streams multiple frames"
+        );
     }
 
     #[test]
