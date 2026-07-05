@@ -112,6 +112,16 @@ A new crate (`crates/nlir-wasm` or a `wasm` feature) depending on the nlir lib:
   dodges the libyaml-on-wasm risk). The native CLI keeps YAML; only the wasm seam
   is JSON.
 - Accepts JS realiser callbacks (LLM + command) wired through the `Realiser` trait.
+- **Lib `native` feature (P1 prerequisite, aur-0):** the nlir lib's native-only
+  deps (`ureq`, `mcp-cli`, `updatable-cli`, `feedback-cli`) are made optional behind
+  a `native` feature (`default = ["native"]`, so the CLI + tests are unchanged);
+  the surfaces that use them (`llm.rs` `ureq`; `lib.rs` mcp/feedback/updatable) get
+  `#[cfg(feature = "native")]`. `nlir-wasm` depends `default-features = false` → the
+  dep-clean core only (eval/config/lexer/parser/realise/realiser/context/value/
+  stack/index/messages). P0 gated the *code* (`NativeRealiser`); this gates the
+  *Cargo deps* — both are needed for a wasm build. Filed as a P1-prerequisite bead
+  that P1 depends on; the always-on contracts (eval/parse/`Mode`/the `Realiser`
+  trait) never move.
 - Built with `wasm-pack build --target web` (see §3.9 for *where* it builds).
 
 ### 3.4 The workspace widget (site, aur-1 lane)
