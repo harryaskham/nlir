@@ -111,7 +111,18 @@ prompts:
   unstructured: { env: NLIR_UNSTRUCTURED_PROMPT, text: "Output only the text result of your transformation with no preamble." }
 
 operators: # `%` = operand under replacement; `%%` = literal %
-  subject: { op: "#", description: "The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category.", arity: 1, fixity: prefix, model: sonnet, prompt: "Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.\n\n%" }
+  subject:
+    op: "#"
+    description: |
+      The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category.
+    arity: 1
+    fixity: prefix
+    model: sonnet
+    prompt: |
+      Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.
+
+      %
+  # TODO: Rewrite the below ops into YAML not JSON literals, much easier to read and edit this way. Like 'subject'
   not: { op: "!", description: "Negates the claim, clause-wise (so !(a&b)=neither); on a lone concept-word, its antonym. Involution: !!x=x.", arity: 1, fixity: prefix, template: "not %", model: sonnet, prompt: "Negate the text inside <text>...</text>, changing nothing else.\n\n%" }
   and: { op: "&", description: "Joins operands into one 'X and Y' statement (a plan, not boolean AND); nullary & folds the premise stack.", arity: ">0", fixity: mixfix, join: " and ", model: sonnet, prompt: "Combine the <text> items with an \"and\" connective into one text meaning \"t_0 and t_1 and ...\".\n\n%" }
   or: { op: "|", description: "Joins operands into one 'X or Y' choice, kept as genuine alternatives.", arity: ">0", fixity: mixfix, join: " or ", model: sonnet, prompt: "Combine the <text> items with an \"or\" connective into one text meaning \"t_0 or t_1 or ...\".\n\n%" }
