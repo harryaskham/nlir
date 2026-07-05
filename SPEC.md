@@ -188,13 +188,40 @@ After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
 
 ## Config operators (the language proper)
 
-Canonical set:
+The **canonical operator vocabulary** — each realised via `template` / `reduce` /
+`command` (det) or `prompt` (llm). These descriptions are the authoritative
+semantics, mirrored by `nlir help` and the
+[POWERMOVES phrasebook](examples/POWERMOVES.md).
 
-- string: **`#`** subject (1, prefix), **`!`** not (1, prefix), **`&`** and
-  (variadic, mixfix), **`|`** or (variadic, mixfix), **`?`** question (1, postfix,
-  `priority: 0`), **`_`** echo (2, infix, `command:`).
-- numeric: **`+`** add, **`*`** mul (variadic), **`-`** sub, **`/`** div, **`**`**
-  pow (binary) — `operands: number`, `result: number`, `reduce:`.
+**String / text operators** (llm-realised unless a `template`/`command` is given):
+
+| op | name | fixity · arity | what it does |
+|---|---|---|---|
+| `#` | subject | prefix · 1 | The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category. |
+| `!` | not | prefix · 1 | Negates the claim, clause-wise (`!(a&b)` = neither); on a lone concept-word, its antonym. Involution: `!!x ≈ x`. |
+| `~` | summary | prefix · 1 | The essence in one short sentence — drops specifics for the gist. Saturates (`~~x ≈ ~x`); folds a list to its consensus. |
+| `@` | formal | prefix · 1 | Rewrites in a formal, professional register, meaning preserved. Saturates after one pass; distributes over `&`. |
+| `:` | simplify | prefix · 1 | Rewrites in plain, simple language (strips jargon). The one op that reliably maps per-item over a list. |
+| `>` | expand | prefix · 1 | Adds detail and explanation (lengthens). Forks over `or` (keeps paths distinct), integrates over `&`. |
+| `<` | shorten | prefix · 1 | Tightens to the information floor — fewest words, but keeps every fact and figure (vs `~` = the gist). |
+| `?` | question | postfix · 1 | Turns the text into a question. A yes/no question is polarity-neutral (`!x? ≈ x?`). |
+| `&` | and | mixfix · >0 | Joins operands into one "X and Y" statement (a plan, not boolean ∧); nullary `&` folds the premise stack. |
+| `\|` | or | mixfix · >0 | Joins operands into one "X or Y" choice, kept as genuine alternatives. |
+| `_` | echo | infix · 2 | Repeats the text N times, space-joined (`x_2` = "x x"). The one shell-`command`-realised op. |
+
+**Numeric operators** (`operands: number`, `result: number`, `reduce:`):
+
+| op | name | fixity · arity | what it does |
+|---|---|---|---|
+| `+` | add | mixfix · >0 | Sum of the operands (words / units / bases coerce to numbers first). |
+| `*` | mul | mixfix · >0 | Product of the operands. |
+| `-` | sub | infix · 2 | Difference, a − b (left-associative). |
+| `/` | div | infix · 2 | Quotient, a ÷ b (guards divide-by-zero). |
+| `**` | pow | infix · 2 | a to the power b — right-associative, so `2**3**2` = `2**(3**2)` = 512 (matches math / Python). |
+
+The algebraic laws above (involution, saturation, `?`-absorption, list-folds) are
+**realised-semantics**: they hold in llm realisation — the user-facing output —
+while det mode applies the literal template (`!!a` → "not not a").
 
 ---
 
