@@ -108,6 +108,8 @@ enum Command {
     /// Print a config-derived reference of every operator + a one-line summary.
     #[command(visible_aliases = ["operators", "ops"])]
     Help,
+    /// Render EXPR's computational dataflow graph (AST + resolved bindings) as SVG.
+    Show(ShowArgs),
     /// Interactive REPL: one expression per submission (`:cmd` == `nlir cmd`).
     Repl(ReplArgs),
     /// Replace context keys: `set KEY VALUE` or `set '{"k":"v",...}'`.
@@ -139,6 +141,16 @@ struct StepArgs {
     /// The shorthand expression to step through.
     #[arg(value_name = "EXPR", allow_hyphen_values = true)]
     expr: String,
+}
+
+#[derive(Debug, Args)]
+struct ShowArgs {
+    /// The shorthand expression to render as a dataflow graph.
+    #[arg(value_name = "EXPR", allow_hyphen_values = true)]
+    expr: String,
+    /// Write the SVG to a file instead of stdout.
+    #[arg(long, value_name = "PATH")]
+    out: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -232,6 +244,7 @@ fn run(cli: Cli) -> Result<(), i32> {
         Some(Command::Step(ref args)) => run_step(&cli, args),
         Some(Command::Test) => run_test(&cli),
         Some(Command::Help) => run_help(&cli),
+        Some(Command::Show(ref args)) => run_show(&cli, args),
         Some(Command::Repl(ref args)) => run_repl(&cli, args),
         Some(Command::Set(ref args)) => run_set(&cli, args),
         Some(Command::Get(ref args)) => run_get(&cli, args),
@@ -592,6 +605,49 @@ fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
             "nlir parse: skeleton tokeniser ({} configured operator(s)); the grammar-driven tokeniser/DAG parser land downstream.",
             cfg.operators.len()
         );
+    }
+    Ok(())
+}
+
+/// `nlir show 'EXPR'` — render EXPR's computational dataflow graph as a
+/// self-contained SVG (graph-viz epic bd-8ac9ad, G3). The graph is the AST with
+/// variable-binding references RESOLVED into edges (an `Assign` node feeds every
+/// `$key` read that consumes it). Uses the SAME `nlir::graph` model +
+/// `nlir::graph_svg` renderer the wasm workspace uses, so the CLI and the browser
+/// draw byte-identical graphs. Prints the SVG to stdout, or `--out FILE` writes it.
+fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
+    let cfg = resolve_config(cli)?;
+    let sigils = nlir::config::operator_sigils(&cfg);
+    let tokens = match nlir::lexer::tokenize(&args.expr, &sigils) {
+        Ok(t) => t,
+        Err(error) => {
+            eprintln!("nlir show: {error}");
+            return Err(1);
+        }
+    };
+    let program = match nlir::parser::parse_program(&tokens, &cfg.operators) {
+        Ok(p) => p,
+        Err(error) => {
+            eprintln!("nlir show: {error}");
+            return Err(1);
+        }
+    };
+    let graph = nlir::graph::Graph::from_program(&program);
+    let svg = nlir::graph_svg::render(&graph);
+    if let Some(path) = &args.out {
+        if let Err(error) = std::fs::write(path, &svg) {
+            eprintln!("nlir show: writing {}: {error}", path.display());
+            return Err(1);
+        }
+        if !cli.quiet {
+            eprintln!(
+                "nlir show: wrote {} bytes of SVG to {}",
+                svg.len(),
+                path.display()
+            );
+        }
+    } else {
+        println!("{svg}");
     }
     Ok(())
 }
