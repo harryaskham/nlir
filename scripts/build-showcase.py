@@ -178,6 +178,15 @@ SIMPLE = [
              "observed the improvement this morning.",
          cap="the shout-out — name the work, the impact, and the thanks; @ keeps it polished and technical "
              "(the : tone would dumb the jargon down for a non-technical audience)"),
+    dict(name="weighed-recommendation",
+         expr="@&[:'option A: buy the managed queue service','option B: run our own kafka cluster','recommend A now for speed, revisit self-hosting at scale']",
+         pill="llm · claude-sonnet-5",
+         out="Two options are under consideration: Option A, procuring a fully managed, third-party "
+             "messaging solution, and Option B, deploying and maintaining an in-house Kafka cluster. We "
+             "recommend proceeding with Option A at this time in the interest of speed, with the possibility "
+             "of revisiting self-hosting once we reach greater scale.",
+         cap="the weighed recommendation — lay out two options (each : simplified) and your verdict; the same "
+             "@&[...] composer pointed at a decision memo"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
