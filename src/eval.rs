@@ -220,6 +220,54 @@ pub fn step_frames(
     Ok(frames)
 }
 
+/// Async mirror of [`step_frames`] (graph-viz G2 through the realiser seam,
+/// bd-bec201): the step-frame animation source driven through the injected
+/// [`crate::realiser::Realiser`], for LLM-mode graph animation — watch an
+/// operator realise as the dataflow graph evolves — in the browser (G5) or
+/// `--save-animation` (G4). Deterministic frames never await; each effectful
+/// redex is one realiser call. Same [`crate::graph::Frame`] output as
+/// [`step_frames`].
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub async fn step_frames_async<R: crate::realiser::Realiser>(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    realiser: &R,
+) -> Result<Vec<crate::graph::Frame>, EvalError> {
+    use crate::graph::{Frame, Graph, reduced_between};
+    let sigils = crate::config::operator_sigils(config);
+    let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
+        EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
+    })?;
+    let program = parser::parse_program(&tokens, &config.operators)
+        .map_err(|error| EvalError::Parse(error.to_string()))?;
+
+    let original_bindings = Graph::from_program(&program).binding_edges();
+
+    let mut evaluator = Evaluator::new(config, context, mode);
+    let mut statements = program.statements.clone();
+    let mut frames = vec![Frame {
+        graph: Graph::frame(&statements, &original_bindings),
+        reduced: None,
+    }];
+    for i in 0..statements.len() {
+        while let Step::Reduced(next) = evaluator.step_once_async(&statements[i], realiser).await? {
+            let before = Graph::frame(&statements, &original_bindings);
+            statements[i] = next;
+            let graph = Graph::frame(&statements, &original_bindings);
+            let reduced = reduced_between(&before, &graph);
+            frames.push(Frame { graph, reduced });
+        }
+        if let Some(value) = as_value(&statements[i]) {
+            evaluator.stack.push(value);
+        }
+    }
+    Ok(frames)
+}
+
 /// The operand-first evaluator: a config + context + a run-scoped stack. The
 /// context is mutable so `key=RHS` assignment can write through (SPEC: context
 /// writes happen immediately).
@@ -1870,6 +1918,28 @@ operators:
             0,
             "edges drop once both reads are consumed"
         );
+    }
+
+    #[test]
+    fn step_frames_async_matches_sync_in_det_mode() {
+        // The async frame source must match the sync one when no effectful
+        // reduction is reached (NativeRealiser futures are ready-on-first-poll).
+        use crate::realiser::{NativeRealiser, block_on_ready};
+        for src in ["2**3**2", "k=2;[$k,$k]"] {
+            let cfg = config();
+            let mut ctx_sync = Context::empty(&cfg.context);
+            let sync = step_frames(src, &cfg, &mut ctx_sync, Mode::Det).expect("sync frames");
+            let mut ctx_async = Context::empty(&cfg.context);
+            let asynced = block_on_ready(step_frames_async(
+                src,
+                &cfg,
+                &mut ctx_async,
+                Mode::Det,
+                &NativeRealiser,
+            ))
+            .expect("async frames");
+            assert_eq!(sync, asynced, "async/sync frame mismatch for `{src}`");
+        }
     }
 
     #[test]
