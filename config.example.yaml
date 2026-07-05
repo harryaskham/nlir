@@ -247,6 +247,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       %
   diff:
     op: "Δ"
+    template: "diff: %0 -> %1"  # trivial det-stub (det mode); model realises llm mode. TODO det: field for meaningful bool/diff (msm-0)
     description: |
       Directional diff: what changed from the first text to the second — added, removed, or shifted. Non-commutative (aΔb ≠ bΔa); powers before/after, drift, changelog.
     arity: 2
@@ -258,6 +259,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       %
   implication-check:
     op: "~>"
+    template: "true"  # trivial det-stub (det mode); model realises llm mode. TODO det: field for meaningful bool/diff (msm-0)
     description: |
       Does the LHS imply the RHS? Integrates over &
     arity: 2
@@ -269,6 +271,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       %
   implication-infer:
     op: "~>?"
+    template: "%"  # trivial det-stub (det mode); model realises llm mode. TODO det: field for meaningful bool/diff (msm-0)
     description: |
       Returns the implication of its arguments. Integrates over &.
     arity: ">0"
