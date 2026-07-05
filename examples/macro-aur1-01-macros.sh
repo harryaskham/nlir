@@ -44,5 +44,6 @@ run "gist={~\$0}; \$gist % 'so basically after all this we should just ship it F
 say "DO-N-TIMES — compose a form N times (% binds tighter than _, so parenthesise)"
 run '({$0+1}_3) % 5'          # 8 — add-one, three times: 5→6→7→8
 run "({~\$0}_3) % 'we keep circling back to whether mobile has the bandwidth for the onboarding flow before launch'"   # distil ×3 — the telephone game
+run "distil3=({~\$0}_3); \$distil3 % 'we keep circling back to whether mobile has the bandwidth for the onboarding flow before launch'"   # a NAMED do-N macro — compose-then-name
 
 say "A form {…} is code-as-data; % runs it, _ composes it. Name it and you have a reusable library of moves."
