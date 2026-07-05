@@ -132,6 +132,12 @@ enum Command {
     /// Feedback / error / perf reporting (feedback-cli).
     #[command(subcommand)]
     Feedback(FeedbackCommand),
+    /// Bare `nlir 'EXPR'`: a positional expression captured when the first
+    /// argument is not a known subcommand, so `nlir '1+2'` ≡ `nlir -e '1+2'`.
+    /// Real subcommands always win (the disambiguation is "is it a subcommand
+    /// name?"), and `-e` remains for exprs that open with `-`.
+    #[command(external_subcommand)]
+    External(Vec<String>),
 }
 
 #[derive(Debug, Args)]
@@ -287,6 +293,18 @@ fn run(cli: Cli) -> Result<(), i32> {
         Some(Command::Mcp(ref mcp)) => run_mcp(mcp),
         Some(Command::SelfUpdate) => run_self_update(),
         Some(Command::Feedback(ref cmd)) => run_feedback(cmd),
+        Some(Command::External(ref args)) => {
+            // Bare `nlir 'EXPR'` (no -e, first arg not a known subcommand):
+            // treat the positional as the expression so `nlir '1+2'` ≡
+            // `nlir -e '1+2'` when unambiguous (a real subcommand always wins).
+            let expr = args.join(" ");
+            if expr.trim().is_empty() {
+                eprintln!("nlir: empty expression");
+                Err(2)
+            } else {
+                run_eval(&cli, &expr)
+            }
+        }
         None => match cli.expr {
             Some(ref expr) => run_eval(&cli, expr),
             None => {
@@ -2893,5 +2911,21 @@ mod cli_tests {
     #[test]
     fn unknown_flag_still_rejected() {
         assert!(Cli::try_parse_from(["nlir", "--definitely-not-a-flag"]).is_err());
+    }
+
+    // A bare `nlir 'EXPR'` (first arg not a known subcommand) is captured as an
+    // external positional so `nlir '1+2'` ≡ `nlir -e '1+2'` when unambiguous.
+    #[test]
+    fn bare_positional_expr_is_captured_as_external() {
+        let cli = Cli::try_parse_from(["nlir", "1+2"]).expect("bare expr must parse");
+        assert!(matches!(cli.command, Some(Command::External(ref a)) if a.as_slice() == ["1+2"]));
+        assert_eq!(cli.expr, None);
+    }
+
+    // A real subcommand always wins over the bare-expr fallback.
+    #[test]
+    fn subcommand_wins_over_bare_expr() {
+        let cli = Cli::try_parse_from(["nlir", "test"]).expect("subcommand must parse");
+        assert!(matches!(cli.command, Some(Command::Test)));
     }
 }
