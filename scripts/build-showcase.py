@@ -153,6 +153,20 @@ GRID = [
              ("x   as-is", "we really need to ship this by friday"),
              ("@x  formal", "This deliverable must be completed and shipped by Friday."),
          ]),
+    dict(name="self-summarizing-memo",
+         expr="k=>@'sunset the legacy billing API before Q3';[$k,~$k]",
+         pill="llm · writes, then reflects on itself",
+         claim="we should sunset the legacy billing API before Q3",
+         cap="the self-summarizing memo — write a formal memo, bind it with =, then emit it AND a "
+             "reflection on its own gist. no new operator: the = binding IS the self-reference "
+             "(Harry's 'addendum a reflection on the summary of what we just wrote').",
+         cols=1, cells=[
+             ("$k  the memo you wrote", "The legacy billing API—superseded by newer infrastructure—must be "
+              "fully retired from production before Q3 begins, with all dependent services and client "
+              "integrations migrated to its replacement well ahead of the deadline…"),
+             ("~$k  a reflection on its own gist", "The legacy billing API must be fully decommissioned "
+              "and all dependent consumers migrated before Q3 begins."),
+         ]),
 ]
 
 # --- lightweight nlir syntax highlighter --------------------------------------
