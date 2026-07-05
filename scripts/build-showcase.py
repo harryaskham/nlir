@@ -203,7 +203,7 @@ def highlight(expr: str) -> str:
 
 
 CSS = """
-* { margin:0; padding:0; box-sizing:border-box; }
+* { margin:0; padding:0; box-sizing:border-box; font-variant-ligatures:none; font-feature-settings:"liga" 0, "calt" 0; }
 body {
   font-family:'Fira Sans','DejaVu Sans',sans-serif;
   background:
