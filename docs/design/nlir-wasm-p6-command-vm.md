@@ -118,3 +118,33 @@ whose only shipped command op is `_` echo.
   results/errors in the widget.
 
 MVP acceptance (from the bead): **`x_2` (echo repeat) runs in the browser widget.**
+
+## 8. Status + stretch-tier (brush) verification
+
+**MVP: shipped.** `nlir::command_vm::run_command_vm` landed (@f6f2f4a) — the
+in-process sh-subset, pure-Rust + sandboxed, wasm-core-clean, 6 tests incl the
+`_` echo acceptance (`x_2`→"x x"). Remaining: aur-0 wires `JsRealiser::command`
+→ `run_command_vm` (a ~3-line in-process call in `crates/nlir-wasm/lib.rs`);
+then the widget's existing evaluate/step path runs `_` echo with no JS command
+callback (aur-1 confirmed).
+
+**Stretch tier (brush) — verified viable, deferred** (probes by msm-3 + aur-2):
+- **gate-1 (compiles no-syscall):** ✅ `cargo check --target
+  wasm32-unknown-unknown` on brush-core v0.5.0 passes clean (fancy-regex,
+  web-time, chrono, cached, brush-parser, brush-core) — explicit wasm support
+  (time via `web-time`, not a syscall clock).
+- **single-threaded (aur-1's Pages gate):** ✅ tokio resolves
+  `[bytes, io-util, macros, rt, sync]` — NO `rt-multi-thread`; builds on the
+  default (no `+atomics`) wasm32 target → single-threaded-compatible.
+- **heavy (why it's deferred):** brush-core drags tokio + chrono + cached +
+  fancy-regex → a large wasm binary for one echo loop. Disproportionate for a
+  playground whose only shipped `command:` op is `_` echo.
+- **still-open before adopting brush:** (a) exact `wasm-opt -Oz` byte size —
+  needs a cdylib LINK (`lld`/`wasm-ld`), which the author/aurora nix devshells
+  lack; belongs in aur-2's co-build CI (a ready `Shell::default()` + `run_string`
+  cdylib harness exists); (b) a runtime single-threaded RUN test (compile-clean
+  ≠ spawns-no-threads); (c) a Worker + lazy-load so it doesn't bloat the default
+  page load (in-process brush would).
+
+**Trigger to revisit brush:** real, arbitrary user-defined `command:` ops that
+exceed the subset grammar. Until then the subset stands alone.
