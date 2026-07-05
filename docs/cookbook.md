@@ -340,7 +340,7 @@ realisation. Drop `--mode det` to run these live against your configured model;
 the operator lenses (`~` gist, `@` formal, `:` plain, `>` expand, `<` shorten,
 `#` subject, `&` weave, `?` question) are the building blocks. See the
 [showcase](../showcase/) for real captured outputs and
-[POWERMOVES](../examples/POWERMOVES.md) for the curated one-liners.
+[phrasebook](../examples/phrasebook.md) for the curated one-liners.
 
 A form lets you name a reusable **tone** or **transform** and apply it to
 different inputs — for example a "make it a courteous one-liner" form, or a

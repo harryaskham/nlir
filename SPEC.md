@@ -209,7 +209,7 @@ After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
 The **canonical operator vocabulary** — each realised via `template` / `reduce` /
 `command` (det) or `prompt` (llm). These descriptions are the authoritative
 semantics, mirrored by `nlir help` and the
-[POWERMOVES phrasebook](examples/POWERMOVES.md).
+[phrasebook](examples/phrasebook.md).
 
 **String / text operators** (llm-realised unless a `template`/`command` is given):
 

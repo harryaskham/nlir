@@ -93,7 +93,7 @@ A few moves to start with:
 | theme-finder | `#['login broken', 'OAuth 500s', 'reset fails']` | fold a pile of items down to the one category they share |
 
 The full phrasebook — every move, its shape, and a copy-paste template, across all four
-lanes — lives in **[`examples/POWERMOVES.md`](examples/POWERMOVES.md)**.
+lanes — lives in **[`examples/phrasebook.md`](examples/phrasebook.md)**.
 
 And three ways to learn it live: **`nlir help`** prints every operator — sigil, name,
 and what it does — derived straight from your config; **`nlir step '<expr>'`** (or

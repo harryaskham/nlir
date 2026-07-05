@@ -8,7 +8,7 @@ Two layers:
   yourself. The *reply family* (agree / decline / decide, sharing ~7 sigils) plus
   the *thinking moves* (one per operator: the stack, the role knob, OR, shorten,
   simplify, `#`-over-a-list). This is what the phrasebook
-  ([`POWERMOVES.md`](./POWERMOVES.md)) links here for.
+  ([`phrasebook.md`](./phrasebook.md)) links here for.
 - **The operator algebra** (§1–§6) — the laws underneath: *why* the moves compose
   the way they do (repetition-dynamics, commutativity, the `?`-projection, the
   stack, the `?`-target palette, and the honest rejects).

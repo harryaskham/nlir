@@ -1,4 +1,4 @@
-# nlir POWER MOVES — a compressed language of thought
+# nlir phrasebook — a compressed language of thought
 
 nlir turns a few sigils into a rich, real message. This is a phrasebook of **reusable idioms**:
 learn a shape, fill the slots, and get a whole considered communication act — a reply, a proposal,

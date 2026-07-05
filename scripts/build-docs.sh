@@ -248,7 +248,7 @@ gen_gallery() {
   # cards teammates add fall into "All cards" below automatically (no maintenance).
   featured="considered-reply honest-yes reasoned-no counter-offer weighed-decision pitch-check brain-dump grounded-counter self-summarizing-memo full-layered-reply composer-reply empathetic-redirect weighed-recommendation catchup exec-brief two-sides handoff tone-knob perspective-wheel deliberation"
   printf '%s\n' '<h2>The language of thought — reusable moves</h2>' \
-    '<p>The moves you can retype yourself: reply to an agent with your amendment, weigh a decision, dump a thought, pressure-test a pitch — a few sigils each. Full phrasebook in <a href="https://github.com/harryaskham/nlir/blob/main/examples/POWERMOVES.md">POWERMOVES.md</a>.</p>' \
+    '<p>The moves you can retype yourself: reply to an agent with your amendment, weigh a decision, dump a thought, pressure-test a pitch — a few sigils each. Full phrasebook in <a href="https://github.com/harryaskham/nlir/blob/main/examples/phrasebook.md">phrasebook.md</a>.</p>' \
     '<div class="gallery">'
   for name in $featured; do emit_fig "nlir-$name.png"; done
   printf '%s\n' '</div>'

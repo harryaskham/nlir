@@ -68,7 +68,7 @@ Where the subject is piped in (a diff, code, an error), the same lenses apply to
 | "what's the likely fix?" | `<err> \| nlir -e '~(>"the most likely fix for: $_stdin")'` | expand a fix hypothesis, then distil |
 
 The exhaustive coding-idiom catalogue + showcase cards live in the coding-pipe
-lane (aur-0 cards/cookbook, aur-2 POWERMOVES); this doc keeps a representative
+lane (aur-0 cards/cookbook, aur-2 phrasebook); this doc keeps a representative
 set and focuses on the *design gaps* below.
 
 ---
