@@ -604,6 +604,62 @@ impl Parser<'_> {
         Ok(lhs)
     }
 
+    /// Peek an operator-only train `(f g h)`: a parenthesized group whose tokens
+    /// up to the matching `)` are all known operators (>= 2) with no operands.
+    /// Returns each op's `(sigil, fixity)`; `None` for a normal group.
+    fn peek_operator_train(&self) -> Option<Vec<(String, Fixity)>> {
+        let mut i = self.pos;
+        let mut ops = Vec::new();
+        while let Some(Token::Operator(op)) = self.tokens.get(i) {
+            let info = self.table.get(op)?;
+            ops.push((op.clone(), info.fixity));
+            i += 1;
+        }
+        (ops.len() >= 2 && matches!(self.tokens.get(i), Some(Token::RParen))).then_some(ops)
+    }
+
+    /// Desugar an operator-only train to a form (tacit composition, aur-1's
+    /// grammar): all-prefix → ATOP compose `(f g h)` ≡ `{f(g(h($0)))}`; a 3-op
+    /// train with prefix `f`/`h` and an infix combiner `g` → FORK `(f g h)` ≡
+    /// `{(f $0) g (h $0)}` (two lenses on one input). Rides the existing form/`%`
+    /// machinery — no new sigil, no eval path.
+    fn desugar_train(&self, ops: &[(String, Fixity)], at: usize) -> Result<Expr, ParseError> {
+        if ops.iter().all(|(_, f)| *f == Fixity::Prefix) {
+            // atop chain, applied right-to-left to the shared `$0`.
+            let mut body = Expr::StackIndex(0);
+            for (op, _) in ops.iter().rev() {
+                body = Expr::Apply {
+                    op: op.clone(),
+                    fixity: Fixity::Prefix,
+                    operands: vec![body],
+                };
+            }
+            return Ok(Expr::Quote(Box::new(body)));
+        }
+        if ops.len() == 3
+            && ops[0].1 == Fixity::Prefix
+            && ops[1].1 == Fixity::Infix
+            && ops[2].1 == Fixity::Prefix
+        {
+            let arm = |op: &str| Expr::Apply {
+                op: op.to_owned(),
+                fixity: Fixity::Prefix,
+                operands: vec![Expr::StackIndex(0)],
+            };
+            return Ok(Expr::Quote(Box::new(Expr::Apply {
+                op: ops[1].0.clone(),
+                fixity: Fixity::Infix,
+                operands: vec![arm(&ops[0].0), arm(&ops[2].0)],
+            })));
+        }
+        Err(ParseError {
+            position: at,
+            message:
+                "unsupported train: use an all-prefix chain `(f g …)` (atop) or a 3-op fork `(f g h)` with prefix f/h and infix g"
+                    .to_owned(),
+        })
+    }
+
     fn nud(&mut self) -> Result<Expr, ParseError> {
         let start = self.pos;
         let tok = self
@@ -658,6 +714,15 @@ impl Parser<'_> {
                 }
             }
             Token::LParen => {
+                // Operator-only train `(f g h)` (aur-1's tacit-composition grammar):
+                // a parenthesized group of bare operators desugars to a FORM,
+                // applied via `%` like any form. Currently a parse error, so this
+                // claims error syntax — zero namespace/eval rework.
+                if let Some(ops) = self.peek_operator_train() {
+                    let train = self.desugar_train(&ops, start)?;
+                    self.pos += ops.len() + 1; // consume the operators + ')'
+                    return Ok(train);
+                }
                 let first = self.expr(0)?;
                 if matches!(self.tokens.get(self.pos), Some(Token::Comma)) {
                     // Comma tuple `(a, b, …)` → a List (bd-5dd86f, D3): it spreads

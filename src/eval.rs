@@ -2725,6 +2725,33 @@ operators:
     }
 
     #[test]
+    fn operator_trains_desugar_to_forms() {
+        // aur-1's train grammar: an operator-only paren group is a tacit
+        // composition FORM, applied via %. all-prefix = atop (compose R-to-L);
+        // a 3-op infix-middle group = fork (two lenses on one input).
+        let yaml = r##"
+operators:
+  sq:   { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
+  inc:  { op: "†", arity: 1, fixity: prefix, form: "{$0+1}" }
+  plus: { op: "⊕", arity: 2, fixity: infix,  priority: 11, operands: number, result: number, reduce: add }
+  add:  { op: "+", arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
+  mul:  { op: "*", arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("t.yaml")).unwrap();
+        let check = |src: &str, expected: &str| {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = evaluate(src, &cfg, &mut ctx, Mode::Det).expect(src);
+            assert_eq!(out.render(&ctx.sep()), expected, "for {src}");
+        };
+        // atop 2-train: (□ †) = {□(†($0))} — inc then square, R-to-L.
+        check("(□ †)%5", "36"); // □(†(5)) = □(6) = 36
+        // fork: (□ ⊕ †) = {(□$0) ⊕ (†$0)} — two lenses on one input.
+        check("(□ ⊕ †)%5", "31"); // (□5) ⊕ (†5) = 25 ⊕ 6 = 31
+        // atop 3-chain (all prefix): (□ † □) = {□(†(□($0)))}.
+        check("(□ † □)%2", "25"); // □(†(□2)) = □(†4) = □5 = 25
+    }
+
+    #[test]
     fn evaluate_async_matches_sync_eval_in_det_mode() {
         // The async entry (bd-bec201) must produce identical results to the sync
         // path when no effectful realisation is reached. Driven with the
