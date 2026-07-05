@@ -104,6 +104,7 @@ const MOCK = {
     { svg:PLACEHOLDER_SVG, reduced:null }, { svg:PLACEHOLDER_SVG, reduced:'0.0' },
     { svg:PLACEHOLDER_SVG, reduced:'0.1' }, { svg:PLACEHOLDER_SVG, reduced:'0' },
   ] }; },
+  async graphFramesAsync(){ return this.graphFrames(); },
   version(){ return { crate:'mock', git:'—' }; },
 };
 
@@ -124,6 +125,7 @@ let wasmReal = false;
       parse(e,c){ return O(m.parse(e,c)); },
       graph(e,c){ return O(m.graph(e,c)); },
       graphFrames(e,c,md){ const r = O(m.graphFrames(e,c,md)); if (r.frames) r.frames = A(r.frames); return r; },
+      async graphFramesAsync(e,c,x,md,r){ const rr = O(await m.graphFramesAsync(e,c,x,md,r)); if (rr.frames) rr.frames = A(rr.frames); return rr; },
       version(){ return O(m.version()); },
     };
     wasmReal = true;
@@ -285,12 +287,15 @@ function renderFrame(frame){
   const box = $('graphsvg'); box.innerHTML = frame.svg;
   if (frame.reduced){ const g = box.querySelector(`[data-id="${frame.reduced}"]`); if (g) g.classList.add('reduced'); }
 }
-function animate(){
+async function animate(){
   clearInterval(animTimer);
   const expr = $('expr').value.trim(); if (!expr) return;
   const box = $('graphsvg');
   $('graphview').hidden = false; box.innerHTML = '<span class="placeholder">building frames…</span>';
-  const r = nlir.graphFrames(expr, configJson(), state.settings.mode);
+  const md = state.settings.mode;
+  const r = md === 'llm'
+    ? await nlir.graphFramesAsync(expr, configJson(), contextJson(), md, realisers())
+    : nlir.graphFrames(expr, configJson(), md);
   if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
   const frames = r.frames || [];
   if (!frames.length){ box.innerHTML = '<span class="placeholder">(no frames)</span>'; return; }
