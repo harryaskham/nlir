@@ -55,6 +55,34 @@ HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):
 python3 scripts/build-showcase.py --out showcase
 ```
 
+## The language of thought
+
+nlir is small enough to *speak back*. Learn a handful of moves and you can express
+rich, real intent — reply to a suggestion with your amendment, close a debate with a
+decision, decline something on your grounds and offer an alternative — in a few sigils,
+right inside your chat with an agent.
+
+Every move is the same shape: **`COMPOSE(TRANSFORM(SELECT))`** — **select** a slice of the
+conversation, **transform** it, and optionally **compose** several into one. Three dials
+steer it:
+
+- **tone** — `@` formal · `:` plain · `~` terse
+- **role** — `^_` what *you* said · `^` what the *agent* said (`^*` either · `^/` system)
+- **time** — `^-1` the last turn · `0^*-1` the whole thread · `^_0` the first
+
+![the tone knob — one thought, three registers](showcase/nlir-tone-knob.png)
+
+A few moves to start with:
+
+| move | say it | what it does |
+|---|---|---|
+| considered reply | `@(^-1 & 'but scope it to mobile first')` | agree with an agent's suggestion, folding in your amendment, made formal |
+| reasoned no | `@(!^-1 & 'it doubles our on-call')` | decline a proposal, on your grounds, professionally |
+| decisive close | `@(~0^*-1 & 'decision: ship Friday')` | end a whole debate with your call, grounded in what was said |
+
+The full phrasebook — every move, its shape, and a copy-paste template, across all four
+lanes — lives in **[`examples/POWERMOVES.md`](examples/POWERMOVES.md)**.
+
 ## Mental model
 
 ```
