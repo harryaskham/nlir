@@ -414,6 +414,17 @@ GRID = [
              ("~>!^_-1  the objection to preempt", "The likely customer gain is small, while the implementation "
               "effort and complexity are substantial."),
          ]),
+    dict(name="tighten", expr="[<^-1, ~^-1]", pill="llm · two ways to shorten",
+         claim="[agent] Q3 revenue up 23% to $4.2M, but churn rose from 5% to 8% (lost 3 of our top-10 accounts), though we added 47 new SMB customers and cut support response from 12 hours to 4",
+         cap="the tighten \u2014 two ways to shorten a message. `<` drops to the INFORMATION FLOOR: it sheds the "
+             "words but keeps EVERY fact and figure. `~` drops to the ESSENCE: the narrative, minus the "
+             "specifics. reach for `<` when the numbers matter, `~` when the story does.",
+         cols=1, cells=[
+             ("<^-1  keep every fact", "Q3 revenue rose 23% to $4.2M, but churn climbed from 5% to 8% (lost 3 "
+              "top-10 enterprise accounts); added 47 new SMB customers and cut support response from 12 to 4 hours."),
+             ("~^-1  keep the gist", "Q3 revenue grew but rising churn \u2014 driven by lost enterprise accounts \u2014 "
+              "offset gains from new SMB customers and faster support."),
+         ]),
 ]
 
 # --- lightweight nlir syntax highlighter --------------------------------------
