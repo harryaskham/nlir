@@ -249,6 +249,19 @@ tools actually returned: `#^!-1` = which area broke, `:^!-1` = it in plain words
 tool session distilled, `^!-1` = the last result verbatim. The pivot from human-comms examples to
 real agentic coding pipes (with `$_stdin` for file pipes: `cat foo.rs | nlir -e '~$_stdin'`).
 
+### THE FIX VERIFICATION — `^!-2 Δ ^!-1`
+Did the fix actually work? The directional diff (`Δ`) between the agent's PREVIOUS tool result and its
+LATEST — before/after a change — reading the `^!` tool/code stream. Real capture across a before/after
+test run (2 failing → all green):
+> Test outcome flipped from failing to fully passing: the two failures (`auth::login_persists_session`
+> and `auth::logout_clears_token`, both due to `session == None` assertions failing) are resolved and
+> now pass. Passed count rose from 5 to 7, failed count dropped from 2 to 0, the overall result changed
+> from "FAILED" to "ok", and the itemized failure detail lines were removed.
+
+Two agentic primitives composed: `^!` (SELECT the tool stream) × `Δ` (the DIFF axis, directional
+before→after). The *verification* half of the coding loop — "run, change, did it move?" — distinct from
+triage (`[#^!-1,:^!-1]`, what broke) and concept (`#^!`, what the code is).
+
 ## Gotchas (verified with aur-0's QA)
 - **`=` binds an EXPRESSION, so quote string values with operators or spaces.** `_sep=--`
   parse-errors ("operator - not valid in prefix position"); write `_sep='--'` (or escape: `_sep=\-\-`).
