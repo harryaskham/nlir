@@ -117,3 +117,29 @@ button.graph { border:1px solid rgba(125,211,252,.4); color:var(--teal); backgro
 .steps .step .x { min-width:0; overflow-wrap:anywhere; word-break:break-word; }
 .ops .op { min-width:0; }
 .ops .op .ds { overflow-wrap:anywhere; word-break:break-word; }
+
+/* expression editor (bd-98c6cc) — fullwidth multiline; CodeMirror when the CDN
+   loads, else the raw <textarea> fallback (both fullwidth). */
+.expreditor { width:100%; }
+#expr {
+  display:block; width:100%; min-height:2.9rem;
+  font-family:var(--mono); font-size:1.05rem; line-height:1.5; color:#efeaff;
+  background:var(--code-bg); border:1px solid var(--code-border); border-radius:12px;
+  padding:.7rem 1rem; resize:vertical; box-shadow:0 12px 34px rgba(0,0,0,.4) inset;
+}
+#expr:focus { outline:none; border-color:var(--violet); }
+.CodeMirror {
+  width:100%; height:auto; font-family:var(--mono); font-size:1.05rem; line-height:1.55;
+  color:#efeaff; background:var(--code-bg); border:1px solid var(--code-border);
+  border-radius:12px; padding:.55rem .7rem; box-shadow:0 12px 34px rgba(0,0,0,.4) inset;
+}
+.CodeMirror-focused { border-color:var(--violet); }
+.CodeMirror-scroll { min-height:2.4rem; }
+.CodeMirror-placeholder { color:var(--dim); font-style:italic; }
+.CodeMirror-cursor { border-left:2px solid var(--violet-hi); }
+.cm-fat-cursor .CodeMirror-cursor, .CodeMirror-fat-cursor div.CodeMirror-cursor { background:rgba(232,121,249,.55); border:0; }
+.CodeMirror-selected { background:rgba(168,85,247,.28); }
+.CodeMirror-focused .CodeMirror-selected { background:rgba(168,85,247,.4); }
+.exprctl { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-top:.6rem; }
+.vimtoggle.on { border-color:rgba(52,211,153,.5); color:var(--mint); background:rgba(16,185,129,.12); }
+.vimtoggle[disabled] { opacity:.5; cursor:not-allowed; }

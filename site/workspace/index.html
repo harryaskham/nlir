@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>nlir · workspace</title>
+<!-- CodeMirror 5 (CDN) — powers the fullwidth multiline expression editor + optional vim mode (bd-98c6cc). Degrades to a raw <textarea> if unavailable. Loaded BEFORE workspace.css so our theme overrides CM defaults (e.g. its 300px default height). -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.css">
 <link rel="stylesheet" href="workspace.css">
 </head>
 <body>
@@ -20,8 +23,10 @@
   <div class="col">
     <section class="panel">
       <h2>Expression <span class="hint">— type nlir shorthand, run or step it</span></h2>
-      <div class="exprbar">
-        <input id="expr" spellcheck="false" autocomplete="off" placeholder="e.g.  2**3**2   ·   @'lmk if any Qs'   ·   'a';'b';&amp;;~$">
+      <div class="expreditor">
+        <textarea id="expr" spellcheck="false" autocomplete="off" placeholder="e.g.  2**3**2   ·   @'lmk if any Qs'   ·   'a';'b';&amp;;~$          (⌘/Ctrl+Enter to run)"></textarea>
+      </div>
+      <div class="exprctl">
         <div class="seg" id="modeSeg">
           <button data-mode="det" class="on">det</button>
           <button data-mode="llm">llm</button>
@@ -30,6 +35,7 @@
         <button class="step" id="stepBtn">Step ↓</button>
         <button class="graph" id="graphBtn">Graph ◇</button>
         <button class="graph" id="animBtn">Animate ▸</button>
+        <button class="ghost vimtoggle" id="vimToggle" type="button" title="Toggle vim keybindings in the expression editor" aria-pressed="false">vim: off</button>
       </div>
       <div class="chips" id="examples"></div>
       <div class="output" id="output">
@@ -91,6 +97,13 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<!-- CodeMirror core + addons + vim keymap (bd-98c6cc). Order matters: core, then
+     addons vim depends on (dialog/searchcursor), then the vim keymap itself. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/display/placeholder.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/keymap/vim.min.js"></script>
 <script src="workspace.js"></script>
 </body>
 </html>

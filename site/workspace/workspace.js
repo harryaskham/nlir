@@ -171,12 +171,53 @@ function hl(s){
 
 // ---- render ----
 const $ = id => document.getElementById(id);
+
+// ---- expression editor (bd-98c6cc): fullwidth multiline; CodeMirror + optional
+// vim keymap when the CDN loaded, else a raw <textarea> fallback. run/step/graph
+// read the value via getExpr(); examples set it via setExpr(). ⌘/Ctrl+Enter runs.
+let cm = null;
+const vimAvailable = () => !!(window.CodeMirror && CodeMirror.keyMap && CodeMirror.keyMap.vim);
+function getExpr(){ return (cm ? cm.getValue() : $('expr').value) || ''; }
+function setExpr(v){ if (cm){ cm.setValue(v); cm.focus(); } else { $('expr').value = v; } }
+function initEditor(){
+  const ta = $('expr');
+  if (window.CodeMirror){
+    cm = CodeMirror.fromTextArea(ta, {
+      lineWrapping: true,
+      viewportMargin: Infinity,   // grow to content height (multiline, no inner scrollbar)
+      keyMap: (state.settings.vim && vimAvailable()) ? 'vim' : 'default',
+      extraKeys: { 'Cmd-Enter': () => run(), 'Ctrl-Enter': () => run() },
+    });
+    if (state.settings.expr) cm.setValue(state.settings.expr);
+    cm.on('change', () => { state.settings.expr = cm.getValue(); save(); });
+  } else {
+    // fallback: the raw textarea is already fullwidth + multiline (CSS); wire persistence + run.
+    if (state.settings.expr) ta.value = state.settings.expr;
+    ta.addEventListener('input', () => { state.settings.expr = ta.value; save(); });
+    ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)){ e.preventDefault(); run(); } });
+  }
+  updateVimToggle();
+}
+function setVim(on){
+  on = !!on; state.settings.vim = on; save();
+  if (cm && vimAvailable()) cm.setOption('keyMap', on ? 'vim' : 'default');
+  updateVimToggle();
+  if (cm) cm.focus();
+}
+function updateVimToggle(){
+  const b = $('vimToggle'); if (!b) return;
+  if (!vimAvailable()){ b.textContent = 'vim: n/a'; b.disabled = true; b.title = 'vim keymap unavailable (offline?)'; b.setAttribute('aria-pressed','false'); return; }
+  const on = !!state.settings.vim;
+  b.textContent = 'vim: ' + (on ? 'on' : 'off');
+  b.classList.toggle('on', on);
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
 function renderExamples(){
   $('examples').innerHTML = '';
   EXAMPLES.forEach(ex => {
     const c = document.createElement('span');
     c.className = 'chip'; c.innerHTML = hl(ex.expr);
-    c.onclick = () => { $('expr').value = ex.expr; setMode(ex.mode); run(); };
+    c.onclick = () => { setExpr(ex.expr); setMode(ex.mode); run(); };
     $('examples').appendChild(c);
   });
 }
@@ -248,7 +289,7 @@ function realisers(){
   return {};
 }
 async function run(){
-  const expr = $('expr').value.trim(); if (!expr) return;
+  const expr = getExpr().trim(); if (!expr) return;
   const out = $('output'); $('steps').innerHTML = '';
   out.innerHTML = '<span class="placeholder">running…</span>';
   const r = await nlir.evaluate(expr, configJson(), contextJson(), state.settings.mode, realisers());
@@ -257,7 +298,7 @@ async function run(){
   save();
 }
 async function step(){
-  const expr = $('expr').value.trim(); if (!expr) return;
+  const expr = getExpr().trim(); if (!expr) return;
   const out = $('output'); out.innerHTML = '';
   const box = $('steps'); box.innerHTML = '<span class="placeholder">stepping…</span>';
   const r = await nlir.step(expr, configJson(), contextJson(), state.settings.mode, realisers());
@@ -275,7 +316,7 @@ async function step(){
 let animTimer = null;
 function showGraph(){
   clearInterval(animTimer);
-  const expr = $('expr').value.trim(); if (!expr) return;
+  const expr = getExpr().trim(); if (!expr) return;
   const box = $('graphsvg');
   $('graphview').hidden = false; $('scrub').hidden = true; $('framecap').textContent = '';
   box.innerHTML = '<span class="placeholder">rendering…</span>';
@@ -289,7 +330,7 @@ function renderFrame(frame){
 }
 async function animate(){
   clearInterval(animTimer);
-  const expr = $('expr').value.trim(); if (!expr) return;
+  const expr = getExpr().trim(); if (!expr) return;
   const box = $('graphsvg');
   $('graphview').hidden = false; box.innerHTML = '<span class="placeholder">building frames…</span>';
   const md = state.settings.mode;
@@ -331,6 +372,7 @@ function init(){
   }
   renderExamples(); renderOps(); renderMessages(); renderKvs();
   setMode(state.settings.mode);
+  initEditor();
   $('verBadge').textContent = 'wasm: ' + nlir.version().crate;
   $('baseUrl').value = state.settings.baseUrl; $('apiKey').value = state.settings.apiKey; $('model').value = state.settings.model;
 
@@ -338,7 +380,7 @@ function init(){
   $('stepBtn').onclick = step;
   $('graphBtn').onclick = showGraph;
   $('animBtn').onclick = animate;
-  $('expr').addEventListener('keydown', e => { if (e.key==='Enter') run(); });
+  $('vimToggle').onclick = () => setVim(!state.settings.vim);
   document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
   $('applyCfg').onclick = () => { state.config = $('config').value; save(); renderOps(); $('cfgNote').textContent = 'Applied — operators + graphs reflect this config.'; };
   $('resetCfg').onclick = () => { state.config = DEFAULT_CONFIG; $('config').value = DEFAULT_CONFIG; save(); renderOps(); $('cfgNote').textContent = 'Reset to default config.'; };
