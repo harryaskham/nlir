@@ -878,6 +878,7 @@ fn eval_parallel_safe(
 /// bounded by `parallelism` (SPEC §Execution graph; bd-780dbf). Callers must have
 /// verified every operand [`is_parallel_safe`]. Results are returned in operand
 /// order; the first error wins.
+#[cfg(not(target_arch = "wasm32"))]
 fn eval_operands_parallel(
     operand_exprs: &[Expr],
     config: &Config,
@@ -912,6 +913,31 @@ fn eval_operands_parallel(
         for result in chunk_results {
             results.push(result?);
         }
+    }
+    Ok(results)
+}
+
+/// wasm-serial scheduler fallback (nlir-wasm epic bd-360d0c): wasm32 has no
+/// threads, and the execution-graph scheduler is orthogonal to the realiser
+/// seam, so operands evaluate serially in operand order. Same signature as the
+/// native threaded version so the caller is target-agnostic; `parallelism` is
+/// accepted for parity but unused. The first error wins.
+#[cfg(target_arch = "wasm32")]
+fn eval_operands_parallel(
+    operand_exprs: &[Expr],
+    config: &Config,
+    context: &Context,
+    mode: Mode,
+    cache_on: bool,
+    cache: &std::sync::Mutex<std::collections::HashMap<String, Value>>,
+    parallelism: usize,
+) -> Result<Vec<Value>, EvalError> {
+    let _ = parallelism;
+    let mut results = Vec::with_capacity(operand_exprs.len());
+    for expr in operand_exprs {
+        results.push(eval_parallel_safe(
+            expr, config, context, mode, cache_on, cache,
+        )?);
     }
     Ok(results)
 }
