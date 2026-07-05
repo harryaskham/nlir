@@ -13,7 +13,13 @@
 
 defaults:
   mode: llm
-  model: sonnet
+  # Model size tiers: an operator names a tier (small | medium | large) and it
+  # resolves through here. A single `model: sonnet` (a concrete `models` alias) is
+  # also still valid — tiers are opt-in and back-compatible.
+  model:
+    small: haiku
+    medium: sonnet
+    large: copilot
   parallelism: 8
 
 context:
@@ -118,7 +124,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category.
     arity: 1
     fixity: prefix
-    model: sonnet
+    model: medium
     prompt: |
       Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.
 
@@ -130,7 +136,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
     arity: 1
     fixity: prefix
     template: "not %"
-    model: sonnet
+    model: medium
     prompt: |
       Negate the text inside <text>...</text>, changing nothing else.
 
@@ -142,7 +148,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
     arity: ">0"
     fixity: mixfix
     join: " and "
-    model: sonnet
+    model: medium
     prompt: |
       Combine the <text> items with an "and" connective into one text meaning "t_0 and t_1 and ...".
 
@@ -154,7 +160,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
     arity: ">0"
     fixity: mixfix
     join: " or "
-    model: sonnet
+    model: medium
     prompt: |
       Combine the <text> items with an "or" connective into one text meaning "t_0 or t_1 or ...".
 
@@ -178,7 +184,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       The essence in one short sentence — drops specifics for the gist. Saturates (~~x is approximately ~x); folds a list to its consensus.
     arity: 1
     fixity: prefix
-    model: sonnet
+    model: medium
     prompt: |
       Summarise the text inside <text> in one short sentence. Return only the summary.
 
@@ -189,7 +195,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Rewrites in a formal, professional register, meaning preserved. Saturates after one pass; distributes over &.
     arity: 1
     fixity: prefix
-    model: sonnet
+    model: medium
     prompt: |
       Rewrite the text inside <text> in a formal, professional tone, preserving meaning. Return only the rewritten text.
 
@@ -200,7 +206,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Rewrites in plain, simple language (strips jargon). The one op that reliably maps per-item over a list.
     arity: 1
     fixity: prefix
-    model: sonnet
+    model: medium
     prompt: |
       Rewrite the text inside <text> in plain, simple language a child could understand. Return only the rewritten text.
 
@@ -211,7 +217,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Adds detail and explanation (lengthens). Forks over | (keeps paths distinct), integrates over &.
     arity: 1
     fixity: prefix
-    model: sonnet
+    model: medium
     prompt: |
       Expand the text inside <text> with more detail and explanation, preserving meaning. Return only the expanded text.
 
@@ -222,7 +228,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Tightens to the information floor — fewest words, but keeps EVERY fact and figure (vs ~ = the gist).
     arity: 1
     fixity: prefix
-    model: sonnet
+    model: medium
     prompt: |
       Make the text inside <text> more concise while preserving meaning. Return only the shortened text.
 
@@ -233,7 +239,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Directional diff: what changed from the first text to the second — added, removed, or shifted. Non-commutative (aΔb ≠ bΔa); powers before/after, drift, changelog.
     arity: 2
     fixity: infix
-    model: sonnet
+    model: medium
     prompt: |
       Describe what changed from the first <text> to the second <text>: what was added, removed, or shifted. This is directional (first → second), not a symmetric comparison. Return only the description.
 
@@ -244,7 +250,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Does the LHS imply the RHS? Integrates over &
     arity: 2
     fixity: infix
-    model: sonnet
+    model: medium
     prompt: |
       Return 'true' if the content of the first <text> implies the content of the second <text>, otherwise return 'false'.
 
@@ -255,7 +261,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Returns the implication of its arguments. Integrates over &.
     arity: ">0"
     fixity: mixfix
-    model: sonnet
+    model: medium
     prompt: |
       Return the primary implication of the pieces of information contained inside <text> tags, preserving style and no extraneous information.
 

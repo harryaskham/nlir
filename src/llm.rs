@@ -16,7 +16,9 @@ use std::fmt;
 #[cfg(feature = "native")]
 use std::process::Command;
 
-use crate::config::{Config, ModelConfig, ModelFormat, ModelKind, PromptDef, TypeName};
+use crate::config::{
+    Config, DefaultModel, ModelConfig, ModelFormat, ModelKind, PromptDef, TypeName,
+};
 use crate::value::{CoerceError, Value};
 
 /// Why [`resolve_model`] could not select a model backend.
@@ -69,15 +71,32 @@ pub fn resolve_model<'c>(
     operator_model: Option<&str>,
     cli_model: Option<&str>,
 ) -> Result<(&'c str, &'c ModelConfig), ModelResolveError> {
-    let alias = operator_model
-        .or(cli_model)
-        .or(config.defaults.model.as_deref())
-        .ok_or(ModelResolveError::NoModel)?;
+    // An operator/CLI model may name a size tier (small/medium/large); resolve it
+    // through `defaults.model` tiers. With no operator/CLI model, fall back to the
+    // default alias (the single alias, or the `medium` tier).
+    let alias: String = match operator_model.or(cli_model) {
+        Some(requested) => match config
+            .defaults
+            .model
+            .as_ref()
+            .and_then(|d| d.tier(requested))
+        {
+            Some(concrete) => concrete.to_owned(),
+            None => requested.to_owned(),
+        },
+        None => config
+            .defaults
+            .model
+            .as_ref()
+            .and_then(DefaultModel::default_alias)
+            .ok_or(ModelResolveError::NoModel)?
+            .to_owned(),
+    };
     config
         .models
-        .get_key_value(alias)
+        .get_key_value(alias.as_str())
         .map(|(name, model)| (name.as_str(), model))
-        .ok_or_else(|| ModelResolveError::UnknownModel(alias.to_owned()))
+        .ok_or(ModelResolveError::UnknownModel(alias))
 }
 
 /// The JSON field a `format: json` backend response carries its result under,
@@ -827,13 +846,24 @@ impl CoercionCache {
 /// [`resolve_model`]'s precedence for a coercion: the per-type `types:` model,
 /// else the `--model` override, else `defaults.model`.
 fn coercion_model_key(config: &Config, target: TypeName, cli_model: Option<&str>) -> String {
-    config
+    let requested = config
         .types
         .get(target.as_str())
-        .and_then(|coercion| coercion.model.clone())
-        .or_else(|| cli_model.map(str::to_owned))
-        .or_else(|| config.defaults.model.clone())
-        .unwrap_or_default()
+        .and_then(|coercion| coercion.model.as_deref())
+        .or(cli_model);
+    match requested {
+        Some(r) => match config.defaults.model.as_ref().and_then(|d| d.tier(r)) {
+            Some(concrete) => concrete.to_owned(),
+            None => r.to_owned(),
+        },
+        None => config
+            .defaults
+            .model
+            .as_ref()
+            .and_then(DefaultModel::default_alias)
+            .unwrap_or_default()
+            .to_owned(),
+    }
 }
 
 /// Why [`realise_llm`] failed.
@@ -1081,7 +1111,7 @@ mod tests {
     /// A config with two model backends and `defaults.model = haiku`.
     fn config_with_models() -> Config {
         let mut config = Config::default();
-        config.defaults.model = Some("haiku".to_owned());
+        config.defaults.model = Some(crate::config::DefaultModel::Alias("haiku".to_owned()));
         config.models.insert(
             "haiku".to_owned(),
             ModelConfig {
@@ -1122,6 +1152,31 @@ mod tests {
         let (alias, model) = resolve_model(&config, None, None).expect("defaults.model resolves");
         assert_eq!(alias, "haiku");
         assert_eq!(model.model.as_deref(), Some("claude-haiku-4-5"));
+    }
+
+    #[test]
+    fn size_tiers_resolve_via_defaults_and_stay_back_compatible() {
+        use crate::config::{DefaultModel, ModelTiers};
+        let mut config = config_with_models();
+        config.defaults.model = Some(DefaultModel::Tiers(ModelTiers {
+            small: Some("haiku".to_owned()),
+            medium: Some("haiku".to_owned()),
+            large: None,
+        }));
+        // An operator naming a tier resolves to the tier's concrete model.
+        let (alias, _) = resolve_model(&config, Some("small"), None).expect("tier resolves");
+        assert_eq!(alias, "haiku");
+        // A concrete alias still resolves directly (back-compat).
+        let (alias, _) = resolve_model(&config, Some("haiku"), None).expect("concrete resolves");
+        assert_eq!(alias, "haiku");
+        // No operator/CLI model falls back to the `medium` tier.
+        let (alias, _) = resolve_model(&config, None, None).expect("default tier resolves");
+        assert_eq!(alias, "haiku");
+        // An unset tier (large) is treated as an unknown model, not a silent default.
+        assert!(matches!(
+            resolve_model(&config, Some("large"), None),
+            Err(ModelResolveError::UnknownModel(_))
+        ));
     }
 
     #[test]
@@ -2010,7 +2065,7 @@ mod tests {
     #[test]
     fn realise_llm_falls_back_to_defaults_model() {
         let mut config = Config::default();
-        config.defaults.model = Some("cmd".to_owned());
+        config.defaults.model = Some(crate::config::DefaultModel::Alias("cmd".to_owned()));
         config.models.insert(
             "cmd".to_owned(),
             command_model("printf 'ok'", ModelFormat::Text),

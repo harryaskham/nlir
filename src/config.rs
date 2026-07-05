@@ -54,10 +54,71 @@ pub struct Config {
 pub struct Defaults {
     /// Default evaluation mode (`det` | `llm`).
     pub mode: Mode,
-    /// Default model name (a key into `models`).
-    pub model: Option<String>,
+    /// Default model name (a key into `models`), or size tiers.
+    pub model: Option<DefaultModel>,
     /// Default DAG scheduler parallelism.
     pub parallelism: usize,
+}
+
+/// The default model configuration: either a single alias (back-compat) or a set
+/// of size tiers that an operator's `model: small|medium|large` resolves through.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DefaultModel {
+    /// A single default model alias, a key into `models` (`defaults.model: haiku`).
+    Alias(String),
+    /// Size tiers (`defaults.model: { small: haiku, medium: sonnet, large: opus }`).
+    /// An operator or `--model` may name a tier instead of a concrete alias.
+    Tiers(ModelTiers),
+}
+
+/// The `small` / `medium` / `large` model tiers under `defaults.model`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ModelTiers {
+    pub small: Option<String>,
+    pub medium: Option<String>,
+    pub large: Option<String>,
+}
+
+impl DefaultModel {
+    /// The concrete alias a tier name (`small`/`medium`/`large`) maps to, if this
+    /// is a tier config and that tier is set. `None` for a single-alias default or
+    /// an unknown tier name.
+    #[must_use]
+    pub fn tier(&self, name: &str) -> Option<&str> {
+        match self {
+            DefaultModel::Tiers(t) => match name {
+                "small" => t.small.as_deref(),
+                "medium" => t.medium.as_deref(),
+                "large" => t.large.as_deref(),
+                _ => None,
+            },
+            DefaultModel::Alias(_) => None,
+        }
+    }
+
+    /// The default alias when nothing else selects a model: the single alias, or
+    /// the `medium` tier (the sensible middle default).
+    #[must_use]
+    pub fn default_alias(&self) -> Option<&str> {
+        match self {
+            DefaultModel::Alias(a) => Some(a),
+            DefaultModel::Tiers(t) => t.medium.as_deref(),
+        }
+    }
+
+    /// Every concrete alias this default references (the single alias, or all set
+    /// tiers) — validation checks they all name defined `models`.
+    fn referenced_aliases(&self) -> Vec<&str> {
+        match self {
+            DefaultModel::Alias(a) => vec![a.as_str()],
+            DefaultModel::Tiers(t) => [&t.small, &t.medium, &t.large]
+                .into_iter()
+                .filter_map(Option::as_deref)
+                .collect(),
+        }
+    }
 }
 
 impl Default for Defaults {
@@ -968,6 +1029,19 @@ impl fmt::Display for ValidationError {
 /// cross-field and referential checks: operator op/arity/fixity sanity,
 /// reserved-sigil collisions, duplicate ops, realisation presence, model-kind
 /// required fields, model-reference integrity, and `parallelism >= 1`.
+/// Whether `alias` names a defined model, or a tier (`small`/`medium`/`large`)
+/// set in `defaults.model` — used to validate an operator/type `model:` field,
+/// which may reference a tier rather than a concrete model.
+fn model_alias_is_valid(config: &Config, alias: &str) -> bool {
+    config.models.contains_key(alias)
+        || config
+            .defaults
+            .model
+            .as_ref()
+            .and_then(|d| d.tier(alias))
+            .is_some()
+}
+
 #[must_use]
 pub fn validate(config: &Config) -> Vec<ValidationError> {
     let mut errs = Vec::new();
@@ -975,12 +1049,14 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
     if config.defaults.parallelism == 0 {
         errs.push(ValidationError::new("defaults.parallelism", "must be >= 1"));
     }
-    if let Some(model) = &config.defaults.model {
-        if !config.models.contains_key(model) {
-            errs.push(ValidationError::new(
-                "defaults.model",
-                format!("references unknown model {model:?}"),
-            ));
+    if let Some(default_model) = &config.defaults.model {
+        for alias in default_model.referenced_aliases() {
+            if !config.models.contains_key(alias) {
+                errs.push(ValidationError::new(
+                    "defaults.model",
+                    format!("references unknown model {alias:?}"),
+                ));
+            }
         }
     }
 
@@ -1087,10 +1163,10 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
         }
 
         if let Some(model) = &op.model {
-            if !config.models.contains_key(model) {
+            if !model_alias_is_valid(config, model) {
                 errs.push(ValidationError::new(
                     &loc,
-                    format!("model {model:?} is not defined in `models`"),
+                    format!("model {model:?} is not defined in `models` (or a configured tier)"),
                 ));
             }
         }
@@ -1098,10 +1174,10 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
 
     for (name, ty) in &config.types {
         if let Some(model) = &ty.model {
-            if !config.models.contains_key(model) {
+            if !model_alias_is_valid(config, model) {
                 errs.push(ValidationError::new(
                     format!("types.{name}"),
-                    format!("model {model:?} is not defined in `models`"),
+                    format!("model {model:?} is not defined in `models` (or a configured tier)"),
                 ));
             }
         }
@@ -1152,10 +1228,14 @@ pub struct ResolvedDefaults {
 pub fn resolve_defaults(config: &Config, overrides: &DefaultOverrides) -> ResolvedDefaults {
     ResolvedDefaults {
         mode: overrides.mode.unwrap_or(config.defaults.mode),
-        model: overrides
-            .model
-            .clone()
-            .or_else(|| config.defaults.model.clone()),
+        model: overrides.model.clone().or_else(|| {
+            config
+                .defaults
+                .model
+                .as_ref()
+                .and_then(DefaultModel::default_alias)
+                .map(str::to_owned)
+        }),
         parallelism: overrides.parallelism.unwrap_or(config.defaults.parallelism),
         sep: config.context.defaults.sep.clone(),
         cache: config.context.defaults.cache,
@@ -1249,7 +1329,13 @@ tests:
         let cfg: Config = serde_yaml::from_str(SAMPLE).expect("sample config deserialises");
 
         assert_eq!(cfg.defaults.mode, Mode::Llm);
-        assert_eq!(cfg.defaults.model.as_deref(), Some("haiku"));
+        assert_eq!(
+            cfg.defaults
+                .model
+                .as_ref()
+                .and_then(DefaultModel::default_alias),
+            Some("haiku")
+        );
         assert_eq!(cfg.defaults.parallelism, 8);
 
         // models
