@@ -13,16 +13,19 @@ own draft (`=`/`$`), so they're built for talking to an agent through the pi plu
 
 ## Part 1 — GROUNDING / REFERENCE  (make your reply cite the conversation)
 
-The engine: `^-1` = their last message, `^_-1` = your last, `^_-2`/`^_-3` = further back.
-Weave them into a reply with `&`, set the register with a leading `@`/`:`/`~`.
+The engine: `^` = the agent's side, `^_` = yours — and it's *relative to who's driving* (in the
+pi plugin, `^_` = you, `^` = the agent you're replying to). `^-1` = their last message,
+`^_-1` = your last; `0^_-1` = their WHOLE side (every turn, as a range over the role channel).
+Weave turns into a reply with `&`; set the register with a leading `@`/`:`/`~`.
 
 ### THE GROUNDED COUNTER — `@(^-1 & '<amendment>' & ^_-1)`
 Reply to their suggestion, fold in your change, and ground it in an earlier constraint.
 *When:* you're saying "yes, but —" and want to remind them why. (card: grounded-counter)
 
-### THE CITED SYNTHESIS — `@~(^_-1 & ^_-2 & ^_-3)`
-Weave several scattered things they said into one crisp position — "here's what you're
-really asking for." *When:* the ask came out in pieces and you want to name it. (card: cited-synthesis)
+### THE CITED SYNTHESIS — `@~(0^_-1)`
+Read their WHOLE side of the chat (`0^_-1` = every one of their turns) and distil the scattered
+ask into one crisp position — "here's what you're really asking for," however many messages it
+took. *When:* the ask came out in pieces and you want to name it. (card: cited-synthesis)
 
 ### THE FULL LAYERED REPLY — `k=@(^-1 & '<mod>' & ^_-1 & '<caveat>');[$k,~$k]`
 The whole considered response in one line: reply + modify + reference + caveat + restyle,

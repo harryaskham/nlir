@@ -100,15 +100,14 @@ SIMPLE = [
              "in an earlier constraint, made formal: reply + modify + reference + restyle, a whole "
              "considered response in a handful of sigils"),
     dict(name="cited-synthesis",
-         expr="@~(^_-1 & ^_-2 & ^_-3)",
+         expr="@~(0^_-1)",
          pill="llm · reads your chat",
-         src="three scattered asks: 'make it fast' · 'it has to work offline' · 'it's too cluttered'",
-         out="The redesign should aim to simplify and declutter the user interface, ensure reliable "
-             "functionality in offline conditions, and deliver high-performance analytics, even for "
-             "accounts with substantial data volumes.",
-         cap="the cited synthesis — weave several things they said across the chat (^_-1, ^_-2, ^_-3) "
-             "into one crisp position: distil + formalise scattered asks into 'here's what you're "
-             "really asking for'"),
+         src="scattered asks across the chat: 'make it fast' · 'it has to work offline' · 'it's too cluttered'",
+         out="The user requests that the new analytics dashboard deliver improved performance, support "
+             "offline functionality, and provide a simpler, less cluttered interface than the current version.",
+         cap="the cited synthesis — 0^_-1 reads EVERY one of their turns (a range over the role channel, "
+             "^_ = their side), distilling a whole scattered ask into one crisp requirement — however "
+             "many messages it took"),
     dict(name="opposition", expr=">@!x", pill="llm · claude-sonnet-5",
          src="we should adopt a four-day work week",
          out="We should not adopt a four-day workweek. While the concept may seem appealing—"
