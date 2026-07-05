@@ -2283,7 +2283,7 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
             KeyCode::Up | KeyCode::Char('k') => wb.palette_up(),
             KeyCode::Down | KeyCode::Char('j') => wb.palette_down(),
             KeyCode::Enter => {
-                if let Some(sigil) = wb.selected_op_sigil() {
+                if let Some(sigil) = wb.selected_op_insert() {
                     wb.close_palette();
                     wb.focus_expr();
                     wb.editor.insert_str(&sigil);
@@ -2381,9 +2381,9 @@ fn handle_tui_key(cli: &Cli, wb: &mut tui::Workbench, key: crossterm::event::Key
             wb.focus_prev();
             return;
         }
-        // Ctrl-P opens the operator palette from any pane.
+        // Ctrl-P opens the syntax palette (grammar forms + operators).
         KeyCode::Char('p') if ctrl => {
-            wb.open_palette(tui_build_operators(cli));
+            wb.open_palette(tui_build_syntax(cli));
             return;
         }
         // Ctrl-T steps through the current expression's reduction (det preview).
@@ -2629,12 +2629,92 @@ fn tui_build_sessions(cli: &Cli) -> Vec<tui::SessionEntry> {
         .collect()
 }
 
-/// Build the operator-palette rows from the config, sorted like `nlir help`
-/// (by fixity, then tighter binding, then sigil).
-fn tui_build_operators(cli: &Cli) -> Vec<tui::OpEntry> {
+/// The grammar special forms (not config operators): displayed sigil, name,
+/// one-line summary, and the token inserted on Enter. Curated to mirror the
+/// `nlir help` special-forms section (they live in the lexer/parser, not config,
+/// so they cannot be derived from the operator table).
+const SYNTAX_FORMS: &[(&str, &str, &str, &str)] = &[
+    // (displayed sigil, name, summary, insert-on-Enter)
+    (
+        "{ }",
+        "quote",
+        "a form = code as data: {a+b} is the form, (a+b) its value",
+        "{",
+    ),
+    (
+        "%",
+        "apply",
+        "call/eval a form: {$0+1}%5 -> 6; f%(x,y) binds $0=x, $1=y",
+        "%",
+    ),
+    (
+        "=",
+        "assign",
+        "bind a value to a name: k = 'x', reuse as $k (RHS can compute)",
+        "=",
+    ),
+    (
+        "$name",
+        "reference",
+        "read a bound value; $0 $1 ... positional args; interpolates in \"...\"",
+        "$",
+    ),
+    (
+        ";",
+        "sequence",
+        "run statements left-to-right; the value is the last",
+        ";",
+    ),
+    (
+        "( )",
+        "group",
+        "grouping for precedence: evaluate (a+b) first",
+        "(",
+    ),
+    ("[ ]", "list", "a list of values: [a, b, c]", "["),
+    (
+        "^",
+        "message",
+        "^ assistant | ^_ user | ^* thread | ^/ system | ^-1 last | ranges",
+        "^",
+    ),
+    (
+        "({f}_N)",
+        "do-N",
+        "compose a form N times then apply: ({$0+1}_3)%5 -> 8",
+        "_",
+    ),
+    (
+        "\"\" ''",
+        "string",
+        "\"double\" interpolates $name; 'single' is literal",
+        "\"",
+    ),
+    (
+        "`",
+        "serial",
+        "force a subtree to run one-at-a-time (no parallelism)",
+        "`",
+    ),
+];
+
+/// Build the Ctrl-P syntax palette: the grammar special forms first (quote,
+/// apply, assign, reference, sequence, ...), then the config operators sorted
+/// like `nlir help`. Reuses the config operator source so operators can't drift.
+fn tui_build_syntax(cli: &Cli) -> Vec<tui::OpEntry> {
     use nlir::config::Fixity;
+    let mut entries: Vec<tui::OpEntry> = SYNTAX_FORMS
+        .iter()
+        .map(|(sigil, name, summary, insert)| tui::OpEntry {
+            sigil: (*sigil).to_owned(),
+            name: (*name).to_owned(),
+            summary: (*summary).to_owned(),
+            tag: "syntax".to_owned(),
+            insert: (*insert).to_owned(),
+        })
+        .collect();
     let Ok(cfg) = resolve_config(cli) else {
-        return Vec::new();
+        return entries;
     };
     let rank = |fixity: Fixity| match fixity {
         Fixity::Prefix => 0u8,
@@ -2650,14 +2730,14 @@ fn tui_build_operators(cli: &Cli) -> Vec<tui::OpEntry> {
             .then_with(|| a.op.cmp(&b.op))
             .then_with(|| na.cmp(nb))
     });
-    ops.into_iter()
-        .map(|(name, op)| tui::OpEntry {
-            sigil: op.op.clone(),
-            name: (*name).clone(),
-            summary: op.summary().to_string(),
-            deterministic: op.is_deterministic(),
-        })
-        .collect()
+    entries.extend(ops.into_iter().map(|(name, op)| tui::OpEntry {
+        sigil: op.op.clone(),
+        name: (*name).clone(),
+        summary: op.summary().to_string(),
+        tag: if op.is_deterministic() { "det" } else { "llm" }.to_owned(),
+        insert: op.op.clone(),
+    }));
+    entries
 }
 
 /// Compute the deterministic reduction trace of `expr` for the step-through view.

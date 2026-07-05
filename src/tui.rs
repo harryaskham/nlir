@@ -61,14 +61,17 @@ pub struct ContextEntry {
     pub value: String,
 }
 
-/// One operator row in the Ctrl-P palette: sigil, name, one-line summary, and
-/// whether it evaluates deterministically (offline) or needs an LLM.
+/// One row in the Ctrl-P syntax palette: the displayed sigil, name, one-line
+/// summary, a tag ("det"/"llm" for a config operator, "syntax" for a grammar
+/// special form), and the token inserted into the expression on Enter (which may
+/// differ from the displayed sigil, e.g. `{` for the `{ }` quote form).
 #[derive(Debug, Clone)]
 pub struct OpEntry {
     pub sigil: String,
     pub name: String,
     pub summary: String,
-    pub deterministic: bool,
+    pub tag: String,
+    pub insert: String,
 }
 
 /// What an active modal edit will commit.
@@ -356,12 +359,12 @@ impl Workbench {
         }
     }
 
-    /// The sigil of the palette's selected operator, if any.
-    pub fn selected_op_sigil(&self) -> Option<String> {
+    /// The token to insert for the palette's selected entry, if any.
+    pub fn selected_op_insert(&self) -> Option<String> {
         self.palette
             .as_ref()
             .and_then(|palette| palette.entries.get(palette.selected))
-            .map(|entry| entry.sigil.clone())
+            .map(|entry| entry.insert.clone())
     }
 
     /// Focus the expression pane (used after inserting a palette operator).
@@ -493,7 +496,7 @@ fn render_help(frame: &mut Frame, area: Rect, wb: &Workbench) {
         Span::styled("Enter", Style::default().fg(Color::Yellow)),
         Span::raw(" eval/restore · "),
         Span::styled("Ctrl-P", Style::default().fg(Color::Yellow)),
-        Span::raw(" ops · "),
+        Span::raw(" syntax · "),
         Span::styled("Ctrl-D/Esc", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
     ]);
@@ -720,7 +723,7 @@ fn render_palette(frame: &mut Frame, area: Rect, wb: &Workbench) {
                 .add_modifier(Modifier::BOLD),
         )
         .title(Span::styled(
-            " Operators (Ctrl-P) ",
+            " Syntax (Ctrl-P) ",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -751,12 +754,12 @@ fn render_palette(frame: &mut Frame, area: Rect, wb: &Workbench) {
                 ),
                 Span::raw(entry.summary.clone()),
                 Span::styled(
-                    if entry.deterministic {
-                        "  det"
-                    } else {
-                        "  llm"
-                    },
-                    Style::default().fg(Color::DarkGray),
+                    format!("  {}", entry.tag),
+                    Style::default().fg(match entry.tag.as_str() {
+                        "syntax" => Color::Magenta,
+                        "llm" => Color::Yellow,
+                        _ => Color::DarkGray,
+                    }),
                 ),
             ]))
         })
@@ -1053,26 +1056,28 @@ mod tests {
                 sigil: "~".into(),
                 name: "distil".into(),
                 summary: "distil to essence".into(),
-                deterministic: false,
+                tag: "llm".into(),
+                insert: "~".into(),
             },
             OpEntry {
                 sigil: "@&".into(),
                 name: "compose".into(),
                 summary: "weave into one".into(),
-                deterministic: false,
+                tag: "llm".into(),
+                insert: "@&".into(),
             },
         ]);
         assert!(wb.is_palette_open());
-        assert_eq!(wb.selected_op_sigil().as_deref(), Some("~"));
+        assert_eq!(wb.selected_op_insert().as_deref(), Some("~"));
         wb.palette_down();
-        assert_eq!(wb.selected_op_sigil().as_deref(), Some("@&"));
+        assert_eq!(wb.selected_op_insert().as_deref(), Some("@&"));
         wb.palette_down(); // clamp at last
-        assert_eq!(wb.selected_op_sigil().as_deref(), Some("@&"));
+        assert_eq!(wb.selected_op_insert().as_deref(), Some("@&"));
         wb.palette_up();
-        assert_eq!(wb.selected_op_sigil().as_deref(), Some("~"));
+        assert_eq!(wb.selected_op_insert().as_deref(), Some("~"));
         wb.close_palette();
         assert!(!wb.is_palette_open());
-        assert!(wb.selected_op_sigil().is_none());
+        assert!(wb.selected_op_insert().is_none());
     }
 
     #[test]
