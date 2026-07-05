@@ -118,8 +118,8 @@ let wasmReal = false;
     const O = v => v instanceof Map ? Object.fromEntries(v) : v;
     const A = v => Array.isArray(v) ? v.map(O) : O(v);
     nlir = {
-      async evaluate(e,c,x,md){ return O(await m.evaluate(e,c,x,md)); },
-      async step(e,c,x,md){ const r = O(await m.step(e,c,x,md)); if (r.steps) r.steps = A(r.steps); return r; },
+      async evaluate(e,c,x,md,r){ return O(await m.evaluate(e,c,x,md,r)); },
+      async step(e,c,x,md,r){ const rr = O(await m.step(e,c,x,md,r)); if (rr.steps) rr.steps = A(rr.steps); return rr; },
       operators(c){ return A(m.operators(c)); },
       parse(e,c){ return O(m.parse(e,c)); },
       graph(e,c){ return O(m.graph(e,c)); },
