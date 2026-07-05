@@ -161,6 +161,10 @@ struct ShowArgs {
     /// when a kitty terminal is detected; this forces it, e.g. through tmux).
     #[arg(long)]
     kitty: bool,
+    /// Play the per-step graphs as a live kitty-terminal animation (requires a
+    /// kitty terminal or --kitty; use --save-animation for a shareable file).
+    #[arg(long)]
+    animate: bool,
     /// Write one graph SVG per evaluation step (the animation frames) to a
     /// directory (--out DIR, default a temp dir) instead of the single static
     /// graph. The frame source G4's kitty animation / --save-animation consume.
@@ -716,6 +720,33 @@ fn save_animation_apng(
     Ok(())
 }
 
+/// Play the step-frame graphs as a live kitty-terminal animation (graph-viz G4,
+/// `nlir show --animate`): draw each frame's PNG, pause, delete it, draw the
+/// next. Requires a kitty terminal (or --kitty); --save-animation writes a file.
+fn animate_kitty(svgs: &[String], delay_ms: u64) -> Result<(), String> {
+    use std::io::Write;
+    let tmux = std::env::var_os("TMUX").is_some();
+    for (i, svg) in svgs.iter().enumerate() {
+        let png = svg_to_png(svg)?;
+        if i > 0 {
+            // Delete the previous frame's image before drawing the next one.
+            let del = "\x1b_Ga=d\x1b\\";
+            let seq = if tmux {
+                format!("\x1bPtmux;{}\x1b\\", del.replace('\x1b', "\x1b\x1b"))
+            } else {
+                del.to_string()
+            };
+            let stdout = std::io::stdout();
+            let mut out = stdout.lock();
+            let _ = out.write_all(seq.as_bytes());
+            let _ = out.flush();
+        }
+        emit_kitty_png(&png).map_err(|error| error.to_string())?;
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+    }
+    Ok(())
+}
+
 /// Whether stdout is a TTY (kitty display only makes sense to a terminal).
 fn stdout_is_tty() -> bool {
     use std::io::IsTerminal;
@@ -775,7 +806,7 @@ fn emit_kitty_png(png: &[u8]) -> std::io::Result<()> {
 /// draw byte-identical graphs. Prints the SVG to stdout, or `--out FILE` writes it.
 fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
     let cfg = resolve_config(cli)?;
-    if args.frames || args.save_animation.is_some() {
+    if args.frames || args.save_animation.is_some() || args.animate {
         // --frames / --save-animation: one graph per small-step reduction
         // (nlir::eval::step_frames, the same engine as `nlir step`). Frame 0 is the
         // initial graph; each next frame is one reduction; binding edges persist
@@ -833,6 +864,18 @@ fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
                     svgs.len(),
                     dir.display()
                 );
+            }
+        }
+        if args.animate {
+            if !(args.kitty || (kitty_supported() && stdout_is_tty())) {
+                eprintln!(
+                    "nlir show --animate: no kitty terminal detected (use --kitty to force it, or --save-animation for a shareable file)"
+                );
+                return Err(1);
+            }
+            if let Err(error) = animate_kitty(&svgs, 700) {
+                eprintln!("nlir show: kitty: {error}");
+                return Err(1);
             }
         }
         return Ok(());
