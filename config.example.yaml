@@ -379,6 +379,17 @@ tests:
   det-not: { mode: det, expr: "!foo", expected: "not foo" }
   det-and: { mode: det, expr: "a&b&c", expected: "a and b and c" }
   det-or: { mode: det, expr: "a|b", expected: "a or b" }
+  # det coverage for the formerly-llm-only text lenses + semantic ops (their
+  # trivial template det-stubs, so `nlir test` covers EVERY operator offline).
+  det-subject:     { mode: det, expr: "#'x'",      expected: "subject: x" }
+  det-summary:     { mode: det, expr: "~'x'",      expected: "summary: x" }
+  det-formal:      { mode: det, expr: "@'x'",      expected: "formal: x" }
+  det-simple:      { mode: det, expr: ":'x'",      expected: "simple: x" }
+  det-expanded:    { mode: det, expr: ">'x'",      expected: "expanded: x" }
+  det-question:    { mode: det, expr: "'x'?",      expected: "is it the case that x?" }
+  det-diff:        { mode: det, expr: "'a'Δ'b'",   expected: "diff: a -> b" }
+  det-implies:     { mode: det, expr: "'a'~>'b'",  expected: "true" }
+  det-implication: { mode: det, expr: "'a'~>?'b'", expected: "a" }
   det-group: { mode: det, expr: "!(a&b)", expected: "not (a and b)" }
   det-quote: { mode: det, expr: "'one two'", expected: "one two" }
   det-sep: { mode: det, expr: "_sep=\\ ;[a,b]", expected: "a b" }
