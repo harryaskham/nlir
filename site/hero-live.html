@@ -1,0 +1,66 @@
+<section class="hero">
+  <div class="wordmark">nlir<span class="dot">·</span><span class="sub">natural-language IR</span></div>
+  <p class="tag">Terse sigil shorthand in, fluent English out — a compressed language of thought for your prompt window.</p>
+  <div class="hero-live">
+    <div class="hero-run">
+      <input id="hx" value="2 * 21" spellcheck="false" autocomplete="off" aria-label="nlir expression">
+      <button id="hgo" type="button">Run &#9656;</button>
+      <button id="hstep" type="button">Step</button>
+    </div>
+    <div class="hero-out" id="hout"><span class="ph">loading the evaluator&#8230;</span></div>
+    <p class="hero-note">The real nlir evaluator, running live in your browser — no install, no key (det mode). <a href="workspace/">Open the workspace &#8594;</a> to add an LLM key and watch <code>@'lmk if any Qs'</code> become <em>&#8220;Please let me know if you have any questions.&#8221;</em></p>
+  </div>
+  <div class="cta">
+    <a class="primary" href="workspace/">Try it live &#8594;</a>
+    <a class="ghost" href="showcase.html">Explore the showcase</a>
+    <a class="ghost" href="spec.html">Read the SPEC</a>
+    <a class="ghost" href="https://github.com/harryaskham/nlir">GitHub</a>
+  </div>
+</section>
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script type="module">
+  const $ = id => document.getElementById(id);
+  const out = $('hout'), hx = $('hx');
+  const norm = v => (v instanceof Map ? Object.fromEntries(v) : v);
+  let evaluate, stepFn, cfgJson = '{}', ready = false;
+  try {
+    const m = await import('./workspace/pkg/nlir_wasm.js');
+    if (m.default) await m.default();
+    evaluate = m.evaluate; stepFn = m.step;
+    ready = true;
+    // Best-effort: load the real config so richer det ops (arithmetic) work. On any
+    // failure (offline/CDN/js-yaml), fall back to a config-free keystone so the hero
+    // stays live rather than showing an error on the homepage.
+    try {
+      const y = await (await fetch('workspace/config.example.yaml')).text();
+      cfgJson = JSON.stringify(window.jsyaml.load(y));
+    } catch (_) { hx.value = "'draft'; 'revise'; 'final'"; }
+  } catch (e) {
+    out.innerHTML = '<span class="hero-err">evaluator unavailable &#8212; <a href="workspace/">open the workspace</a></span>';
+  }
+  async function runHero(){
+    if (!ready) return;
+    out.innerHTML = '<span class="ph">running&#8230;</span>';
+    try {
+      const r = norm(await evaluate(hx.value, cfgJson, '{}', 'det', {}));
+      out.innerHTML = r.ok
+        ? '<span class="hero-arrow">&#8594;</span> <span class="hero-result">' + String(r.result).replace(/</g,'&lt;') + '</span>'
+        : '<span class="hero-err">' + r.error + '</span>';
+    } catch (e) { out.innerHTML = '<span class="hero-err">' + e + '</span>'; }
+  }
+  async function stepHero(){
+    if (!ready) return;
+    out.innerHTML = '<span class="ph">stepping&#8230;</span>';
+    try {
+      const r = norm(await stepFn(hx.value, cfgJson, '{}', 'det', {}));
+      const steps = (r.steps || []).map(norm);
+      out.innerHTML = r.ok
+        ? steps.map(s => '<div class="hero-step">' + String(s.expr).replace(/</g,'&lt;') + '</div>').join('')
+        : '<span class="hero-err">' + r.error + '</span>';
+    } catch (e) { out.innerHTML = '<span class="hero-err">' + e + '</span>'; }
+  }
+  $('hgo').onclick = runHero;
+  $('hstep').onclick = stepHero;
+  hx.addEventListener('keydown', e => { if (e.key === 'Enter') runHero(); });
+  if (ready) runHero();
+</script>

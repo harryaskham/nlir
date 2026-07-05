@@ -71,6 +71,18 @@ nav a.gh { color:var(--dim); }
 .hero .cta a.primary { background:linear-gradient(135deg,#a855f7,#7c3aed); color:#fff; box-shadow:0 12px 32px rgba(124,58,237,.45); }
 .hero .cta a.ghost { border:1px solid rgba(52,211,153,.4); color:var(--mint); background:rgba(16,185,129,.08); }
 .hero .cta a:hover { transform:translateY(-2px); box-shadow:0 16px 40px rgba(124,58,237,.55); }
+.hero-live { max-width:44rem; margin:2.1rem auto 0; }
+.hero-run { display:flex; gap:.6rem; justify-content:center; flex-wrap:wrap; }
+.hero-run input { font-family:var(--mono); flex:1 1 20rem; min-width:0; background:var(--code-bg); border:1px solid var(--code-border); border-radius:12px; padding:.7rem 1rem; color:#efeaff; font-size:1rem; }
+.hero-run button { font-family:var(--mono); font-size:.9rem; border:0; border-radius:12px; padding:.7rem 1.15rem; cursor:pointer; background:linear-gradient(135deg,#a855f7,#7c3aed); color:#fff; transition:transform .15s; }
+.hero-run button:hover { transform:translateY(-1px); }
+.hero-run button#hstep { background:rgba(16,185,129,.12); color:var(--mint); border:1px solid rgba(52,211,153,.4); }
+.hero-out { margin:1rem auto 0; min-height:1.7rem; font-family:var(--mono); font-size:1.05rem; }
+.hero-out .hero-result { color:#fff; font-style:italic; } .hero-out .hero-arrow { color:var(--dim); }
+.hero-out .hero-err { color:#fca5a5; font-size:.9rem; } .hero-out .ph { color:var(--dim); font-size:.9rem; }
+.hero-out .hero-step { color:var(--violet-hi); font-size:.95rem; padding:.1rem 0; }
+.hero-note { font-size:.85rem; color:var(--muted); max-width:38rem; margin:1.1rem auto 0; line-height:1.55; }
+.hero-note code { font-family:var(--mono); color:var(--teal); } .hero-note a { color:var(--mint); text-decoration:none; }
 /* main */
 main { max-width:52rem; margin:0 auto; padding:2.2rem 1.5rem 5rem; }
 main.wide { max-width:76rem; }
@@ -174,8 +186,9 @@ if [ -d "$root/site/workspace" ]; then
   fi
   if [ -d "$root/site/workspace/pkg" ]; then
     sed -i 's#<a href="showcase.html">Showcase</a>#<a href="workspace/">Workspace</a>\n  <a href="showcase.html">Showcase</a>#' "$out/.nav.html"
-    sed -i 's#<div class="cta">#<div class="cta">\n    <a class="primary" href="workspace/">Try it live →</a>#' "$out/.hero.html"
-    sed -i 's#<a class="primary" href="showcase.html">Explore the showcase →</a>#<a class="ghost" href="showcase.html">Explore the showcase</a>#' "$out/.hero.html"
+    # Live hero: the real in-browser evaluator running on the homepage (replaces the
+    # static demo). Only when pkg/ is present (P7 co-build) so the standalone mock never ships.
+    if [ -f "$root/site/hero-live.html" ]; then cp "$root/site/hero-live.html" "$out/.hero.html"; fi
   fi
 fi
 
