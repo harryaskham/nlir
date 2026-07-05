@@ -16,9 +16,15 @@ defaults:
   # Model size tiers: an operator names a tier (small | medium | large) and it
   # resolves through here. A single `model: sonnet` (a concrete `models` alias) is
   # also still valid — tiers are opt-in and back-compatible.
+  #
+  # `medium` is the ops' default and uses `direct` (type: anthropic_messages) rather
+  # than `sonnet` (type: command) so the DEFAULT realises over HTTP — which is what
+  # the wasm/browser playground needs (a `command:` model can't run in a browser; it
+  # routes to the absent command realiser). Same underlying model (claude-sonnet-5),
+  # just HTTP transport. Native CLI users can pass `--model sonnet` for the claude CLI.
   model:
     small: haiku
-    medium: sonnet
+    medium: direct
     large: copilot
   parallelism: 8
 
