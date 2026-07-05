@@ -323,6 +323,14 @@ SIMPLE = [
          out="Does an expenditure of $30,000 per month align with our infrastructure budget?",
          cap="the reality-check — @&['LEAD', <a live calc>, 'CLAUSE'?] does the maths AND poses it as a "
              "question: the calc slot computes ($30,000), the trailing ? makes it the question to ask"),
+    dict(name="scoped-commitment",
+         expr="@&['I will have the search API ready for review','by Thursday end of day','assuming the "
+              "staging database is provisioned by Tuesday']",
+         pill="llm · claude-sonnet-5",
+         out="The search API will be ready for review by end of day Thursday, contingent upon "
+             "provisioning of the staging database by Tuesday.",
+         cap="the scoped commitment — @&[DELIVERABLE, BY_WHEN, DEPENDENCY]: a promise with its fine print. "
+             "What you'll deliver, by when, and the dependency it hinges on — no vague 'soon'"),
     # msm-0 contribution — multi-message digest/select (reads a RANGE of your chat)
     dict(name="catchup", expr="p=~0^*-2;[$p,^_-1]", pill="llm · reads your whole thread",
          src="a 5-turn design chat — event-sourcing? \u2192 simpler ledger \u2192 refunds?",
