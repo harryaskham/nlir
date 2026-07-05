@@ -88,10 +88,26 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Install C toolchain (cc linker for wasm-pack / host build scripts)
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: |
+          # wasm-pack + host-side build scripts (proc-macro2/quote/libc) need a `cc`
+          # linker; the runner may not have one by default (same as ci.yml).
+          if ! command -v cc >/dev/null 2>&1; then
+            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends build-essential
+          fi
+
       - name: Install wasm-pack
         if: steps.detect.outputs.present == 'true'
         shell: bash
         run: command -v wasm-pack >/dev/null 2>&1 || cargo install wasm-pack --locked
+
+      - name: Use anonymous https for public crate deps
+        if: steps.detect.outputs.present == 'true'
+        shell: bash
+        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 
       - name: Build the wasm package (same commit as the native binary)
         if: steps.detect.outputs.present == 'true'
