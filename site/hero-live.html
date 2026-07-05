@@ -3,12 +3,12 @@
   <p class="tag">Terse sigil shorthand in, fluent English out — a compressed language of thought for your prompt window.</p>
   <div class="hero-live">
     <div class="hero-run">
-      <input id="hx" value="2 * 21" spellcheck="false" autocomplete="off" aria-label="nlir expression">
+      <input id="hx" value="$fold%({$0+$1},$map%({$0*$0},[1,2,3]))" spellcheck="false" autocomplete="off" aria-label="nlir expression">
       <button id="hgo" type="button">Run &#9656;</button>
       <button id="hstep" type="button">Step</button>
     </div>
     <div class="hero-out" id="hout"><span class="ph">loading the evaluator&#8230;</span></div>
-    <p class="hero-note">The real nlir evaluator, running live in your browser — no install, no key (det mode). <a href="workspace/">Open the workspace &#8594;</a> to add an LLM key and watch <code>@'lmk if any Qs'</code> become <em>&#8220;Please let me know if you have any questions.&#8221;</em></p>
+    <p class="hero-note">That&#8217;s <em>sum of squares</em> as a one-line program &#8212; <code>$map</code> a squaring form <code>{$0*$0}</code> over a list, then <code>$fold</code> to add them (press <strong>Step</strong> to watch it reduce). The real nlir evaluator, running live in your browser &#8212; no install, no key (det mode). <a href="workspace/">Open the workspace &#8594;</a> to add an LLM key and watch <code>@'lmk if any Qs'</code> become <em>&#8220;Please let me know if you have any questions.&#8221;</em></p>
   </div>
   <div class="cta">
     <a class="primary" href="workspace/">Try it live &#8594;</a>
