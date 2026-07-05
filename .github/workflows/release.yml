@@ -127,6 +127,9 @@ jobs:
         include:
           - target: x86_64-linux
             runner: [self-hosted, azure-ephemeral]
+          - target: aarch64-linux
+            runner: [self-hosted, azure-ephemeral]
+            cross: aarch64-unknown-linux-gnu
           - target: aarch64-darwin
             runner: [self-hosted, aarch64-darwin]
     steps:
@@ -189,10 +192,24 @@ jobs:
         shell: bash
         run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 
-      - name: Build the release binary (native)
+      - name: Install aarch64 cross linker (aarch64-linux cross builds only)
+        if: matrix.cross == 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          # aarch64-linux is cross-compiled on the x86_64 azure-ephemeral runner, so
+          # it needs the gnu cross linker (aarch64-linux-gnu-gcc). apt where present.
+          for d in /usr/bin /bin; do case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$PATH:$d";; esac; done
+          export PATH
+          if command -v apt-get >/dev/null 2>&1; then
+            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
+          fi
+
+      - name: Build the release binary (native or cross)
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
+          CROSS: ${{ matrix.cross }}
         run: |
           set -euo pipefail
           if [ "${TARGET:-}" = "aarch64-darwin" ]; then
@@ -228,6 +245,19 @@ jobs:
               fi
               echo "portable darwin binary linkage:"; otool -L "$bin"
             '
+          elif [ -n "${CROSS:-}" ]; then
+            # aarch64-linux: cross-compile on the x86_64 runner using the gnu cross
+            # linker (installed above). The Rust deps (resvg/png/ureq/serde/…) are pure
+            # Rust and cross cleanly; the linker is the only native piece. No native
+            # smoke here (an aarch64 binary can't run on x86_64) — the successful
+            # cross-build + package is the pre-publish gate; validate on a release run.
+            for d in /usr/bin /bin "$HOME/.cargo/bin" "${CARGO_HOME:-/nonexistent}/bin"; do
+              case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$PATH:$d";; esac
+            done
+            export PATH
+            rustup target add "$CROSS"
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+            cargo build --release --bin nlir --target "$CROSS"
           else
             cargo build --release --bin nlir
           fi
@@ -237,6 +267,7 @@ jobs:
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
           TARGET: ${{ matrix.target }}
+          CROSS: ${{ matrix.cross }}
         run: |
           set -euo pipefail
           for d in /usr/bin /bin; do case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$PATH:$d";; esac; done
@@ -244,11 +275,12 @@ jobs:
           mkdir -p dist
           root="nlir-$VERSION-$TARGET"
           rm -rf "$root"; mkdir -p "$root"
-          cp "${CARGO_TARGET_DIR:-target}/release/nlir" "$root/nlir"
+          cp "${CARGO_TARGET_DIR:-target}${CROSS:+/$CROSS}/release/nlir" "$root/nlir"
           tar -czf "dist/$root.tar.gz" "$root"
           shasum -a 256 "dist/$root.tar.gz" | awk '{print $1}' > "dist/$root.sha256"
 
       - name: Smoke the packaged binary (native target)
+        if: matrix.cross == ''
         shell: bash
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
