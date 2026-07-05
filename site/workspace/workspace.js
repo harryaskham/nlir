@@ -80,27 +80,49 @@ function tryNumeric(expr){
 }
 function knownOut(expr){ const m = EXAMPLES.find(x => x.expr === expr); return m && m.out; }
 
-const nlir = {
-  ready: false, // flip true when real wasm loads
-  async evaluate(expr, _cfg, _ctx, mode){
+const MOCK = {
+  async evaluate(expr){
     const n = tryNumeric(expr);
     if (n !== null) return { ok:true, result:n, real:true };
     const k = knownOut(expr);
     return { ok:true, result: k || `⟨realised English for ${expr}⟩`, mock:true };
   },
-  async step(expr, _cfg, _ctx, mode){
+  async step(expr){
     const n = tryNumeric(expr);
-    if (n !== null){
-      // a light illustrative det trace
-      return { ok:true, steps:[ expr, `= ${n}` ], real:true };
-    }
-    const k = knownOut(expr) || `⟨realised⟩`;
-    return { ok:true, steps:[ expr, `→ «${k}»` ], mock:true };
+    if (n !== null) return { ok:true, steps:[{expr}, {expr:`= ${n}`}], real:true };
+    const k = knownOut(expr) || '⟨realised⟩';
+    return { ok:true, steps:[{expr}, {expr:`→ «${k}»`}], mock:true };
   },
   operators(){ return MOCK_OPERATORS; },
-  parse(expr, _cfg){ return { ok:true, ast:expr }; }, // stub; real parse(expr, configJson) lands with P1
+  parse(expr){ return { ok:true, ast:expr }; },
   version(){ return { crate:'mock', git:'—' }; },
 };
+
+// Real nlir-wasm loads when ./pkg/ is present (CI-built + embedded by P7); else MOCK.
+// O()/A() normalise serde_wasm_bindgen output (it may emit JS Maps for json! objects).
+let nlir = MOCK;
+let wasmReal = false;
+(async function loadWasm(){
+  try {
+    const m = await import('./pkg/nlir_wasm.js');
+    if (m.default) await m.default();
+    const O = v => v instanceof Map ? Object.fromEntries(v) : v;
+    const A = v => Array.isArray(v) ? v.map(O) : O(v);
+    nlir = {
+      async evaluate(e,c,x,md){ return O(await m.evaluate(e,c,x,md)); },
+      async step(e,c,x,md){ const r = O(await m.step(e,c,x,md)); if (r.steps) r.steps = A(r.steps); return r; },
+      operators(c){ return A(m.operators(c)); },
+      parse(e,c){ return O(m.parse(e,c)); },
+      version(){ return O(m.version()); },
+    };
+    wasmReal = true;
+    const v = nlir.version() || {};
+    $('verBadge').textContent = 'wasm: ' + (v.crate || 'live') + (v.git && v.git!=='unknown' ? ' · '+String(v.git).slice(0,7) : '');
+    renderOps();
+  } catch (err) {
+    console.info('nlir-wasm pkg/ not present — using mock evaluator.', err && err.message);
+  }
+})();
 
 // ---- state ----
 const state = load();
@@ -138,11 +160,13 @@ function renderExamples(){
   });
 }
 function renderOps(){
-  $('ops').innerHTML = '';
-  nlir.operators().forEach(o => {
+  const box = $('ops'); box.innerHTML = '';
+  const ops = nlir.operators(configJson());
+  if (!Array.isArray(ops)){ box.innerHTML = `<span class="err">config: ${(ops && ops.error) || 'parse error'}</span>`; return; }
+  ops.forEach(o => {
     const d = document.createElement('div'); d.className = 'op';
-    d.innerHTML = `<span class="sig">${o.op.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span><span class="nm">${o.name}</span><span class="ds">${o.description}</span><span class="tag ${o.det?'det':'llm'}">${o.det?'det':'llm'}</span>`;
-    $('ops').appendChild(d);
+    d.innerHTML = `<span class="sig">${String(o.op).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span><span class="nm">${o.name}</span><span class="ds">${o.description}</span><span class="tag ${o.det?'det':'llm'}">${o.det?'det':'llm'}</span>`;
+    box.appendChild(d);
   });
 }
 function renderMessages(){
@@ -170,12 +194,20 @@ function renderKvs(){
 }
 
 // ---- run / step ----
-function contextJson(){ return JSON.stringify({ messages: state.messages, kv: Object.fromEntries(state.kv.map(p=>[p.k,p.v])) }); }
+function configJson(){
+  if (window.jsyaml){ try { return JSON.stringify(jsyaml.load(state.config) ?? {}); } catch { return '{}'; } }
+  return '{}';
+}
+function contextJson(){
+  const o = { _messages: state.messages.map(m => ({ role:m.role, content:m.text })) };
+  state.kv.forEach(p => { if (p.k) o[p.k] = p.v; });
+  return JSON.stringify(o);
+}
 async function run(){
   const expr = $('expr').value.trim(); if (!expr) return;
   const out = $('output'); $('steps').innerHTML = '';
   out.innerHTML = '<span class="placeholder">running…</span>';
-  const r = await nlir.evaluate(expr, state.config, contextJson(), state.settings.mode);
+  const r = await nlir.evaluate(expr, configJson(), contextJson(), state.settings.mode);
   if (!r.ok){ out.innerHTML = `<span class="err">${r.error}</span>`; return; }
   out.innerHTML = `<span class="result">${r.result.replace(/</g,'&lt;')}</span>` + (r.mock ? '<span class="mock">mock — live when P1&#39;s wasm lands</span>' : '');
   save();
@@ -184,12 +216,13 @@ async function step(){
   const expr = $('expr').value.trim(); if (!expr) return;
   const out = $('output'); out.innerHTML = '';
   const box = $('steps'); box.innerHTML = '<span class="placeholder">stepping…</span>';
-  const r = await nlir.step(expr, state.config, contextJson(), state.settings.mode);
+  const r = await nlir.step(expr, configJson(), contextJson(), state.settings.mode);
   box.innerHTML = '';
   if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
   r.steps.forEach((s,i) => {
     const d = document.createElement('div'); d.className = 'step';
-    d.innerHTML = `<span class="n">${i}</span><span class="x">${hl(s)}</span>` + (i===r.steps.length-1 && r.mock ? '<span class="note">mock</span>' : '');
+    const txt = (s && typeof s === 'object') ? (s.expr ?? '') : s;
+    d.innerHTML = `<span class="n">${i}</span><span class="x">${hl(String(txt))}</span>` + (i===r.steps.length-1 && r.mock ? '<span class="note">mock</span>' : '');
     box.appendChild(d);
   });
 }
@@ -205,6 +238,12 @@ function setMode(m){
 function init(){
   $('config').value = state.config;
   $('cfgNote').textContent = 'Operators below reflect this config.';
+  // best-effort: seed from the full shipped config if served alongside (P7 copies config.example.yaml)
+  if (state.config === DEFAULT_CONFIG){
+    fetch('config.example.yaml').then(r => r.ok ? r.text() : null).then(t => {
+      if (t && state.config === DEFAULT_CONFIG){ state.config = t; $('config').value = t; save(); renderOps(); }
+    }).catch(()=>{});
+  }
   renderExamples(); renderOps(); renderMessages(); renderKvs();
   setMode(state.settings.mode);
   $('verBadge').textContent = 'wasm: ' + nlir.version().crate;
