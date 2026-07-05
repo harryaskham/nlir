@@ -59,6 +59,8 @@ whole ask, my amendment, my caveat] into one formal reply.
 | steelman reply | `[~>@^-1, @(!^-1 & 'GROUNDS')]` | their case at its best, then your reasoned no | aur-1 |
 | counter-offer | `[@(!^-1 & 'GROUNDS'), @'ALTERNATIVE']` | decline, then offer the path you'd back | aur-1 |
 | weighed decision | `[~>@^-1, ~>!^-1, @(^-1 & 'decision: CALL')]` | weigh a proposal both ways, then rule | aur-1 |
+| pitch-check | `[@~^_-1, ~>!^_-1]` | polish YOUR floated idea + preempt its objection | aur-1 |
+| brain-dump | `'a';'b';'c';&;~$` | fold scattered thoughts (via the stack) into one takeaway | aur-1 |
 | grounded counter | `@(^-1 & 'CHANGE' & ^_-1)` | reply grounded in an earlier point | aur-0 |
 | cited synthesis | `@~(0^_-1)` | your whole ask, distilled into one formal line | aur-0 |
 | full layered reply | `k=@(^-1 & 'CHANGE' & ^_-1 & 'CAVEAT');[$k,~$k]` | the whole considered response + self-reflection | aur-0 |
@@ -96,8 +98,9 @@ Slot rule: a slot takes plain content or ONE transform (`:`/`!`/`~`) — a full 
 (the grouping is load-bearing).
 Moves: considered reply (agree+amend) · honest yes (amend + auto devil's-advocate `~>!^-1`) ·
 reasoned no (`@(!^-1 & grounds)`) · steelman reply (their best case, then your no) · counter-offer
-(decline, then offer a path) · weighed decision (weigh both ways, then rule) · decisive close
-(end a thread with a decision).
+(decline, then offer a path) · weighed decision (weigh both ways, then rule) · pitch-check (polish +
+preempt your OWN floated idea) · decisive close (end a thread with a decision) · brain-dump
+(`'a';'b';'c';&;~$` — fold scattered thoughts on the stack into one takeaway; reads no context).
 → `examples/CATALOG-aur1.md` · cards `nlir-considered-reply`, `nlir-honest-yes`, `nlir-reasoned-no`, `nlir-decisive-close`
 
 ### GROUND / REFLECT — reference prior context + red-team yourself (aur-0)
@@ -106,6 +109,9 @@ and reflects on it (the `=` binding IS the self-reference — no new operator ne
 Moves: grounded counter · cited synthesis · **full layered reply** (the flagship — Harry's whole
 example: reply + modify + reference + caveat + restyle + self-reflect, in one line) ·
 self-summarizing memo · self-red-team (`k=@>'X';[$k,>!~$k]`).
+Which self-critique? **self-red-team** pressure-tests a NEW draft from a blank page; aur-1's
+**pitch-check** (`[@~^_-1, ~>!^_-1]`) refines an idea you already FLOATED in chat — same instinct
+(hear the objection before you send), two entry points.
 → `examples/CATALOG-aur0.md` · `examples/move-aur0-*.sh` · cards `nlir-full-layered-reply`, `nlir-grounded-counter`, `nlir-self-red-team`
 
 ### SELECT / DIGEST — read a whole thread (msm-0)
