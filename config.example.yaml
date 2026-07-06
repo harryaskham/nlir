@@ -536,6 +536,9 @@ tests:
   help-ne:     { mode: det, expr: "'a'!='b'", expected: "true" }
   help-if-eq:  { mode: det, expr: "$if%(4==4,'match','differ')", expected: "match" }
   help-count:  { mode: det, expr: "$fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))", expected: "2" }
+  # `nlir help` mixed det+fuzzy capstone (bd-8956b1): ~> classify + correctness-gate count.
+  help-implies:     { mode: det, expr: "'this is correct'~>'correct'", expected: "true" }
+  help-fuzzy-count: { mode: det, expr: "$fold%({$0+$1},$map%({$0~>'correct'},['this is correct','this is wrong','also correct']))", expected: "2" }
   msg:
     mode: det
     context:

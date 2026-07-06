@@ -713,6 +713,21 @@ fn print_help_examples(color: bool) {
                 ("'x'?", "is it the case that x?", "turn into a question"),
             ],
         ),
+        (
+            "mixed det + fuzzy — the payoff (det now; a real judgment with a model)",
+            &[
+                (
+                    "'this is correct'~>'correct'",
+                    "true",
+                    "~> : does A entail B? (det: substring contains; llm: real entailment)",
+                ),
+                (
+                    "$fold%({$0+$1},$map%({$0~>'correct'},['this is correct','this is wrong','also correct']))",
+                    "2",
+                    "count items passing a FUZZY test — det scaffold (map/fold) + fuzzy per-item ~>",
+                ),
+            ],
+        ),
     ];
 
     println!();
