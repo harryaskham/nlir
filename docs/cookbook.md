@@ -352,6 +352,42 @@ little programming core — select, transform, reduce, branch, reorder.
 
 ---
 
+## 10. Predicates & counting — comparisons
+
+The comparison operators `==` `!=` `<=` `>=` return a deterministic boolean, so
+they slot into `$if` conditions and — mapped over a list — into counting:
+
+```
+3 <= 5                        -> true
+4 == 4                        -> true
+$if%(3<=5, 'yes', 'no')       -> yes
+```
+
+**Count how many pass** — the classic count-if: map a threshold test to
+true/false, then fold (a true counts as 1):
+
+```
+$fold%({$0+$1}, $map%({$0>=5}, [3,7,2,9]))   -> 2   (how many are >= 5)
+```
+
+**Keep the ones that pass** — filter with the same predicate:
+
+```
+$filter%({$0>=5}, [3,7,2,9])   -> 7 / 9
+```
+
+**Gate on the count** — compose the whole thing into a decision:
+
+```
+$if%($fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))>=2, 'enough', 'more')   -> enough
+```
+
+A correctness gate is exactly this shape: map a check over the items, count the
+passes, branch on the total. Comparison → map → fold → if, all deterministic and
+composed from the same small core.
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.

@@ -539,6 +539,13 @@ tests:
   # `nlir help` mixed det+fuzzy capstone (bd-8956b1): ~> classify + correctness-gate count.
   help-implies:     { mode: det, expr: "'this is correct'~>'correct'", expected: "true" }
   help-fuzzy-count: { mode: det, expr: "$fold%({$0+$1},$map%({$0~>'correct'},['this is correct','this is wrong','also correct']))", expected: "2" }
+  # predicates & counting (docs/cookbook.md §10): comparisons -> bool, count-if,
+  # filter-by-threshold, and gate-on-count (the correctness-gate shape).
+  cookbook-cmp-le:    { mode: det, expr: "3<=5", expected: "true" }
+  cookbook-cmp-eq:    { mode: det, expr: "4==4", expected: "true" }
+  cookbook-count-if:  { mode: det, expr: "$fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))", expected: "2" }
+  cookbook-filter-threshold: { mode: det, expr: "$filter%({$0>=5},[3,7,2,9])", expected: "7\n9" }
+  cookbook-gate-count: { mode: det, expr: "$if%($fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))>=2,'enough','more')", expected: "enough" }
   msg:
     mode: det
     context:
