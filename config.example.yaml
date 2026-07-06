@@ -549,6 +549,7 @@ tests:
   cookbook-contains:    { mode: det, expr: "$contains%('login page broken','broken')", expected: "true" }
   cookbook-contains-no: { mode: det, expr: "$contains%('all systems green','broken')", expected: "false" }
   cookbook-grep:        { mode: det, expr: "$filter%({$contains%($0,'err')},['ok','err 1','err 2'])", expected: "err 1\nerr 2" }
+  hero-ops-gate:        { mode: det, expr: "$if%($fold%({$0+$1},$map%({$contains%($0,'ERROR')},['ok','ERROR: oom','ok','ERROR: disk full']))>=2,'page on-call','all clear')", expected: "page on-call" }
   msg:
     mode: det
     context:
