@@ -322,14 +322,16 @@ impl OperatorConfig {
     pub fn is_deterministic(&self) -> bool {
         // Display semantics (nlir help det/llm tag + operator_reference `det`): an
         // op is "deterministic" only if its PRIMARY realisation is offline — it has
-        // an offline realisation AND is not llm-primary. A det-STUB `template:` on an
-        // llm op (a test-mode det-coverage fallback, aur-2 det-stubs) is NOT the op's
-        // identity: an op carrying a `model:` shows "llm" even with a det stub.
+        // an offline realisation AND is not llm-primary. A det-only STUB (`template:`
+        // interpolation or a `det:` COMPUTED form) on an llm op is a test-mode
+        // det-coverage fallback, NOT the op's identity: an op carrying a `model:`
+        // shows "llm" even with a det stub (e.g. `~>` = det: {$contains...} + model).
         self.model.is_none()
             && (self.reduce.is_some()
                 || self.command.is_some()
                 || self.join.is_some()
-                || self.template.is_some())
+                || self.template.is_some()
+                || self.det.is_some())
     }
 }
 
