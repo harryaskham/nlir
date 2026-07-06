@@ -36,6 +36,11 @@ real point-ish-free programs:
 | glyph-ops | `form:`/`builtin:` (bd-44c294) | name a form/builtin as a one-glyph verb (`□`, `⇑`, `↦`, `⊘`) |
 | numeric reduce | `+ - * / **` | scalar dyads |
 | **string** | `++` concat, `//` split (bd-c833a8) | catenate `,` / split |
+| branch | `$if%(c,t,e)` | short-circuit ternary (@f2a50d5) |
+| index | `$nth%(i,xs)` | pick / index; `-1` = last (@f2a50d5, negatives @4499f58) |
+| sort | `$sort%xs` | grade up `⍋` (@f2a50d5) |
+| compare | `== != <= >=` | dyadic predicates → Bool (@2521bf1) |
+| trains | `(f g)` atop, `(f g h)` fork | tacit composition (@d903823, @bbe15c2) |
 
 Composition today is **explicit**: you nest applies or name forms and thread the
 argument (`$f%($g%x)`). That works — the gap is making it **point-free** (§3.1).
@@ -72,6 +77,16 @@ _sep=\ ;$map%({$fold%({$0+$1}, $map%({1}, $0//""))}, "the cat sat"//" ")  => 3 3
 
 # P8 — TRAINS (fork, @bbe15c2): two lenses on one input, mapped over a split.
 _sep=" || ";$map%({(# & ~)%$0}, "a,b"//",")  => subject: a and summary: a || subject: b and summary: b
+
+# P9 — COUNT how many pass a test (correctness-gate flagship, @2521bf1): compare→map→fold.
+$fold%({$0+$1}, $map%({$0>=5}, [3,7,2,9]))                    => 2
+
+# P10 — MAX / MIN as order statistics for FREE (@f2a50d5): last / first of a sort.
+$nth%(-1, $sort%[3,1,4,1,5])                                  => 5    (max)
+$nth%(0,  $sort%[3,1,4,1,5])                                  => 1    (min)
+
+# P11 — BRANCH on a det comparison (@f2a50d5 + @2521bf1): deterministic control flow.
+$if%(3<=5, yes, no)                                           => yes
 ```
 
 P5 is the flagship: **length is not a primitive** — it *falls out* of
@@ -97,10 +112,14 @@ classify awaits its det-bool stub (aur-0's semantic-op category, §3.2).
 
 ## 3. Gaps this seeds (msm-2 spec; ranking in §6, impl msm-0/aur-2)
 
-Ranked by aur-0: **trains #1, filter #2, scan #3.** During this loop **filter +
-scan LANDED @d7f6f6c** (msm-0, word-builtins, no new sigils); **trains** are in
-progress (msm-0's parser, §4/§5); **zip** remains a candidate. The remaining
-*point-free* gap is trains (§3.1).
+Ranked by aur-0: **trains #1, filter #2, scan #3.** During this loop the whole
+core LANDED: **filter + scan** @d7f6f6c, **trains** (atop + fork)
+@d903823/@bbe15c2, and the **basics** — `$if`/`$nth`/`$sort` @f2a50d5, signed
+literals @4499f58, **comparisons** `== != <= >=` @2521bf1 — so the deterministic
+control-flow backbone is complete (the count idiom, §2 P9). **Remaining
+follow-ups:** tacit application without `%` (§3.1), the `~>` det-bool stub
+(§3.2), a right-associative `%` (unanimous, awaiting greenlight), and **zip**
+(§3.4, a candidate).
 
 ### 3.1 Trains / point-free composition (#1) — LANDED @d903823 + @bbe15c2
 
