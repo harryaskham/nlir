@@ -608,6 +608,34 @@ impl Parser<'_> {
         Ok(lhs)
     }
 
+    /// Whether the token at the cursor can START an operand (bd-9a3e7c): a
+    /// literal, a `$`/`^` read, a bracket/brace/paren group, a backtick, or a
+    /// PREFIX/MIXFIX operator. A hard terminator (EOF, `)`, `]`, `}`, `,`, `;`,
+    /// `%`, `=`) or an INFIX/POSTFIX operator cannot — which is exactly when a
+    /// prefix/infix/postfix op in nud position falls back to a nullary stack-pull.
+    fn next_starts_operand(&self) -> bool {
+        match self.tokens.get(self.pos) {
+            Some(
+                Token::Bare(_)
+                | Token::Quoted { .. }
+                | Token::Number(_)
+                | Token::LBracket
+                | Token::LParen
+                | Token::LBrace
+                | Token::Backtick
+                | Token::ContextRead(_)
+                | Token::StackPeek
+                | Token::StackIndex(_)
+                | Token::Message(_),
+            ) => true,
+            Some(Token::Operator(op)) => matches!(
+                self.table.get(op).map(|i| i.fixity),
+                Some(Fixity::Prefix | Fixity::Mixfix)
+            ),
+            _ => false,
+        }
+    }
+
     /// Peek an operator-only train `(f g h)`: a parenthesized group whose tokens
     /// up to the matching `)` are all known operators (>= 2) with no operands.
     /// Returns each op's `(sigil, fixity)`; `None` for a normal group.
@@ -789,12 +817,24 @@ impl Parser<'_> {
             }
             Token::Operator(op) => match self.table.get(&op).copied() {
                 Some(inf) if inf.fixity == Fixity::Prefix => {
-                    let operand = self.expr(bp(inf.priority))?;
-                    Ok(Expr::Apply {
-                        op,
-                        fixity: Fixity::Prefix,
-                        operands: vec![operand],
-                    })
+                    if self.next_starts_operand() {
+                        let operand = self.expr(bp(inf.priority))?;
+                        Ok(Expr::Apply {
+                            op,
+                            fixity: Fixity::Prefix,
+                            operands: vec![operand],
+                        })
+                    } else {
+                        // Nullary-fallback (bd-9a3e7c, Harry's §6 stack-implicit):
+                        // `~` with nothing to consume pulls its operand from the
+                        // stack at eval — e.g. `echo text | nlir -e '~'` summarises
+                        // the seeded piped stdin. Loud stack-underflow if empty.
+                        Ok(Expr::Apply {
+                            op,
+                            fixity: Fixity::Prefix,
+                            operands: Vec::new(),
+                        })
+                    }
                 }
                 Some(inf) if inf.fixity == Fixity::Mixfix => {
                     // Mixfix unification (bd-dab497) in prefix position:
@@ -832,6 +872,22 @@ impl Parser<'_> {
                         if let Some(value) = negated {
                             self.pos += 1;
                             return Ok(Expr::Number(value));
+                        }
+                    }
+                    // Nullary-fallback (bd-9a3e7c): an infix/postfix operator in
+                    // prefix (nud) position with NO operand to consume becomes a
+                    // nullary Apply that pulls its operand(s) from the stack at
+                    // eval (Harry's §6: `? Δ ~>` become stack-pullable; `| nlir -e
+                    // '?'` pulls the seeded stdin). Only when nothing following can
+                    // start an operand — else an infix/postfix op in prefix
+                    // position is still an error.
+                    if let Some(inf) = self.table.get(&op).copied() {
+                        if !self.next_starts_operand() {
+                            return Ok(Expr::Apply {
+                                op,
+                                fixity: inf.fixity,
+                                operands: Vec::new(),
+                            });
                         }
                     }
                     Err(ParseError {

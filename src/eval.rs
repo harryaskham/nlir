@@ -406,12 +406,21 @@ impl<'a> Evaluator<'a> {
     /// empty stack.
     #[must_use]
     pub fn new(config: &'a Config, context: &'a mut Context, mode: Mode) -> Self {
+        // $_stdin-on-stack (bd-9a3e7c, Harry's "$_stdin first on the stack when
+        // piped"): seed the premise stack at position 0 with the reserved
+        // `_stdin` transient, so an operator with a missing operand can pull the
+        // piped input from the stack (`… | nlir -e '&'`). Only present when stdin
+        // was piped (the CLI sets it); every other path starts with an empty stack.
+        let mut stack = Stack::new();
+        if let Some(json) = context.get("_stdin") {
+            stack.push(json_to_value_forms(json, config));
+        }
         Self {
             parallelism: config.defaults.parallelism.max(1),
             config,
             context,
             mode,
-            stack: Stack::new(),
+            stack,
             realise_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
             arg_frames: Vec::new(),
         }
@@ -3029,6 +3038,30 @@ operators:
         check("$sort%$map%({$0*$0},[3,1,2])", "1\n4\n9");
         // explicit parens still give the same result (unchanged).
         check("$sort%($map%({$0*$0},[3,1,2]))", "1\n4\n9");
+    }
+
+    #[test]
+    fn stdin_seeds_the_stack_for_nullary_pop() {
+        // $_stdin-on-stack + nullary-fallback (bd-9a3e7c, Harry's §6): the reserved
+        // `_stdin` transient is seeded onto the premise stack, and an operator with
+        // no operand pulls it — `echo text | nlir -e '»'`.
+        let cfg = config::parse_str(
+            "operators:\n  up: { op: \"»\", arity: 1, fixity: prefix, template: \"UP: %\" }\n",
+            Path::new("s.yaml"),
+        )
+        .unwrap();
+        // nullary `»` (no operand) pulls the seeded piped stdin off the stack.
+        let mut ctx = Context::empty(&cfg.context);
+        ctx.set_transient("_stdin", serde_json::json!("piped"));
+        let out = evaluate("»", &cfg, &mut ctx, Mode::Det).unwrap();
+        assert_eq!(out.render(&ctx.sep()), "UP: piped");
+        // normal prefix parse is unchanged (operand present).
+        let mut ctx1 = Context::empty(&cfg.context);
+        let normal = evaluate("»'x'", &cfg, &mut ctx1, Mode::Det).unwrap();
+        assert_eq!(normal.render(&ctx1.sep()), "UP: x");
+        // no _stdin -> empty stack -> LOUD underflow error (not silent).
+        let mut ctx2 = Context::empty(&cfg.context);
+        assert!(evaluate("»", &cfg, &mut ctx2, Mode::Det).is_err());
     }
 
     #[test]
