@@ -632,6 +632,34 @@ fn print_help_examples(color: bool) {
             ],
         ),
         (
+            "branch / index / sort — control flow + order",
+            &[
+                (
+                    "$if%(1,'yes','no')",
+                    "yes",
+                    "branch: truthy condition → then",
+                ),
+                ("$if%(0,'yes','no')", "no", "falsy condition → else"),
+                ("$nth%(1,[10,20,30])", "20", "index into a list (0-based)"),
+                (
+                    "$nth%(-1,[10,20,30])",
+                    "30",
+                    "negative index counts from the end",
+                ),
+                ("$sort%[3,1,2]", "1 2 3", "sort ascending"),
+                (
+                    "$nth%(0,$sort%[30,4,100,2])",
+                    "2",
+                    "min = first of the sorted list",
+                ),
+                (
+                    "$nth%(-1,$sort%[30,4,100,2])",
+                    "100",
+                    "max = last of the sorted list",
+                ),
+            ],
+        ),
+        (
             "trains — tacit (point-free) composition",
             &[
                 (
