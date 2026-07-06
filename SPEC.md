@@ -121,7 +121,11 @@ transformations differ by mode.
 - **`$_stdin` on the stack** — when input is piped (`… | nlir`), the evaluator seeds
   the premise stack at position 0 with the piped `_stdin` value, so a bare operator
   pulls it: `echo "the login page is broken" | nlir -e '~'` → its summary,
-  `| nlir -e '#'` → its subject, `| nlir -e '?'` → it turned into a question.
+  `| nlir -e '#'` → its subject, `| nlir -e '?'` → it turned into a question. A bare
+  **form/train** is a first-class *value*, so it evaluates to itself (not
+  auto-applied) — apply it to piped input explicitly with `%$_stdin`
+  (`… | nlir -e '(: & #)%$_stdin'`). Nullary-fallback is scoped to *operators*; a
+  form is a value, not an operator.
 
 ### Context: read & assign
 - **`$name`** — read `context[name]` (typed; `$_messages` is the array).
