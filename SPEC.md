@@ -139,7 +139,12 @@ transformations differ by mode.
 - **`%`** — **application** (infix): applies a form to arguments, binding them to the
   positional holes `$0 $1 …` in a fresh **argument frame**, then evaluates the body.
   `{$0+$1}%(2,3)` → `5`; single arg `{$0+1}%5` → `6`. `%` binds **tighter than `,`**
-  (`f%a,b` = `(f%a),b`; pass a tuple with `f%(a,b)`).
+  (`f%a,b` = `(f%a),b`; pass a tuple with `f%(a,b)`). `%` is **right-associative**, so
+  a bare compose-chain `f%g%x` reads as `f%(g%x)` — apply `g` to `x`, then `f` to the
+  result (`$sort%$map%({$0*$0},[3,1,2])` = `$sort%($map%(…))` → `[1,4,9]`), matching
+  J/APL application order; the left-associative reading `(f%g)%x` is never intended
+  (it was a silent-empty / unknown-key trap). Explicit parens/nesting still work as
+  written; only bare `%`-chaining is affected.
 - **Argument holes `$0 $1 …`** — positional parameters inside a form, bound at apply
   time. **Hygienic**: a form's `$0` is its *argument*, not the run stack (`9;{$0}%7` → `7`).
 - **Named macros** — assign a form to a name and call it by name (forms persist in
