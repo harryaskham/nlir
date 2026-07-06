@@ -677,7 +677,9 @@ impl<'a> Evaluator<'a> {
             {
                 return self.eval_higher_order(name, args);
             }
-            if matches!(name.as_str(), "if" | "nth" | "sort") && self.context.get(name).is_none() {
+            if matches!(name.as_str(), "if" | "nth" | "sort" | "contains")
+                && self.context.get(name).is_none()
+            {
                 return self.eval_value_builtin(name, args);
             }
         }
@@ -715,6 +717,9 @@ impl<'a> Evaluator<'a> {
     ///   untaken branch is NOT evaluated (short-circuit).
     /// - `$nth%(i, list)` → the i-th element (0-based; negative = from the end).
     /// - `$sort%list` → the list ascending (numeric if all-numeric, else lexical).
+    /// - `$contains%(haystack, needle)` → a `Value::Bool`: does the rendered
+    ///   haystack contain the (trimmed) rendered needle? A containment predicate
+    ///   for `$filter`/`$if` conditions and the `~>` det stub.
     fn eval_value_builtin(&mut self, name: &str, args: &[Expr]) -> Result<Value, EvalError> {
         match name {
             "if" => {
@@ -741,6 +746,17 @@ impl<'a> Evaluator<'a> {
                 let items = self.value_builtin_list(args)?;
                 let sep = self.sep();
                 Ok(Value::list(sort_values(items, &sep)))
+            }
+            "contains" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(haystack, needle)", args.len()));
+                }
+                let hay = self.eval(&args[0])?;
+                let needle = self.eval(&args[1])?;
+                let sep = self.sep();
+                Ok(Value::bool(
+                    hay.render(&sep).contains(needle.render(&sep).trim()),
+                ))
             }
             _ => unreachable!("unknown value builtin: {name}"),
         }
@@ -802,6 +818,17 @@ impl<'a> Evaluator<'a> {
                 };
                 let sep = self.sep();
                 Ok(Value::list(sort_values(items, &sep)))
+            }
+            "contains" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(haystack, needle)", args.len()));
+                }
+                let hay = self.eval_async(&args[0], realiser).await?;
+                let needle = self.eval_async(&args[1], realiser).await?;
+                let sep = self.sep();
+                Ok(Value::bool(
+                    hay.render(&sep).contains(needle.render(&sep).trim()),
+                ))
             }
             _ => unreachable!("unknown value builtin: {name}"),
         }
@@ -1218,7 +1245,7 @@ impl<'a> Evaluator<'a> {
                                 .run_higher_order_async(name.clone(), hbody, items, realiser)
                                 .await;
                         }
-                        if matches!(name.as_str(), "if" | "nth" | "sort")
+                        if matches!(name.as_str(), "if" | "nth" | "sort" | "contains")
                             && self.context.get(name).is_none()
                         {
                             return self.eval_value_builtin_async(name, args, realiser).await;
@@ -2938,6 +2965,9 @@ operators:
         // $sort — numeric when all-numeric, else lexicographic.
         check("$sort%[3,1,2]", "1\n2\n3");
         check("$sort%[banana,apple,cherry]", "apple\nbanana\ncherry");
+        // $contains — Bool containment predicate (filter/if conds + ~> det).
+        check("$contains%('login page broken','broken')", "true");
+        check("$contains%('all systems green','broken')", "false");
     }
 
     #[test]
