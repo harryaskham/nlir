@@ -240,6 +240,45 @@ layer map/fold over forms builds on.
 catalogue of multi-layer programs — named functions, composition, nesting, and
 do-N chains — every deterministic output verified end-to-end.
 
+## The composable core — adverbs, trains, basics
+
+Forms unlock a small **composable core**: a handful of primitives that compose
+into real programs (APL/J-style), rather than a built-in function for every task.
+
+**The adverb family** — higher-order builtins applied with `%`, taking a form and
+a list (lists render separator-joined; shown here as `[…]` for clarity):
+
+```sh
+nlir -e '$map%({$0*$0},[1,2,3])'                     # [1,4,9]      transform each
+nlir -e '$fold%({$0+$1},[1,2,3,4])'                  # → 10         reduce
+nlir -e '$scan%({$0+$1},[1,2,3,4])'                  # [1,3,6,10]   running fold
+nlir -e '$filter%({$0>=5},[3,7,2,9])'                # [7,9]        keep-if
+```
+
+**Basics** — `$if` (branch), `$nth` (index; negatives count from the end),
+`$sort`, and comparison `== != <= >=` (deterministic, `→ Bool`):
+
+```sh
+nlir -e '$sort%[3,1,2]'                               # [1,2,3]
+nlir -e '$nth%(-1,$sort%[3,1,2])'                     # → 3          max, composed from sort+index
+nlir -e '$if%(3<=5,"yes","no")'                       # → yes
+nlir -e '$fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))'   # → 2          count how many ≥5, no loop
+```
+
+**Trains** — a parenthesised group of *operators* (no operands) is a **tacit**
+(point-free) composition, no `$0` spelled: an all-prefix group composes (*atop*),
+and a prefix–infix–prefix group is a **fork** — two lenses on one input:
+
+```sh
+nlir -e "(~ @)%'hey can u take a look thx'"           # atop: distil∘formal → a polished ask
+nlir -e "(# & ~)%'the login page is broken'"         # fork: subject & gist, in one pass
+```
+
+Mix in the LLM lenses and the core becomes a language for **algorithms on
+meaning**: `$if%('prod is down'~>'an incident','page on-call','all clear')` routes
+by an AI judgment with deterministic control flow. See
+[composable-core.md](docs/design/composable-core.md) for the full design.
+
 ## CLI surface
 
 ```sh
