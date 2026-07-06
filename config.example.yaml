@@ -529,6 +529,13 @@ tests:
   help-assign-compute: { mode: det, expr: "k=2+3;$k*2", expected: "10" }
   cookbook-nth-neg:  { mode: det, expr: "$nth%(-1,[10,20,30])", expected: "30" }
   cookbook-sort-max: { mode: det, expr: "$nth%(-1,$sort%[30,4,100,2])", expected: "100" }
+  # `nlir help` comparison + conditional examples (bd-e27e67): help ≡ nlir test.
+  help-eq:     { mode: det, expr: "4==4", expected: "true" }
+  help-le:     { mode: det, expr: "3<=5", expected: "true" }
+  help-ge:     { mode: det, expr: "5>=9", expected: "false" }
+  help-ne:     { mode: det, expr: "'a'!='b'", expected: "true" }
+  help-if-eq:  { mode: det, expr: "$if%(4==4,'match','differ')", expected: "match" }
+  help-count:  { mode: det, expr: "$fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))", expected: "2" }
   msg:
     mode: det
     context:

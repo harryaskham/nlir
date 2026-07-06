@@ -660,6 +660,25 @@ fn print_help_examples(color: bool) {
             ],
         ),
         (
+            "comparison — predicates → bool + branch",
+            &[
+                ("4==4", "true", "value equality → bool"),
+                ("3<=5", "true", "numeric ≤"),
+                ("5>=9", "false", "numeric ≥"),
+                ("'a'!='b'", "true", "inequality"),
+                (
+                    "$if%(4==4,'match','differ')",
+                    "match",
+                    "branch on a comparison",
+                ),
+                (
+                    "$fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))",
+                    "2",
+                    "count how many pass a predicate (compare → map → fold)",
+                ),
+            ],
+        ),
+        (
             "trains — tacit (point-free) composition",
             &[
                 (
