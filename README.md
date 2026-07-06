@@ -276,7 +276,11 @@ nlir -e "(# & ~)%'the login page is broken'"         # fork: subject & gist, in 
 
 Mix in the LLM lenses and the core becomes a language for **algorithms on
 meaning**: `$if%('prod is down'~>'an incident','page on-call','all clear')` routes
-by an AI judgment with deterministic control flow. See
+by an AI judgment with deterministic control flow. And because a bare operator
+pulls its input from the stack, nlir is **pipeline-native** — `echo "the login page
+is broken" | nlir -e '~'` summarises the piped text, `| nlir -e '#'` gives its
+subject, `| nlir -e '?'` turns it into a question: a Unix filter for meaning, not
+just numbers. See
 [composable-core.md](docs/design/composable-core.md) for the full design.
 
 ## CLI surface
