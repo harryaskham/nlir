@@ -24,6 +24,10 @@ import argparse, importlib.util, os, pathlib, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BS_PATH = ROOT / "scripts" / "build-showcase.py"
+# Verify against the canonical, complete config (all shipped operators incl. the
+# latest comparison/basics ops) rather than whatever machine-local
+# ~/.config/nlir/config.yaml happens to exist — makes the gate deterministic.
+CONFIG = ROOT / "config.example.yaml"
 
 
 def load_cards():
@@ -35,6 +39,8 @@ def load_cards():
 
 def run(nlir: str, expr: str, mode: str, timeout: int) -> tuple[bool, str]:
     cmd = [nlir, "-e", expr, "--mode", mode, "--quiet"]
+    if CONFIG.exists():
+        cmd += ["--config", str(CONFIG)]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:

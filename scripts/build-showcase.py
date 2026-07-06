@@ -90,6 +90,8 @@ SIMPLE = [
          cap="$if branches on an LLM condition — `~>` asks 'is this an incident?' and routes: prod-down → 'page the on-call now'; a typo → 'all clear'. deterministic control flow, fuzzy condition"),
     dict(name="sort", expr="$sort%[3,1,2,5,4]", pill="det · $sort — reorder", out="1\n2\n3\n4\n5",
          cap="$sort orders a list — [3,1,2,5,4]→[1,2,3,4,5]. with $nth (index) + $if (branch), programs can reorder + pick + branch now, not just transform/reduce"),
+    dict(name="count", expr="$fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))", pill="det · count-matching (compare→map→fold)", out="2",
+         cap="count how many pass a test, no loop — map ≥5 over the list (→ true/false), then fold-sum with true=1 → 2. comparison + map + fold compose into a counter"),
     dict(name="glyph-steelman", expr="⇑'we should just merge it now'", pill="glyph-op · your macro as one symbol", config_op=True,
          out="The recommendation is to proceed with the merge now, as all conditions are met and further delay would add risk.",
          cap="define ⇑ = {~(>@$0)} once — the whole steelman chain (formalise→expand→distil) becomes ONE symbol you own. your saved recipes become verbs, not re-typed prompts"),
