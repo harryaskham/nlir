@@ -110,6 +110,18 @@ transformations differ by mode.
   pop.
 - **nullary-pop** — a config op with no operands pops the stack (arity-`k` pops
   `k`; variadic pops all).
+- **nullary-fallback (parser)** — a prefix operator with **no available operand**
+  (next token is a terminator `) , ] ;` / EOF, or an infix/postfix op that can't
+  start an operand) parses as a **nullary Apply** instead of erroring, then uses
+  nullary-pop to take its operand(s) from the stack. So the prefix-erroring ops
+  (`? Δ ~>`) become stack-pullable. *Zero-regression:* this only converts a former
+  parse **error** (op with no operand) — every operand-bearing prefix parse
+  (`~foo`, `@(~x)`, trains) is byte-identical. **Loud** stack-underflow error if the
+  stack lacks the operand (never silent-empty).
+- **`$_stdin` on the stack** — when input is piped (`… | nlir`), the evaluator seeds
+  the premise stack at position 0 with the piped `_stdin` value, so a bare operator
+  pulls it: `echo "the login page is broken" | nlir -e '~'` → its summary,
+  `| nlir -e '#'` → its subject, `| nlir -e '?'` → it turned into a question.
 
 ### Context: read & assign
 - **`$name`** — read `context[name]` (typed; `$_messages` is the array).
