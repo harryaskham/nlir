@@ -212,6 +212,9 @@ impl Value {
             TypeName::String => Some(Value::String(self.render(sep))),
             TypeName::Number => match self {
                 Value::String(s) => parse_number_str(s).map(Value::Number),
+                // A bool counts as 1/0, so `$fold%({$0+$1}, [bool…])` sums the
+                // trues — the correctness-gate count idiom over a bool predicate.
+                Value::Bool(b) => Some(Value::Number(if *b { 1.0 } else { 0.0 })),
                 _ => None,
             },
             TypeName::Bool => match self {
@@ -658,6 +661,15 @@ mod tests {
             Value::string("ten").coerce_deterministic(TypeName::Number, "\n"),
             None
         );
+        // A bool counts as 1/0 (the correctness-gate sum idiom).
+        assert_eq!(
+            Value::bool(true).coerce_deterministic(TypeName::Number, "\n"),
+            Some(Value::number(1.0))
+        );
+        assert_eq!(
+            Value::bool(false).coerce_deterministic(TypeName::Number, "\n"),
+            Some(Value::number(0.0))
+        );
     }
 
     #[test]
@@ -726,13 +738,10 @@ mod tests {
             Value::list(vec![Value::number(1.0)]).coerce_deterministic(TypeName::Number, "\n"),
             None
         );
-        // number -> bool and bool -> number: no deterministic rule.
+        // number -> bool: no deterministic rule. (bool -> number DOES coerce to
+        // 1/0 now — see coerce_string_to_number_parses_numeric_text.)
         assert_eq!(
             Value::number(1.0).coerce_deterministic(TypeName::Bool, "\n"),
-            None
-        );
-        assert_eq!(
-            Value::bool(true).coerce_deterministic(TypeName::Number, "\n"),
             None
         );
         // scalar -> list: no deterministic rule.
