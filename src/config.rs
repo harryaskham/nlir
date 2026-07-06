@@ -283,6 +283,10 @@ impl OperatorConfig {
                 ReduceOp::Pow => "a to the power b",
                 ReduceOp::Concat => "concatenation of the string operands",
                 ReduceOp::Split => "split a string by a separator into a list",
+                ReduceOp::Eq => "true if the two operands are equal",
+                ReduceOp::Ne => "true if the two operands differ",
+                ReduceOp::Le => "true if the first is ≤ the second (numeric)",
+                ReduceOp::Ge => "true if the first is ≥ the second (numeric)",
             }
             .to_string();
         }
@@ -468,6 +472,14 @@ pub enum ReduceOp {
     Concat,
     /// Split a string by a separator into a list (`//`, binary).
     Split,
+    /// Value equality (`==`, binary): true when the two operands render equal.
+    Eq,
+    /// Value inequality (`!=`, binary): true when the two operands render unequal.
+    Ne,
+    /// Numeric less-than-or-equal (`<=`, binary) → bool.
+    Le,
+    /// Numeric greater-than-or-equal (`>=`, binary) → bool.
+    Ge,
 }
 
 /// Operator arity: a fixed count, or `>0` (one-or-more, variadic).
@@ -1118,13 +1130,20 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
         if op.op.is_empty() {
             errs.push(ValidationError::new(&loc, "`op` must not be empty"));
         } else {
-            for c in op.op.chars() {
-                if RESERVED_SIGILS.contains(&c) {
-                    errs.push(ValidationError::new(
-                        &loc,
-                        format!("op {:?} collides with reserved builtin sigil {c:?}", op.op),
-                    ));
-                }
+            // The lexer dispatches on the FIRST char: a hardcoded builtin sigil is
+            // intercepted before operator longest-match, so an op that STARTS with
+            // one cannot lex and is rejected — EXCEPT a multi-char op starting with
+            // `=`, which the lexer longest-matches (`==`) while keeping a lone `=`
+            // as assignment (msm-0 @3b9a291). A reserved char in a LATER position
+            // (`>=`, `<=`, `!=` extending `>` `<` `!`) is fine: longest-match
+            // consumes the whole sigil from its non-reserved first char.
+            let first = op.op.chars().next();
+            let single = op.op.chars().count() == 1;
+            if first.is_some_and(|c| RESERVED_SIGILS.contains(&c) && (c != '=' || single)) {
+                errs.push(ValidationError::new(
+                    &loc,
+                    format!("op {:?} collides with a reserved builtin sigil", op.op),
+                ));
             }
             if let Some(prev) = seen_ops.get(op.op.as_str()) {
                 errs.push(ValidationError::new(

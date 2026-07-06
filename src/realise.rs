@@ -67,9 +67,23 @@ pub fn reduce(op: ReduceOp, operands: &[Value]) -> Result<Value, RealiseError> {
     match op {
         ReduceOp::Concat => return Ok(concat(operands)),
         ReduceOp::Split => return split(op, operands),
+        ReduceOp::Eq => return compare_eq(op, operands, false),
+        ReduceOp::Ne => return compare_eq(op, operands, true),
         _ => {}
     }
     let nums = numbers(op, operands)?;
+    // Numeric comparisons need the coerced numbers but yield a bool, not a number.
+    match op {
+        ReduceOp::Le => {
+            let (a, b) = binary(op, &nums)?;
+            return Ok(Value::bool(a <= b));
+        }
+        ReduceOp::Ge => {
+            let (a, b) = binary(op, &nums)?;
+            return Ok(Value::bool(a >= b));
+        }
+        _ => {}
+    }
     let result = match op {
         ReduceOp::Add => {
             require_min(op, &nums, 1)?;
@@ -94,9 +108,29 @@ pub fn reduce(op: ReduceOp, operands: &[Value]) -> Result<Value, RealiseError> {
             let (a, b) = binary(op, &nums)?;
             a.powf(b)
         }
-        ReduceOp::Concat | ReduceOp::Split => unreachable!("string ops handled above"),
+        ReduceOp::Concat
+        | ReduceOp::Split
+        | ReduceOp::Eq
+        | ReduceOp::Ne
+        | ReduceOp::Le
+        | ReduceOp::Ge => unreachable!("string/comparison ops handled above"),
     };
     Ok(Value::number(result))
+}
+
+/// Value equality for `==` / `!=` (binary): compares the two operands by their
+/// canonical render, so numbers, strings, and bools all compare by text
+/// (`5 == 5.0` is true since both render "5"). `negate` yields `!=`.
+fn compare_eq(op: ReduceOp, operands: &[Value], negate: bool) -> Result<Value, RealiseError> {
+    if operands.len() != 2 {
+        return Err(RealiseError::Arity {
+            op,
+            expected: "exactly 2",
+            got: operands.len(),
+        });
+    }
+    let eq = operand_str(&operands[0]) == operand_str(&operands[1]);
+    Ok(Value::bool(eq ^ negate))
 }
 
 /// Concatenate the string renders of every operand (`++`, variadic). The eval

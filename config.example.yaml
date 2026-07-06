@@ -362,6 +362,46 @@ operators: # `%` = operand under replacement; `%%` = literal %
     operands: string
     result: list
     reduce: split
+  equals:
+    op: "=="
+    description: |
+      True when the two operands are equal (compares their rendered value): 5 == 5 -> true, 3 == 4 -> false.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: string
+    result: bool
+    reduce: eq
+  not-equals:
+    op: "!="
+    description: |
+      True when the two operands are not equal (compares their rendered value): 3 != 4 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: string
+    result: bool
+    reduce: ne
+  at-most:
+    op: "<="
+    description: |
+      True when the first operand is at most the second (numeric): 3 <= 5 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: number
+    result: bool
+    reduce: le
+  at-least:
+    op: ">="
+    description: |
+      True when the first operand is at least the second (numeric): 5 >= 3 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: number
+    result: bool
+    reduce: ge
 
   # Glyph operators (bd-44c294): bind ANY sigil (a word, or a multibyte glyph —
   # no ASCII-scarcity cost, like Δ) to a FORM or a BUILTIN, as an alt to
@@ -379,6 +419,15 @@ tests:
   det-not: { mode: det, expr: "!foo", expected: "not foo" }
   det-and: { mode: det, expr: "a&b&c", expected: "a and b and c" }
   det-or: { mode: det, expr: "a|b", expected: "a or b" }
+  # comparison ops: == != <= >= — all deterministic, result: bool. `==` lexes as
+  # one op via the lexer longest-match tweak (a lone `=` stays assignment).
+  det-eq:       { mode: det, expr: "5 == 5", expected: "true" }
+  det-eq-false: { mode: det, expr: "3 == 4", expected: "false" }
+  det-ne:       { mode: det, expr: "3 != 4", expected: "true" }
+  det-ne-false: { mode: det, expr: "4 != 4", expected: "false" }
+  det-le:       { mode: det, expr: "3 <= 5", expected: "true" }
+  det-le-false: { mode: det, expr: "5 <= 3", expected: "false" }
+  det-ge:       { mode: det, expr: "5 >= 3", expected: "true" }
   # det coverage for the formerly-llm-only text lenses + semantic ops (their
   # trivial template det-stubs, so `nlir test` covers EVERY operator offline).
   det-subject:     { mode: det, expr: "#'x'",      expected: "subject: x" }
