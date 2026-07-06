@@ -505,14 +505,18 @@ impl Parser<'_> {
             // Infix `form % args` form-application (bd-5dd86f): apply the LHS form
             // to the RHS args. Binds tight (APPLY_PRIORITY), so `~f%x` = `~(f%x)`
             // and `f%x+1` = `(f%x)+1`. A List RHS (`[x,y]` or a `(x,y)` tuple)
-            // spreads as multiple args; any other RHS is a single arg.
+            // spreads as multiple args; any other RHS is a single arg. RIGHT-
+            // associative (bd-2f4d5e, Harry-greenlit): `f%g%x` = `f%(g%x)` — the
+            // compositional reading (J/APL apply associates right), so
+            // `$sort%$map%(f,l)` = `$sort%($map%(f,l))`. Only bare `%`-chaining is
+            // affected; parens/nesting/trains are unchanged.
             if matches!(self.peek(), Some(Token::Percent)) {
                 let l_bp = bp(APPLY_PRIORITY);
                 if l_bp < min_bp {
                     break;
                 }
                 self.pos += 1;
-                let rhs = self.expr(l_bp + 1)?;
+                let rhs = self.expr(l_bp)?;
                 let args = match rhs {
                     Expr::List(items) => items,
                     other => vec![other],

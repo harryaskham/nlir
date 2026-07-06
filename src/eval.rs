@@ -3010,6 +3010,28 @@ operators:
     }
 
     #[test]
+    fn apply_is_right_associative() {
+        // `%` is right-associative (bd-2f4d5e, Harry-greenlit): `f%g%x` = `f%(g%x)`,
+        // the compositional reading. So bare `%`-chaining a builtin over another
+        // builtin's result now composes instead of silently mis-parsing. Only bare
+        // `%`-chaining is affected — parens/nesting/trains are unchanged.
+        let cfg = config::parse_str(
+            "operators:\n  mul: { op: \"*\", arity: \">0\", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }\n",
+            Path::new("ra.yaml"),
+        )
+        .unwrap();
+        let check = |src: &str, expected: &str| {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = evaluate(src, &cfg, &mut ctx, Mode::Det).expect(src);
+            assert_eq!(out.render(&ctx.sep()), expected, "for {src}");
+        };
+        // bare `%`-chain now reads right: $sort%$map%(...) = $sort%($map%(...)).
+        check("$sort%$map%({$0*$0},[3,1,2])", "1\n4\n9");
+        // explicit parens still give the same result (unchanged).
+        check("$sort%($map%({$0*$0},[3,1,2]))", "1\n4\n9");
+    }
+
+    #[test]
     fn evaluate_async_matches_sync_eval_in_det_mode() {
         // The async entry (bd-bec201) must produce identical results to the sync
         // path when no effectful realisation is reached. Driven with the
