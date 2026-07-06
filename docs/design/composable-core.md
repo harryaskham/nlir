@@ -87,6 +87,18 @@ $nth%(0,  $sort%[3,1,4,1,5])                                  => 1    (min)
 
 # P11 — BRANCH on a det comparison (@f2a50d5 + @2521bf1): deterministic control flow.
 $if%(3<=5, yes, no)                                           => yes
+
+# P12 — CORRECTNESS COUNT (det ~>, @e490e58): fuzzy "contains 'correct'" → det count, no llm.
+$fold%({$0+$1}, $map%({$0~>"correct"}, ["is correct","is wrong","also correct"]))  => 2
+
+# P13 — CAPSTONE grade+branch (aur-0): FIVE primitives in one line, all det.
+$if%($fold%({$0+$1}, $map%({$0~>'ok'}, ['task ok','task bad','job ok']))>=2, 'PASS', 'FAIL')  => PASS
+
+# P14 — smallest passing: filter→sort→nth (filter + comparison + sort + index).
+$nth%(0, $sort%($filter%({$0>=5}, [3,8,5,2,9])))             => 5
+
+# P15 — max of squares: map→sort→nth (order statistic over a transform).
+$nth%(-1, $sort%($map%({$0*$0}, [3,1,4,2])))                 => 16
 ```
 
 P5 is the flagship: **length is not a primitive** — it *falls out* of
@@ -105,8 +117,10 @@ $fold%({~($0 & $1)}, $map%({~$0}, $filter%({$0 ~> 'urgent'}, msgs)))
 ```
 
 det scaffold (`filter`/`map`/`fold`) + fuzzy per-step (`~>` classify, `~` gist,
-`&` weave). The det scaffold works now (**filter landed @d7f6f6c**); the `~>`
-classify awaits its det-bool stub (aur-0's semantic-op category, §3.2).
+`&` weave). Now FULLY det-runnable — `~>` got a det-bool stub (@e490e58,
+contains): `$fold%({$0++"|"++$1}, $map%({$0++"!"}, $filter%({$contains%($0,"urgent")}, msgs)))`
+→ `urgent A!|urgent C!` (the whole structure runs offline; swap `~`/`&` for the
+fuzzy gist/weave in llm mode).
 
 ---
 
@@ -116,10 +130,13 @@ Ranked by aur-0: **trains #1, filter #2, scan #3.** During this loop the whole
 core LANDED: **filter + scan** @d7f6f6c, **trains** (atop + fork)
 @d903823/@bbe15c2, and the **basics** — `$if`/`$nth`/`$sort` @f2a50d5, signed
 literals @4499f58, **comparisons** `== != <= >=` @2521bf1 — so the deterministic
-control-flow backbone is complete (the count idiom, §2 P9). **Remaining
-follow-ups:** tacit application without `%` (§3.1), the `~>` det-bool stub
-(§3.2), a right-associative `%` (unanimous, awaiting greenlight), and **zip**
-(§3.4, a candidate).
+control-flow backbone is complete (the count idiom, §2 P9), and `~>` got a
+det-bool stub (@e490e58) so even fuzzy-classify → det-count runs offline (§2 P12).
+**The composable seed is COMPLETE** (msm-0 — no more primitives, per Harry's
+"don't add every function"; aur-0 + msm-0 stress-validated 4–5-primitive
+compositions, zero footguns). **Remaining follow-ups are ergonomics only:** tacit
+application without `%` (§3.1, gated on `$_stdin`-on-stack), a right-associative
+`%` (unanimous, awaiting greenlight), and **zip** (§3.4, a candidate).
 
 ### 3.1 Trains / point-free composition (#1) — LANDED @d903823 + @bbe15c2
 
@@ -153,8 +170,10 @@ $filter%({pred}, xs)  — keep xs[i] where pred(xs[i]) is truthy → a List.
   `[1,2,3]` (0/empty falsy, nonzero truthy); filter-local, global coercion stays
   strict. Bool literals too: `$filter%({$0}, [true,false,true])` → `[true,true]`.
   The trinity: `$fold%({$0+$1}, $map%({$0*$0}, $filter%({$0}, [1,2,3])))` → `14`.
-- mixed example: `$filter%({$0 ~> 'urgent'}, msgs)` → the urgent subset (awaits
-  the `~>` det-bool stub, aur-0's semantic-op category).
+- mixed example: `$filter%({$0 ~> 'urgent'}, msgs)` → the urgent subset. `~>`
+  now has a det-bool stub (@e490e58, contains), so filter-by-containment runs in
+  det too: `$filter%({$contains%($0,"err")}, ["ok","err 1","err 2"])` →
+  `[err 1, err 2]`.
 
 Completes the functional trinity: the correctness-gate can now **select** the
 passing set, not just count it.
