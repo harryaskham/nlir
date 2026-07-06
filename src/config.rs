@@ -259,6 +259,12 @@ pub struct OperatorConfig {
     /// A BUILTIN this operator is realised by (bd-44c294): `map` or `fold`, so a
     /// glyph can be bound to the higher-order engine (`{$0*$0}↦[1,2,3]`).
     pub builtin: Option<String>,
+    /// A DET-MODE-ONLY realisation FORM (bd-6f9c1d): applied like `form:` but ONLY
+    /// in `Mode::Det`, so an otherwise-llm operator (`~>`) gets a meaningful
+    /// COMPUTED det stub (`{$contains%($0,$1)}` → a real `Value::Bool`) while its
+    /// `model:` still realises in llm mode. Parallel to how `template:` is
+    /// det-only, but computed (a template can only interpolate, not compute).
+    pub det: Option<String>,
 }
 
 impl OperatorConfig {
@@ -1199,7 +1205,8 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
             || op.model.is_some()
             || op.prompt.is_some()
             || op.form.is_some()
-            || op.builtin.is_some();
+            || op.builtin.is_some()
+            || op.det.is_some();
         if !has_realisation {
             errs.push(ValidationError::new(
                 &loc,

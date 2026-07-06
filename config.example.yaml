@@ -259,7 +259,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       %
   implication-check:
     op: "~>"
-    template: "true"  # trivial det-stub (det mode); model realises llm mode. TODO det: field for meaningful bool/diff (msm-0)
+    det: "{$contains%($0,$1)}"  # det mode: does LHS contain RHS -> real Bool (bd-6f9c1d, msm-0); model realises llm mode
     description: |
       Does the LHS imply the RHS? Integrates over &
     arity: 2
@@ -437,7 +437,7 @@ tests:
   det-expanded:    { mode: det, expr: ">'x'",      expected: "expanded: x" }
   det-question:    { mode: det, expr: "'x'?",      expected: "is it the case that x?" }
   det-diff:        { mode: det, expr: "'a'Δ'b'",   expected: "diff: a -> b" }
-  det-implies:     { mode: det, expr: "'a'~>'b'",  expected: "true" }
+  det-implies:     { mode: det, expr: "'the code is correct'~>'correct'",  expected: "true" }
   det-implication: { mode: det, expr: "'a'~>?'b'", expected: "a" }
   det-group: { mode: det, expr: "!(a&b)", expected: "not (a and b)" }
   det-quote: { mode: det, expr: "'one two'", expected: "one two" }

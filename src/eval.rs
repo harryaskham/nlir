@@ -1106,6 +1106,14 @@ impl<'a> Evaluator<'a> {
         if let Some(form_src) = op_cfg.form.as_deref() {
             return self.apply_form_op(form_src, &operands);
         }
+        // A `det:` form is a det-mode-only realisation (bd-6f9c1d): applied like
+        // `form:` but ONLY in Mode::Det, so an llm op (`~>`) gets a computed det
+        // stub (a real Bool) while its model still realises in llm mode.
+        if self.mode == Mode::Det {
+            if let Some(det_src) = op_cfg.det.as_deref() {
+                return self.apply_form_op(det_src, &operands);
+            }
+        }
 
         let sep = self.sep();
         // Coerce each operand to the operator's operand type (bd-dd7b5e).
@@ -1342,6 +1350,16 @@ impl<'a> Evaluator<'a> {
                 let result = self.eval_async(&body, realiser).await;
                 self.arg_frames.pop();
                 return result;
+            }
+            // Det-mode-only `det:` form (bd-6f9c1d), async twin.
+            if self.mode == Mode::Det {
+                if let Some(det_src) = op_cfg.det.clone() {
+                    let body = self.parse_op_form(&det_src)?;
+                    self.arg_frames.push(operands.clone());
+                    let result = self.eval_async(&body, realiser).await;
+                    self.arg_frames.pop();
+                    return result;
+                }
             }
 
             let sep = self.sep();
@@ -2968,6 +2986,27 @@ operators:
         // $contains — Bool containment predicate (filter/if conds + ~> det).
         check("$contains%('login page broken','broken')", "true");
         check("$contains%('all systems green','broken')", "false");
+    }
+
+    #[test]
+    fn det_field_realises_bool_in_det_mode() {
+        // A `det:` form (bd-6f9c1d) is a det-mode-only COMPUTED realisation: an
+        // otherwise-llm op gets a real Bool in det mode (here via $contains),
+        // unblocking the correctness-gate count idiom deterministically.
+        let cfg = config::parse_str(
+            "operators:\n  imp: { op: \"⊃\", arity: 2, fixity: infix, priority: 6, det: \"{$contains%($0,$1)}\" }\n  add: { op: \"+\", arity: \">0\", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }\n",
+            Path::new("d.yaml"),
+        )
+        .unwrap();
+        let check = |src: &str, expected: &str| {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = evaluate(src, &cfg, &mut ctx, Mode::Det).expect(src);
+            assert_eq!(out.render(&ctx.sep()), expected, "for {src}");
+        };
+        check("'the login page is broken' ⊃ 'broken'", "true");
+        check("'all systems green' ⊃ 'broken'", "false");
+        // count idiom over a det: bool op: how many contain 'e'? bed,red -> 2.
+        check("$fold%({$0+$1},$map%({$0 ⊃ 'e'},['bed','cat','red']))", "2");
     }
 
     #[test]
