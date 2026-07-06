@@ -280,8 +280,19 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
                 i += 1;
             }
             '=' => {
-                tokens.push(Token::Equals);
-                i += 1;
+                // `=` alone is the special assignment (Token::Equals). A configured
+                // 2-char `==` operator longest-matches over it (bd-2f4d5e): `=` is
+                // special-cased HERE, before the operator-sigil longest-match path,
+                // so a bare `==` would otherwise lex as two `=`. `!=`/`<=`/`>=` are
+                // unaffected (they extend `!`/`<`/`>`, which route through
+                // match_operator's longest-first path already).
+                if chars.get(i + 1) == Some(&'=') && op_sigils.iter().any(|s| s == "==") {
+                    tokens.push(Token::Operator("==".to_owned()));
+                    i += 2;
+                } else {
+                    tokens.push(Token::Equals);
+                    i += 1;
+                }
             }
             '$' => {
                 let (tok, next) = lex_dollar(&chars, i)?;
@@ -805,6 +816,29 @@ mod tests {
                 .unwrap_err()
                 .message
                 .contains("unterminated")
+        );
+    }
+
+    #[test]
+    fn double_equals_beats_special_assignment() {
+        // `==` (a configured op) longest-matches over the special single `=`
+        // assignment (bd-2f4d5e); `=` alone stays Token::Equals.
+        let ops = ops(&["=="]);
+        assert_eq!(
+            tokenize("a==b", &ops).unwrap(),
+            vec![
+                Token::Bare("a".to_owned()),
+                Token::Operator("==".to_owned()),
+                Token::Bare("b".to_owned()),
+            ]
+        );
+        assert_eq!(
+            tokenize("x=1", &ops).unwrap(),
+            vec![
+                Token::Bare("x".to_owned()),
+                Token::Equals,
+                Token::Bare("1".to_owned()),
+            ]
         );
     }
 
