@@ -67,6 +67,20 @@ Where the subject is piped in (a diff, code, an error), the same lenses apply to
 | "review this code" | `<code> \| nlir -e '@&[~$_stdin,‹points›]'` | formal weave of gist + review points |
 | "what's the likely fix?" | `<err> \| nlir -e '~(>"the most likely fix for: $_stdin")'` | expand a fix hypothesis, then distil |
 
+**Tacit stdin (post-`@a74f6d4`):** a bare *operator* with nothing left to consume
+now pulls stdin off the stack, so explicit `$_stdin` is optional for the simple
+case — `git diff | nlir -e '~'` gists the piped diff, `… | nlir -e '#'` names it,
+`… | nlir -e '?'` poses it as a yes/no question, and adjacent prefix ops compose
+(`… | nlir -e '@~'` = formal∘gist of stdin).
+
+**Operator-vs-form boundary (correct-by-design):** a bare *form/train* is a
+first-class VALUE and evaluates to *itself*, so `… | nlir -e '(: & #)'` returns
+the form `{((: $0) & (# $0))}`, **not** its application. To run a train/form over
+piped input, apply it explicitly: `… | nlir -e '(: & #)%$_stdin'`. Nullary-fallback
+is scoped to operators, not forms (this keeps *forms-are-values* sharp — you can
+still emit a form as output). An operator with an empty stack errors **loudly**
+(`stack error: needs N value(s)`), never silent-empty.
+
 The exhaustive coding-idiom catalogue + showcase cards live in the coding-pipe
 lane (aur-0 cards/cookbook, aur-2 phrasebook); this doc keeps a representative
 set and focuses on the *design gaps* below.
