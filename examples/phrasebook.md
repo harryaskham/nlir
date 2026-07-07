@@ -270,6 +270,55 @@ same map / fold / if machinery as everything else.
 
 ---
 
+## Generation — write new text with `=>`
+
+The lanes above **restyle** text with fixed verbs (`@` formal · `:` plain · `~` terse). **`=>`** is
+the OPEN verb: it takes its operand as an **instruction** and returns *only the result of following
+it* — free generation, not a fixed transform. It's the llm twin of `@` (the `@`↔`=>` duality): `@`
+restyles text you already have, `=>` **writes new text to order**. `=>` is llm-only; its `det` stub
+just echoes the (interpolated) instruction, so `--mode det` stays green and the structure is
+verifiable offline.
+
+**OBEYS — it does exactly what the instruction says, including format/length constraints:**
+
+    =>"write exactly: shipped"                  → shipped
+    =>"a haiku about shipping code on friday"   → Tests are green, ship it—
+                                                  what could go wrong on Friday?
+                                                  Pager screams at dawn.
+
+The generative frame ("treat the operand as an INSTRUCTION, return ONLY the result — no preamble,
+obey any length/format constraint") lives in the **model config, not the op**, so `=>` obeys by
+construction — even on weaker models. (`--mode det` echoes the stub: `=>"write exactly: shipped"`
+→ `response: write exactly: shipped`.)
+
+**INTERPOLATE — double quotes splice live values into the instruction:**
+
+A `"double-quoted"` operand interpolates `$name` bindings and `$_stdin` **before** the model sees it;
+`'single quotes'` are literal (a literal `$name` reaches the model unchanged). That's what makes `=>`
+context-aware — the **reply-generation idiom** is: SELECT a turn, then `=>` writes the reply.
+
+    t=^-1;=>"a one-sentence reply, agreeing and offering to help, to: $t"
+    → Sounds great — happy to help by drafting test cases for the `.`/`..` accessors or reviewing
+      the Dict API design as you go, just let me know what'd be most useful this afternoon.
+
+`^-1` selects the last turn, `t=…` binds it, and `"…: $t"` splices it into the instruction.
+
+**COMPOSE — `=>` is a normal operand, so it drops straight into the composer:**
+
+Generate several pieces, then weave them into one coherent text — pipe in a proposal and
+acknowledge-then-counter it in a single formal reply:
+
+    <proposal> | @&[=>"a brief acknowledgement of: $_stdin", =>"a one-sentence gentle counter to: $_stdin"]
+    → Agreed — Friday will work well. I would suggest that we release the stable core on that day
+      and defer any higher-risk elements until Monday, so as to avoid troubleshooting over the weekend.
+
+SELECT ∘ GENERATE ∘ COMPOSE: pick the input, `=>` writes the pieces, `@&[…]` weaves them into one
+— the fixed transforms and the open verb in the same one-liner.
+
+→ `examples/move-aur2-generate.sh` · `nlir help` (INSTRUCTION-FOLLOWING) · SPEC operator table · design `docs/design/agent-vocabulary.md` §3d
+
+---
+
 ## See it / run it
 - **Cards** (sigils rendered literally + typeably): `showcase/` → the GitHub Pages `showcase.html` gallery.
 - **Run any move for real**: `bash examples/move-<lane>-<name>.sh`.
