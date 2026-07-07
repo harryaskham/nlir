@@ -57,6 +57,26 @@ And with quoted forms, nlir is now *programmable* — quote an expression with n
 
 ![named lambda — define a communicative function once, reuse it on any update](showcase/nlir-named-lambda.png)
 
+### Why nlir, not a prompt?
+
+The moves above shine — but a chatbot can draft prose too. What a plain prompt *can't*
+do cleanly is nlir's signature: **mix exact computation with fuzzy judgment**, reach a
+precise **semantic** target in a few sigils, and do it **mid-pipe**.
+
+![fuzzy-sum — the model reads each fuzzily-worded count, the exact + sums them](showcase/nlir-fuzzy-sum.png)
+
+`{$0+$1}⊘(['3 apples','5 oranges','2 pears'])` → `10`. The model fuzzy-reads each count;
+the exact `+` sums them. No single tool does "sum these fuzzily-worded lines," and a raw
+prompt can't be trusted to add. As a pipe stage: `cat items | nlir -e '{$0+$1}⊘($_stdin//"\n")'`.
+
+The `.`↔`..` duality — **structural** access (exact, offline) vs **semantic** access (the
+LLM twin) — reaches the same target two ways:
+
+| | |
+|---|---|
+| ![structural access](showcase/nlir-structural-access.png) | ![semantic access](showcase/nlir-semantic-access.png) |
+| `[Mercury,Venus,Earth,Mars].2` → `Earth` — count a real list | `'the planets from the sun'..3` → `Earth` — index a *described* one (golfs to `sol..3`, six chars) |
+
 The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
 [`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
 HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):
