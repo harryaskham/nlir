@@ -73,13 +73,20 @@ case — `git diff | nlir -e '~'` gists the piped diff, `… | nlir -e '#'` name
 `… | nlir -e '?'` poses it as a yes/no question, and adjacent prefix ops compose
 (`… | nlir -e '@~'` = formal∘gist of stdin).
 
-**Operator-vs-form boundary (correct-by-design):** a bare *form/train* is a
-first-class VALUE and evaluates to *itself*, so `… | nlir -e '(: & #)'` returns
-the form `{((: $0) & (# $0))}`, **not** its application. To run a train/form over
-piped input, apply it explicitly: `… | nlir -e '(: & #)%$_stdin'`. Nullary-fallback
-is scoped to operators, not forms (this keeps *forms-are-values* sharp — you can
-still emit a form as output). An operator with an empty stack errors **loudly**
-(`stack error: needs N value(s)`), never silent-empty.
+**Form application on a pipe (post-`@7d173e6`, tacit form application):** a bare
+*form/train* over piped input now auto-applies to the seed —
+`echo notes | nlir -e '(: & #)'` runs the simplify&subject fork on stdin (no
+explicit `%$_stdin` needed). When there is NO piped seed, a bare form is still a
+first-class VALUE and evaluates to *itself* (`nlir -e '{:$0}'` → `{(: $0)}`), so
+you can still emit a form as output — *forms-are-values* holds, scoped by
+seed-depth. Explicit `… | nlir -e '(: & #)%$_stdin'` also still works. An operator
+with an empty stack errors **loudly** (`stack error: needs N value(s)`), never
+silent-empty.
+
+**Gotcha — hyphenated bare words:** bare `-` is subtraction, so `on-call` lexes as
+`on - call` (→ `cannot coerce string \`on\` to number`). Quote hyphenated words:
+`'on-call'`, `'fix-the-bug'`. (Not a gap — `-` is a real operator; quoting is the
+fix, same as any word you want kept literal.)
 
 The exhaustive coding-idiom catalogue + showcase cards live in the coding-pipe
 lane (aur-0 cards/cookbook, aur-2 phrasebook); this doc keeps a representative
