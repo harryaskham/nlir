@@ -306,8 +306,8 @@ semantics, mirrored by `nlir help` and the
 
 | op | name | fixity · arity | what it does |
 |---|---|---|---|
-| `↦` | map | infix · 2 | Apply the left form to each item of the right list: `{$0*$0}↦[1,2,3]` → `[1,4,9]`. Alias for `$map%`. |
-| `⊘` | fold | infix · 2 | Reduce the right list with the left binary form: `{$0+$1}⊘[1,2,3,4]` → `10`. Alias for `$fold%`. |
+| `↦` | mapop | infix · 2 | Apply the left form to each item of the right list: `{$0*$0}↦[1,2,3]` → `[1,4,9]`. Alias for `$map%`. |
+| `⊘` | foldop | infix · 2 | Reduce the right list with the left binary form: `{$0+$1}⊘[1,2,3,4]` → `10`. Alias for `$fold%`. |
 
 **Instruction-following (generation)** — the third category. Here the operand is
 an *instruction to obey*, not text to reshape. This is the generative direction of
