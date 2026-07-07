@@ -2174,6 +2174,15 @@ fn value_to_json(value: &Value) -> Json {
         }
         Value::Bool(flag) => Json::Bool(*flag),
         Value::List(items) => Json::Array(items.iter().map(value_to_json).collect()),
+        // A dict persists as a plain JSON object (string keys → converted
+        // values), so it round-trips through context storage (bd-27739b).
+        Value::Dict(pairs) => {
+            let mut map = serde_json::Map::new();
+            for (key, val) in pairs {
+                map.insert(key.clone(), value_to_json(val));
+            }
+            Json::Object(map)
+        }
         // A form persists as a TAGGED JSON object carrying its body source, so
         // it round-trips back to a Value::Form on read (bd-5dd86f) — this is what
         // makes named lambdas/macros work (`f={form};$f%args`). The read side
@@ -2233,6 +2242,8 @@ fn value_is_truthy(v: &Value) -> bool {
         Value::Bool(b) => *b,
         Value::Number(n) => *n != 0.0,
         Value::List(items) => !items.is_empty(),
+        // A dict is truthy when it has at least one pair (like a non-empty list).
+        Value::Dict(pairs) => !pairs.is_empty(),
         Value::Form(_) => true,
         Value::String(s) => {
             let t = s.trim();

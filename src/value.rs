@@ -44,6 +44,13 @@ pub enum Value {
     /// An ordered list of values. Renders by joining each element's rendering
     /// with the active separator (`_sep`).
     List(Vec<Value>),
+    /// An insertion-ordered dictionary/record (bd-27739b): string-keyed
+    /// `key=value` pairs (`{k=v, k2=v2}`). Ordered so rendering and tests are
+    /// deterministic. Renders as its pairs (`k=v` per pair) joined with the
+    /// active `_sep`; `→ number` / `→ bool` are loud errors (a dict is never a
+    /// number/bool), the same discipline as `list → number`. The polymorphic
+    /// `.` accessor (bd-27739b, later slice) reads a value by key.
+    Dict(Vec<(String, Value)>),
     /// A quoted form (`{…}`): an unevaluated [`Expr`] carried as a first-class
     /// value (code-as-data). Produced by evaluating an [`Expr::Quote`]; only the
     /// application operator (`%`) consumes it as *callable*. Every other operator
@@ -78,6 +85,12 @@ impl Value {
         Value::List(items)
     }
 
+    /// Construct a [`Value::Dict`] from insertion-ordered `key=value` pairs.
+    #[must_use]
+    pub const fn dict(pairs: Vec<(String, Value)>) -> Self {
+        Value::Dict(pairs)
+    }
+
     /// Construct a [`Value::Form`] from an [`Expr`] (a quoted form / code-as-data).
     #[must_use]
     pub fn form(expr: Expr) -> Self {
@@ -93,6 +106,7 @@ impl Value {
             Value::Number(_) => TypeName::Number,
             Value::Bool(_) => TypeName::Bool,
             Value::List(_) => TypeName::List,
+            Value::Dict(_) => TypeName::Dict,
             Value::Form(_) => TypeName::Form,
         }
     }
@@ -107,6 +121,7 @@ impl Value {
                 | (Value::Number(_), TypeName::Number)
                 | (Value::Bool(_), TypeName::Bool)
                 | (Value::List(_), TypeName::List)
+                | (Value::Dict(_), TypeName::Dict)
                 | (Value::Form(_), TypeName::Form)
         )
     }
@@ -147,6 +162,27 @@ impl Value {
         }
     }
 
+    /// Borrow the inner `key=value` pairs if this is a [`Value::Dict`].
+    #[must_use]
+    pub fn as_dict(&self) -> Option<&[(String, Value)]> {
+        match self {
+            Value::Dict(pairs) => Some(pairs),
+            _ => None,
+        }
+    }
+
+    /// Look up a key in this value if it is a [`Value::Dict`], returning the
+    /// first matching value (keys are unique by construction, but the first is
+    /// returned defensively). `None` for a non-dict or a missing key — callers
+    /// (the `.` accessor) turn a missing key into a loud error, never silent.
+    #[must_use]
+    pub fn dict_get(&self, key: &str) -> Option<&Value> {
+        match self {
+            Value::Dict(pairs) => pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
     /// Render this value to its canonical string form using `sep` to join list
     /// elements (SPEC deterministic `→ string`: numbers/bools/lists stringify
     /// deterministically; lists join with `_sep`).
@@ -165,6 +201,15 @@ impl Value {
             Value::List(items) => items
                 .iter()
                 .map(|item| item.render(sep))
+                .collect::<Vec<_>>()
+                .join(sep),
+            // A dict renders as its `key=value` pairs joined with the active
+            // separator (SPEC: dict → string is its rendered pairs, respecting
+            // `_sep`); each value renders with the same `sep`. Insertion order is
+            // preserved so the rendering is deterministic.
+            Value::Dict(pairs) => pairs
+                .iter()
+                .map(|(k, v)| format!("{k}={}", v.render(sep)))
                 .collect::<Vec<_>>()
                 .join(sep),
             // A form renders WITH braces so bare output/Display reads as a form
@@ -227,6 +272,11 @@ impl Value {
             },
             // No deterministic scalar → list rule (already-list handled above).
             TypeName::List => None,
+            // No deterministic rule constructs a dict from a non-dict value (a
+            // dict is built syntactically, `{k=v}`). Already-dict is handled by
+            // the is_type step above, so this arm is only reached for non-dict
+            // self → dict, which has no deterministic rule.
+            TypeName::Dict => None,
             // No deterministic rule turns a non-form value INTO a form (quoting is
             // syntactic: `{…}`). A form in a non-form slot is handled above via its
             // inner source, so this arm is only reached for non-form self → form.
@@ -268,6 +318,15 @@ impl Value {
         // mode, and never routed to the LLM fallback.
         if matches!((self, target), (Value::List(_), TypeName::Number)) {
             return Err(CoerceError::list_to_number(self, sep));
+        }
+        // A dict is structurally never a number or a bool: a loud error in every
+        // mode, never routed to the LLM fallback (same discipline as list→number
+        // — nlir refuses to guess a scalar out of a record).
+        if matches!(
+            (self, target),
+            (Value::Dict(_), TypeName::Number | TypeName::Bool)
+        ) {
+            return Err(CoerceError::never_type(self, target, sep));
         }
         // Deterministic parses/renders first (SPEC steps 1–2).
         if let Some(value) = self.coerce_deterministic(target, sep) {
@@ -376,6 +435,11 @@ pub enum CoerceErrorKind {
     /// `list → number` — structurally impossible; always an error and never
     /// routed to the LLM coercion path.
     ListToNumber,
+    /// A structurally-impossible target for the source type — always an error
+    /// and never routed to the LLM coercion path (e.g. `dict → number`,
+    /// `dict → bool`: a dict is never a scalar). Distinct from
+    /// [`CoerceErrorKind::Unrepresentable`], which is a soft "no rule matched".
+    NeverType,
     /// No deterministic rule produced the target type and (in `llm` mode) the
     /// LLM coercion fallback did not yield a value either.
     Unrepresentable,
@@ -402,6 +466,18 @@ impl CoerceError {
             from: value.type_name(),
             to: TypeName::Number,
             kind: CoerceErrorKind::ListToNumber,
+            source: bounded_source(value, sep),
+        }
+    }
+
+    /// A structurally-impossible coercion of `value` to `target` (e.g. a dict to
+    /// a number or bool): always an error, never routed to the LLM path.
+    #[must_use]
+    pub fn never_type(value: &Value, target: TypeName, sep: &str) -> Self {
+        Self {
+            from: value.type_name(),
+            to: target,
+            kind: CoerceErrorKind::NeverType,
             source: bounded_source(value, sep),
         }
     }
@@ -436,6 +512,13 @@ impl fmt::Display for CoerceError {
                 "cannot coerce {from} `{src}` to number: a list is never a number",
                 from = self.from,
                 src = self.source,
+            ),
+            CoerceErrorKind::NeverType => write!(
+                f,
+                "cannot coerce {from} `{src}` to {to}: a {from} is never a {to}",
+                from = self.from,
+                src = self.source,
+                to = self.to,
             ),
             CoerceErrorKind::Unrepresentable => write!(
                 f,
@@ -844,5 +927,88 @@ mod tests {
             form.coerce(TypeName::Form, DEFAULT_SEP).unwrap(),
             form.clone()
         );
+    }
+
+    // --- Dict value type (bd-27739b) ---
+
+    #[test]
+    fn dict_type_name_and_is_type() {
+        let d = Value::dict(vec![("k".to_owned(), Value::string("v"))]);
+        assert_eq!(d.type_name(), TypeName::Dict);
+        assert!(d.is_type(TypeName::Dict));
+        assert!(!d.is_type(TypeName::List));
+    }
+
+    #[test]
+    fn dict_renders_pairs_joined_with_sep() {
+        let d = Value::dict(vec![
+            ("k".to_owned(), Value::string("v")),
+            ("n".to_owned(), Value::number(2.0)),
+        ]);
+        // Insertion order preserved; each value rendered with the active sep.
+        assert_eq!(d.render(", "), "k=v, n=2");
+        assert_eq!(d.render("\n"), "k=v\nn=2");
+        // Display uses DEFAULT_SEP.
+        assert_eq!(d.to_string(), "k=v\nn=2");
+        // An empty dict renders as the empty string.
+        assert_eq!(Value::dict(vec![]).render(", "), "");
+    }
+
+    #[test]
+    fn dict_get_reads_key_and_missing_is_none() {
+        let d = Value::dict(vec![
+            ("k".to_owned(), Value::string("v")),
+            ("k2".to_owned(), Value::number(3.0)),
+        ]);
+        assert_eq!(d.dict_get("k"), Some(&Value::string("v")));
+        assert_eq!(d.dict_get("k2"), Some(&Value::number(3.0)));
+        // A missing key is None; the `.` accessor turns that into a loud error,
+        // never silent-empty.
+        assert_eq!(d.dict_get("nope"), None);
+        // dict_get / as_dict on a non-dict is None.
+        assert_eq!(Value::string("x").dict_get("k"), None);
+        assert_eq!(d.as_dict().map(|pairs| pairs.len()), Some(2));
+    }
+
+    #[test]
+    fn coerce_dict_to_string_renders_pairs() {
+        let d = Value::dict(vec![("k".to_owned(), Value::string("v"))]);
+        // → string always succeeds deterministically (its rendered pairs).
+        assert_eq!(d.coerce(TypeName::String, ", "), Ok(Value::string("k=v")));
+        assert_eq!(
+            d.coerce_deterministic(TypeName::String, ", "),
+            Some(Value::string("k=v"))
+        );
+        // → dict is identity.
+        assert_eq!(d.coerce(TypeName::Dict, ", "), Ok(d.clone()));
+    }
+
+    #[test]
+    fn coerce_dict_to_number_or_bool_is_a_loud_never_error() {
+        let d = Value::dict(vec![("k".to_owned(), Value::string("v"))]);
+        // dict → number: structurally impossible — a loud NeverType error, same
+        // discipline as list → number, never routed to the LLM path.
+        let err = d
+            .coerce(TypeName::Number, ", ")
+            .expect_err("dict -> number errors");
+        assert_eq!(err.kind, CoerceErrorKind::NeverType);
+        assert_eq!(err.from, TypeName::Dict);
+        assert_eq!(err.to, TypeName::Number);
+        assert_eq!(
+            err.to_string(),
+            "cannot coerce dict `k=v` to number: a dict is never a number"
+        );
+        // dict → bool: likewise a loud NeverType error.
+        let err_bool = d
+            .coerce(TypeName::Bool, ", ")
+            .expect_err("dict -> bool errors");
+        assert_eq!(err_bool.kind, CoerceErrorKind::NeverType);
+        assert!(
+            err_bool.to_string().contains("a dict is never a bool"),
+            "message: {err_bool}"
+        );
+        // No deterministic rule either (confirms it is never a silent coercion).
+        assert_eq!(d.coerce_deterministic(TypeName::Number, ", "), None);
+        assert_eq!(d.coerce_deterministic(TypeName::Bool, ", "), None);
     }
 }

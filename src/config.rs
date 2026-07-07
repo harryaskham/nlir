@@ -447,6 +447,12 @@ pub enum TypeName {
     Number,
     Bool,
     List,
+    /// An insertion-ordered dictionary/record: string-keyed `key=value` pairs
+    /// (`{k=v, k2=v2}`). A new Value variant (bd-27739b); the polymorphic `.`
+    /// accessor reads a key. Coerces to string as its rendered pairs; `→ number`
+    /// and `→ bool` are loud errors (a dict is never a number/bool), the same
+    /// discipline as `list → number`.
+    Dict,
     /// A quoted form value (`{…}`) — an unevaluated expression carried as data
     /// (code-as-data). Only the application operator (`%`) consumes a form as
     /// *callable*; every other operator sees its rendered inner source (op×Form).
@@ -464,6 +470,7 @@ impl TypeName {
             TypeName::Number => "number",
             TypeName::Bool => "bool",
             TypeName::List => "list",
+            TypeName::Dict => "dict",
             TypeName::Form => "form",
         }
     }
