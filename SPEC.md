@@ -59,9 +59,11 @@ EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval
   (final-display decimal places for numbers, default off = exact/round-tripping;
   display-only, never changes computation), `_seed` (integer reproducibility
   seed threaded into the llm request, unset by default — exported as
-  `${NLIR_SEED}` and injected as the request body's top-level `seed`;
-  OpenAI-compatible backends reproduce output, Anthropic Messages has no native
-  `seed` so it is a harmless no-op there).
+  `${NLIR_SEED}` and injected as the request body's top-level `seed`. Backend-dependent: reproducibility needs
+  a backend that honors `seed`, and no currently-configured backend does (Anthropic
+  Messages has no native `seed`; the reachable OpenAI-compatible model is
+  non-deterministic even at a fixed seed) — so `_seed` is presently a no-op, ready
+  for a seed-honoring backend).
 - **Context writes happen immediately** (write-through to the context file when
   one is active).
 
