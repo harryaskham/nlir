@@ -69,6 +69,22 @@ precise **semantic** target in a few sigils, and do it **mid-pipe**.
 the exact `+` sums them. No single tool does "sum these fuzzily-worded lines," and a raw
 prompt can't be trusted to add. As a pipe stage: `cat items | nlir -e '{$0+$1}⊘($_stdin//"\n")'`.
 
+Its sibling counts instead of sums — `~>` judges each line, the exact `+` totals the trues:
+
+![fuzzy-count — fuzzy filter then exact count](showcase/nlir-fuzzy-count.png)
+
+`{$0+$1}⊘({$0~>'a complaint'}↦['love it','it crashed on save','billing charged me twice'])` → `2`.
+grep can't judge tone; a raw model can't be trusted to count. Together the two are what
+neither a pipe filter nor a prompt does alone.
+
+And routing decides on a fuzzy test — the *same* expression forks two ways by mode:
+
+![fuzzy-decide — route on a fuzzy implication](showcase/nlir-fuzzy-decide.png)
+
+`$if%('the server keeps crashing'~>'urgent','escalate','queue')` → `escalate` in llm
+(crashing *is* urgent) but `queue` in det (no literal "urgent" to keyword-match). The gap
+between the two outputs is exactly what the fuzzy `~>` buys — why nlir, not grep.
+
 The `.`↔`..` duality — **structural** access (exact, offline) vs **semantic** access (the
 LLM twin) — reaches the same target two ways:
 
