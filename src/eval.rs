@@ -1046,6 +1046,9 @@ impl<'a> Evaluator<'a> {
         if name == "access" {
             return self.apply_access(operands);
         }
+        if matches!(name, "union" | "inter" | "diff" | "elem") {
+            return apply_set_op(name, operands, &self.sep());
+        }
         let (body, items) = builtin_op_operands(name, operands)?;
         self.run_higher_order(name, &body, items)
     }
@@ -1530,6 +1533,9 @@ impl<'a> Evaluator<'a> {
             if let Some(builtin) = op_cfg.builtin.clone() {
                 if builtin == "access" {
                     return self.apply_access(&operands);
+                }
+                if matches!(builtin.as_str(), "union" | "inter" | "diff" | "elem") {
+                    return apply_set_op(&builtin, &operands, &self.sep());
                 }
                 let (body, items) = builtin_op_operands(&builtin, &operands)?;
                 return self
@@ -2602,6 +2608,32 @@ fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usi
 /// Extract the `(form-body, items)` for a `builtin:` map/fold glyph operator from
 /// its two already-evaluated operands (bd-44c294): first must be a `{…}` form, the
 /// second a list (a lone non-list value becomes a one-element list).
+/// Apply a set-notation sigil operator (∪/∩/∖/∈, bd-4e72c3) over its two
+/// already-evaluated operands, delegating to the SAME primitives as the
+/// `$union`/`$inter`/`$diff`/`$elem` value-builtins (bd-49d65a) so operator and
+/// builtin forms share one deterministic semantics (dict→keys via `set_items`,
+/// `set_key`-based equality). `∪` here is the binary case; the variadic
+/// `$union%(a,b,c)` stays on the builtin path.
+fn apply_set_op(name: &str, operands: &[Value], sep: &str) -> Result<Value, EvalError> {
+    let [a, b] = operands else {
+        return Err(EvalError::Unsupported(format!(
+            "set operator `{name}` takes 2 operands; got {}",
+            operands.len()
+        )));
+    };
+    Ok(match name {
+        "union" => {
+            let mut all = set_items(a.clone());
+            all.extend(set_items(b.clone()));
+            Value::list(dedup_values(all, sep))
+        }
+        "inter" => Value::list(set_inter(set_items(a.clone()), &set_items(b.clone()), sep)),
+        "diff" => Value::list(set_diff(set_items(a.clone()), &set_items(b.clone()), sep)),
+        "elem" => Value::bool(value_elem(a, b, sep)),
+        _ => unreachable!("unknown set operator: {name}"),
+    })
+}
+
 fn builtin_op_operands(name: &str, operands: &[Value]) -> Result<(Expr, Vec<Value>), EvalError> {
     if operands.len() != 2 {
         return Err(EvalError::Unsupported(format!(
@@ -3332,6 +3364,20 @@ operators:
         assert_eq!(det("$union%([1,2],[2,3])"), "1\n2\n3");
         assert_eq!(det("$union%([a,b],[b,c],[c,d])"), "a\nb\nc\nd");
         assert_eq!(det("$union%[a,b,a,c]"), "a\nb\nc");
+        // bd-4e72c3: set-notation sigil operators (∪ ∩ ∖ ∈) alias the builtins
+        assert_eq!(det("[1,2]∪[2,3]"), "1\n2\n3");
+        assert_eq!(det("[1,2,3]∩[2,4]"), "2");
+        assert_eq!(det("[1,2,3,4]∖[2,4]"), "1\n3");
+        assert_eq!(det("'b'∈[a,b,c]"), "true");
+        assert_eq!(det("'x'∈[a,b,c]"), "false");
+        // operator form == builtin form (one shared semantics)
+        assert_eq!(det("[a,b]∪[b,c]"), det("$union%([a,b],[b,c])"));
+        assert_eq!(det("'k'∈{k=1,j=2}"), det("$elem%('k',{k=1,j=2})"));
+        // dict operands spread to keys (via set_items)
+        assert_eq!(det("{k=1,j=2}∪{j=9,m=3}"), "k\nj\nm");
+        // precedence: ∩ (7) binds tighter than ∪ (6); ∈ (5) loosest
+        assert_eq!(det("[1,2]∪[2,3]∩[3,4]"), "1\n2\n3"); // [1,2] ∪ ([2,3]∩[3,4]) = [1,2]∪[3]
+        assert_eq!(det("2∈[1,2]∪[3,4]"), "true"); // 2 ∈ ([1,2]∪[3,4])
         // dict union operates on keys.
         assert_eq!(det("$union%({a=1,b=2},{b=3,c=4})"), "a\nb\nc");
         // $inter — elements of a also in b (a-order, deduped); empty renders "".

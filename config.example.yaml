@@ -487,6 +487,43 @@ operators: # `%` = operand under replacement; `%%` = literal %
 
       %
 
+  # Set-notation sigil operators (bd-4e72c3) — terse DETERMINISTIC aliases for the
+  # $union/$inter/$diff/$elem value builtins (bd-49d65a), delegating via builtin: like ↦/⊘.
+  # Priority: ∩ (7) binds tighter than ∪/∖ (6) [mirrors × over +]; ∈ (5) sits with the
+  # comparisons (Bool result), so `x ∈ a ∪ b` parses as `x ∈ (a ∪ b)`.
+  setunion:
+    op: "∪"
+    description: |
+      Set union: a ∪ b — order-preserving, deduped. Deterministic glyph alias for $union% (binary case). Dict operands operate on their keys.
+    arity: 2
+    fixity: infix
+    priority: 6
+    builtin: union
+  setdiff:
+    op: "∖"
+    description: |
+      Set difference: a ∖ b — items of a not present in b (deduped, a-order). Deterministic glyph alias for $diff%. (∖ is U+2216 SET MINUS.)
+    arity: 2
+    fixity: infix
+    priority: 6
+    builtin: diff
+  setinter:
+    op: "∩"
+    description: |
+      Set intersection: a ∩ b — items of a also present in b (deduped, a-order). Deterministic glyph alias for $inter%. Binds tighter than ∪/∖.
+    arity: 2
+    fixity: infix
+    priority: 7
+    builtin: inter
+  setelem:
+    op: "∈"
+    description: |
+      Membership: x ∈ coll — true if x is a list element, dict key, or string substring. Bool result. Deterministic glyph alias for $elem% (arg order: item ∈ collection).
+    arity: 2
+    fixity: infix
+    priority: 5
+    builtin: elem
+
 tests:
   det-echo: { mode: det, expr: "xxx_2", expected: "xxx xxx" }
   det-not: { mode: det, expr: "!foo", expected: "not foo" }

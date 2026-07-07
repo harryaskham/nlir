@@ -344,6 +344,10 @@ semantics, mirrored by `nlir help` and the
 |---|---|---|---|
 | `↦` | mapop | infix · 2 | Apply the left form to each item of the right list: `{$0*$0}↦[1,2,3]` → `[1,4,9]`. Alias for `$map%`. |
 | `⊘` | foldop | infix · 2 | Reduce the right list with the left binary form: `{$0+$1}⊘[1,2,3,4]` → `10`. Alias for `$fold%`. |
+| `∪` | setunion | infix · 2 | Set union: `a ∪ b` — order-preserving, deduped. Deterministic alias for `$union%` (binary case). Dict operands → their keys. |
+| `∩` | setinter | infix · 2 | Set intersection: `a ∩ b` — items of `a` also in `b` (deduped, a-order). Alias for `$inter%`. Binds tighter than `∪`/`∖`. |
+| `∖` | setdiff | infix · 2 | Set difference: `a ∖ b` — items of `a` not in `b` (deduped, a-order). Alias for `$diff%`. (`∖` = U+2216 SET MINUS.) |
+| `∈` | setelem | infix · 2 | Membership: `x ∈ coll` → Bool — list element, dict key, or string substring. Alias for `$elem%` (`item ∈ collection`). |
 
 **Instruction-following (generation)** — the third category. Here the operand is
 an *instruction to obey*, not text to reshape. This is the generative direction of
@@ -388,7 +392,7 @@ default `9`), `assoc` (`left`/`right`, default `left`; only meaningful for
 (`# !`) binds above **all binary**; binary follows normal math — `**` > `* /` >
 `+ -` — then string `& |`; the postfix `?` is the deliberate loose exception
 (binds everything to its left); `=` is loosest. Concretely: `^` 20 · `. ..` 16 · `# !` 14 ·
-`** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `↦ ⊘` 8 · `== != <= >=` 5 · `?` 1 · `=` 0
+`** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `↦ ⊘` 8 · `∩` 7 · `∪ ∖` 6 · `∈ == != <= >=` 5 · `?` 1 · `=` 0
 (`nlir help` lists the exhaustive per-op priority; this prose summarises the tiers). prefix takes one right
 operand; postfix takes leftward to its priority; variadic flattens; mixfix unifies
 infix/list/nullary; ties → prefix > infix > postfix. **Associativity:** infix
