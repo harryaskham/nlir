@@ -258,6 +258,27 @@ semantics, mirrored by `nlir help` and the
 | `/` | div | infix · 2 | Quotient, a ÷ b (guards divide-by-zero). |
 | `**` | pow | infix · 2 | a to the power b — right-associative, so `2**3**2` = `2**(3**2)` = 512 (matches math / Python). |
 
+**Instruction-following (generation)** — the third category. Here the operand is
+an *instruction to obey*, not text to reshape. This is the generative direction of
+the language: it expresses *new* thoughts — replies, drafts, answers, "do X" —
+rather than transforming existing text, and because it composes under `&`/`|` like
+any string op it can *build* structured generated thoughts, not just emit a single
+prompt (`(=>a)&(=>b)` joins two generated sentences). It carries its own generative
+system frame (operand = instruction), so it obeys instead of describing, even on
+weaker models — the reason `>"write one word"` merely expands the request while
+`=>"write one word"` writes the word.
+
+| op | name | fixity · arity | what it does |
+|---|---|---|---|
+| `=>` | respond | prefix · 1 | Obeys the instruction in the operand and returns only the result (length/format constraints included). Generative, not transformative; composes under `&`/`\|`; a bare `=>` on a pipe obeys the piped text as the instruction. |
+
+Operands follow the usual quoting rule (§Interpolation): double-quoted operands
+interpolate context, so `=>"one-sentence reply to: $_stdin"` folds a piped message
+into the instruction; single-quoted operands stay literal. This is the
+reply-generation idiom — pipe a message in, `=>` writes the reply — and because
+`=>` composes, `(=>"warm ack: $_stdin") & (=>"gentle counter: $_stdin")` joins two
+generated sentences.
+
 The algebraic laws above (involution, saturation, `?`-absorption, list-folds) are
 **realised-semantics**: they hold in llm realisation — the user-facing output —
 while det mode applies the literal template (`!!a` → "not not a").

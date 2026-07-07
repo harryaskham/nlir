@@ -281,17 +281,23 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
             }
             '=' => {
                 // `=` alone is the special assignment (Token::Equals). A configured
-                // 2-char `==` operator longest-matches over it (bd-2f4d5e): `=` is
-                // special-cased HERE, before the operator-sigil longest-match path,
-                // so a bare `==` would otherwise lex as two `=`. `!=`/`<=`/`>=` are
-                // unaffected (they extend `!`/`<`/`>`, which route through
-                // match_operator's longest-first path already).
-                if chars.get(i + 1) == Some(&'=') && op_sigils.iter().any(|s| s == "==") {
-                    tokens.push(Token::Operator("==".to_owned()));
-                    i += 2;
-                } else {
-                    tokens.push(Token::Equals);
-                    i += 1;
+                // MULTI-char `=`-prefixed operator longest-matches over it (`==`,
+                // and `=>` for the generation op) — bd-2f4d5e, generalized for
+                // bd-d18743 from a hardcoded `==` check to any configured op via
+                // match_operator. `=` is special-cased HERE, before the operator
+                // path, because `=` is itself a builtin sigil and would not route
+                // through match_operator otherwise; the `op.len() > 1` guard keeps
+                // a lone `=` as assignment so it is never shadowed. `!=`/`<=`/`>=`
+                // are unaffected (they extend `!`/`<`/`>`, already longest-matched).
+                match match_operator(&chars, i, op_sigils) {
+                    Some((op, next)) if op.len() > 1 => {
+                        tokens.push(Token::Operator(op));
+                        i = next;
+                    }
+                    _ => {
+                        tokens.push(Token::Equals);
+                        i += 1;
+                    }
                 }
             }
             '$' => {
@@ -838,6 +844,37 @@ mod tests {
                 Token::Bare("x".to_owned()),
                 Token::Equals,
                 Token::Bare("1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn arrow_gen_op_beats_special_assignment() {
+        // A configured `=>` op longest-matches over the special single `=`
+        // assignment (bd-d18743): `=>"x"` must lex as the gen-op + string, not
+        // `=` + `>` + string. A lone `=` still lexes as Token::Equals, and a
+        // bare `>` (no `=` prefix) still lexes as the expand op.
+        let ops = ops(&["=>", ">"]);
+        assert_eq!(
+            tokenize("=>foo", &ops).unwrap(),
+            vec![
+                Token::Operator("=>".to_owned()),
+                Token::Bare("foo".to_owned()),
+            ]
+        );
+        assert_eq!(
+            tokenize("x=1", &ops).unwrap(),
+            vec![
+                Token::Bare("x".to_owned()),
+                Token::Equals,
+                Token::Bare("1".to_owned()),
+            ]
+        );
+        assert_eq!(
+            tokenize(">foo", &ops).unwrap(),
+            vec![
+                Token::Operator(">".to_owned()),
+                Token::Bare("foo".to_owned()),
             ]
         );
     }

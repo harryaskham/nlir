@@ -101,6 +101,15 @@ models:
     format: text
     command: claude --model claude-sonnet-5 --append-system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
 
+  # Generation / instruction-following tier (bd-d18743): mirrors the `sonnet`
+  # (medium) tier but appends the GENERATIVE system frame — operand = instruction
+  # to obey — instead of the transform frame, so the => op obeys by construction.
+  # Point this at whatever backend your `medium` tier uses; only the frame differs.
+  generative:
+    type: command
+    format: text
+    command: claude --model claude-sonnet-5 --append-system-prompt "${NLIR_GENERATIVE_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
+
   opus:
     type: command
     format: text
@@ -123,6 +132,11 @@ prompts:
   system: { env: NLIR_SYSTEM_PROMPT, text: "Perform the following text transformation task.\nRespond with the transformed text in plain language.\nDo not include <text> tags in your output." }
   structured: { env: NLIR_STRUCTURED_PROMPT, text: "Format your response as JSON containing only a \"result\" field with the transformation, no preamble." }
   unstructured: { env: NLIR_UNSTRUCTURED_PROMPT, text: "Output only the text result of your transformation with no preamble." }
+  # Generative / instruction-following frame (bd-d18743). Distinct from `system`:
+  # the operand is an INSTRUCTION to obey, not text to transform. This frame — not
+  # the per-op prompt — is what makes the => op obey rather than describe, so it
+  # stays robust on weaker models.
+  generative:  { env: NLIR_GENERATIVE_SYSTEM_PROMPT, text: "Treat the text inside <text> as an INSTRUCTION and return ONLY the result of following it. No preamble, no explanation, and do not restate the instruction; never describe what you would produce — produce it. Obey any length or format constraint in the instruction exactly. Do not include <text> tags in your output." }
 
 operators: # `%` = operand under replacement; `%%` = literal %
   subject:
@@ -244,6 +258,22 @@ operators: # `%` = operand under replacement; `%%` = literal %
     prompt: |
       Make the text inside <text> more concise while preserving meaning. Return only the shortened text.
 
+      %
+  # Instruction-following / generation (bd-d18743) — the THIRD operator category
+  # alongside TRANSFORM (reshape text) and NUMERIC. The operand is an INSTRUCTION
+  # to obey, not text to reshape, so => expresses NEW thoughts (replies, drafts,
+  # answers) — and composes under &/| like any string op, restoring the
+  # generative half of "programs on thoughts". Uses the `generative` model so the
+  # OBEYS contract is carried by the system frame, not this per-op prompt.
+  respond:
+    op: "=>"  # sigil greenlit by Harry (bd-d18743)
+    template: "response: %"  # det-stub (det mode); generative model+frame realise llm mode
+    description: |
+      Instruction-following / generation: treats <text> as an INSTRUCTION and returns only the result of obeying it (vs the transform ops, which reshape their operand). Expresses NEW text — replies, drafts, answers — and composes under &/| like any string op. Bare => on a pipe obeys the piped text as the instruction.
+    arity: 1
+    fixity: prefix
+    model: generative
+    prompt: |
       %
   diff:
     op: "Δ"
@@ -456,6 +486,7 @@ tests:
   str-split: { mode: det, expr: '_sep=\ ;"a,b,c"//","', expected: "a b c" }
   str-split-chars: { mode: det, expr: '_sep=\ ;"abc"//""', expected: "a b c" }
   str-split-map: { mode: det, expr: '_sep=\ ;$map%({$0++$0},"a,b"//",")', expected: "aa bb" }
+  gen-obeys: { mode: det, expr: "=>'x'", expected: "response: x" }  # det stub for the => generation op (bd-d18743)
   # quote-eval (bd-5dd86f): `{…}` quotes a form — evaluation is INERT (the form is
   # returned as data, not run), it round-trips through render (precedence kept),
   # and a form is a first-class value you can bind to a name and read back.
