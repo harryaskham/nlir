@@ -110,6 +110,9 @@ whole ask, my amendment, my caveat] into one formal reply.
 | plain recap | `:~0^*-1` | whole thread → plain, jargon-free recap | msm-0 |
 | tone knob | `[@~0^*-1, :~0^*-1, ~0^*-1]` | one thread, three registers (formal/plain/terse) | msm-0 |
 | the handoff dossier | `k=@~0^*-1;[$k, ^_-1, ~$k]` | hand off a thread: brief + what's open + a headline | msm-0 |
+| extract a column | `{$0.FIELD}↦[RECORDS]` | pull one field out of every record | msm-0 |
+| sum a column | `{$0+$1}⊘({$0.FIELD}↦[RECORDS])` | total a field across a list of records | msm-0 |
+| addressed pick | `DESCRIBED_LIST..'DESCRIPTOR'` | grab the item a description points to (`..'the largest'`) | msm-0 |
 
 (Full slot rules + more moves per lane below and in each `CATALOG-<lane>.md`.)
 
@@ -194,7 +197,8 @@ SELECT chooses the words, the tone knob chooses the register, the composer choos
 
 `map` and `fold` turn nlir from moves into **small programs**. A form `{…}` is the
 step; `$map%(form, list)` runs it over each item, `$fold%(form, list)` reduces the
-list with it. The **structure is deterministic** — the iteration and the reduction are
+list with it — and the glyphs **↦** / **⊘** are terser aliases (`{$0*$0}↦[1,2,3]` = map,
+`{$0+$1}⊘[1,2,3]` = fold). The **structure is deterministic** — the iteration and the reduction are
 pure — while the **step is where det or llm plugs in**. That split is the whole point:
 exact scaffolding, fuzzy steps. (A list result renders as its elements, one per line —
 not bracketed — so it stays a first-class operand and `fold∘map` pipelines compose.)
@@ -227,6 +231,42 @@ Same shape: the llm maps yes→1 / no→0, the det `+` counts.
 Rate a list of ideas and average the scores; distil every meeting note then weave
 them into one summary — a four-character algorithm that operates on *meaning*. The
 model judges each item; the structure aggregates them. Repeatable programs, fuzzy steps.
+
+---
+
+## Records & accessors — labeled data + `.`/`..`
+
+A **dict** `{k=v, k2=v2}` bundles labeled values (a record). A `{…}` is a dict when its body
+is a comma-list of `key=value` bindings; a single compute expression like `{$0*2}` is still a
+**form** (code) — so data and code share one brace but never collide. `.` reads structurally;
+`..` is its LLM twin, reading by description.
+
+**`.` — structural access (det), polymorphic on what's on the left:**
+
+    [a,b,c].1                       → b      (0-based list index; `.-1` → last)
+    {host='web1',port=8080}.port    → 8080   (dict field by name)
+    "the".2                         → e      (char at index)
+
+Out-of-range or a missing key is a **loud error**, never a silent empty.
+
+**`..` — semantic access (llm), the twin of `.`:** reads the element a *description* points to.
+
+    'the planets from the sun'..3                     → earth
+    'the planets from the sun'..'the last'            → Neptune
+    'apple, kiwi, watermelon'..'the largest fruit'    → watermelon
+
+`.` counts positions; `..` understands what you're pointing at — the same det↔llm duality as
+`~>` and `@`↔`=>`.
+
+**Records compose with map & fold — the payoff:**
+
+    {$0.name}↦[{name=alice,age=30},{name=bob,age=25}]     → alice, bob   (extract a column)
+    {$0+$1}⊘({$0.age}↦[{name=a,age=30},{name=b,age=25}])  → 55           (sum a field across records)
+    ?%({mode=fast}.mode, go, stop)                         → go           (branch on a record field)
+
+Pull a field out of every record (a `map` of `.`), then `fold` the column to one answer — "sum
+the ages", "count the opens" — no loop, no special case. Labeled data slots straight into the
+same map / fold / if machinery as everything else.
 
 ---
 
