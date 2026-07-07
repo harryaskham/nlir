@@ -264,7 +264,7 @@ semantics, mirrored by `nlir help` and the
 
 | op | name | fixity · arity | what it does |
 |---|---|---|---|
-| `#` | subject | prefix · 1 | The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category. |
+| `#` | subject | prefix · 1 | The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category when the items share one; otherwise lists them per-item. |
 | `!` | not | prefix · 1 | Negates the claim, clause-wise (`!(a&b)` = neither); on a lone concept-word, its antonym. Involution: `!!x ≈ x`. |
 | `~` | summary | prefix · 1 | The essence in one short sentence — drops specifics for the gist. Saturates (`~~x ≈ ~x`); folds a list to its consensus. |
 | `@` | formal | prefix · 1 | Rewrites in a formal, professional register, meaning preserved. Saturates after one pass; distributes over `&`. |

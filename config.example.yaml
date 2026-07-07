@@ -143,7 +143,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
     op: "#"
     template: "subject: %"  # det-stub (det mode); model+prompt below realise llm mode
     description: |
-      The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category.
+      The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category when the items share one; otherwise lists them per-item.
     arity: 1
     fixity: prefix
     model: medium
