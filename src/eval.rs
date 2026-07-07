@@ -2027,7 +2027,15 @@ fn realise_cached(
     if !cache_on {
         return realise(op, op_cfg, operands, grouped, sep, mode, config, seed);
     }
-    let key = realise_cache_key(op, mode, op_cfg.model.as_deref(), operands, grouped, sep);
+    let key = realise_cache_key(
+        op,
+        mode,
+        op_cfg.model.as_deref(),
+        operands,
+        grouped,
+        sep,
+        seed,
+    );
     // Serve a hit without holding the lock across the realisation.
     if let Some(cached) = cache
         .lock()
@@ -2666,12 +2674,18 @@ fn realise_cache_key(
     operands: &[Value],
     grouped: &[bool],
     sep: &str,
+    seed: Option<i64>,
 ) -> String {
     let texts: Vec<String> = operands.iter().map(|value| value.render(sep)).collect();
+    // `seed` is part of the key so a mid-run `_seed` change (bd-72d6d3) is not
+    // masked by a prior realisation's cached result — a seed change SHOULD
+    // re-realise (that is the whole point of a reproducibility seed). Absent when
+    // unset, so seedless evals keep their previous keys.
     format!(
-        "{op}\u{1f}{}\u{1f}{}\u{1f}{grouped:?}\u{1f}{texts:?}",
+        "{op}\u{1f}{}\u{1f}{}\u{1f}{grouped:?}\u{1f}{texts:?}\u{1f}{}",
         mode.as_str(),
-        model.unwrap_or("")
+        model.unwrap_or(""),
+        seed.map_or(String::new(), |value| value.to_string())
     )
 }
 
@@ -2696,6 +2710,10 @@ operators:
   sub:     { op: "-", arity: 2, fixity: infix, operands: number, result: number, reduce: sub }
   div:     { op: "/", arity: 2, fixity: infix, operands: number, result: number, reduce: div }
   pow:     { op: "**", arity: 2, fixity: infix, operands: number, result: number, reduce: pow }
+  setunion: { op: "∪", arity: 2, fixity: infix, priority: 6, builtin: union }
+  setdiff:  { op: "∖", arity: 2, fixity: infix, priority: 6, builtin: diff }
+  setinter: { op: "∩", arity: 2, fixity: infix, priority: 7, builtin: inter }
+  setelem:  { op: "∈", arity: 2, fixity: infix, priority: 5, builtin: elem }
   echo:
     op: "_"
     arity: 2
@@ -2961,6 +2979,29 @@ operators:
             differ,
             "with _cache=false, uncached random subcalls should differ across retries"
         );
+    }
+
+    #[test]
+    fn realise_cache_key_discriminates_on_seed() {
+        // bd-72d6d3: `_seed` is part of the realise cache key, so a mid-run
+        // `_seed` change (`_seed=1;X;_seed=2;X`) re-realises instead of reusing
+        // the prior seed's cached result — a seed change SHOULD change output.
+        let operands = [Value::string("a")];
+        let grouped = [false];
+        let key =
+            |seed| realise_cache_key("@@", Mode::Llm, Some("m"), &operands, &grouped, "\n", seed);
+        assert_ne!(
+            key(Some(1)),
+            key(Some(2)),
+            "different seeds -> different keys"
+        );
+        assert_eq!(key(Some(1)), key(Some(1)), "same seed -> same key");
+        assert_ne!(
+            key(Some(1)),
+            key(None),
+            "seeded key differs from the seedless key"
+        );
+        assert_eq!(key(None), key(None), "seedless keys are stable");
     }
 
     #[test]
