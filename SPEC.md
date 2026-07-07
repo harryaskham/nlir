@@ -30,8 +30,8 @@ EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval
 
 - An expression is a sequence of **statements** separated by `;`.
 - Evaluating a statement yields a **typed value** and pushes it onto the stack.
-- **Atoms**: literal text (bare/quoted), numbers, list literals, context accessors
-  (`^` messages, `$` stack/context).
+- **Atoms**: literal text (bare/quoted), numbers, list literals, dict literals,
+  context accessors (`^` messages, `$` stack/context), and `.`/`..` accessors.
 - **Operators** combine values; each operator declares the **types** it needs, and
   operands are **coerced** to those types first (deterministically, or via an LLM
   coercion call).
@@ -64,7 +64,8 @@ EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval
 ## Types & coercion
 
 Every value has a type: **`string`** (default), **`number`**, **`bool`**,
-**`list`**, **`form`** (a quoted `{…}` expression — see metaprogramming below).
+**`list`**, **`dict`** (an insertion-ordered `key=value` map — see Dictionaries &
+accessors below), **`form`** (a quoted `{…}` expression — see metaprogramming below).
 
 - Operators declare `operands:` / `result:` types (default `string`). `^` indices
   and arithmetic want `number`; `#`/`!`/`&` want `string`.
@@ -80,7 +81,8 @@ Every value has a type: **`string`** (default), **`number`**, **`bool`**,
 
 Coercion that cannot produce the target type is a **loud error** (the LLM path is
 constrained by its output JSON schema, so it returns a valid typed value or
-fails). `list → number` is an error.
+fails). `list → number` is an error. A **`dict`** coerces to `string` as its
+`key=value` pairs (joined with `_sep`); `dict → number`/`bool` is an error.
 
 Coercion is part of the same expand/contract machinery as operators, and its
 results honour `_cache`.
@@ -169,6 +171,30 @@ transformations differ by mode.
 - Building/applying forms is deterministic (structural); only the realisation of the
   *expanded* body hits the model.
 
+### Dictionaries & accessors
+- **`{k=v, k2=v2}`** — a **dict literal**: an insertion-ordered `key=value` map. A
+  `{…}` is a **dict** iff its body is a comma-list (or single) of ≥1 items that are
+  **all** `key=value` assigns; a single non-assign expression is a **form** instead
+  (`{2+3}` → the form `{(2 + 3)}`); empty `{}` is an empty dict. Keys are bare-name
+  strings; values eval **eagerly** at construction (`{k=1+2}` → `{k=3}`), except an
+  explicit form-literal value stays quoted (`{k={$0*2}}` → `k` ↦ a form — code-as-data).
+  A `;` inside `{…}` is a **clear error**, never a form: a form-quote holds a *single*
+  expression, so a multi-statement `{a; b}` block has no representation.
+- **`.`** — the **polymorphic accessor** (deterministic, structural): `container.key`.
+  `[a,b,c].1` → `b` (0-based list index; negative counts from the end, `.-1` → last),
+  `{k=v}.k` → `v` (dict field), `"the".2` → `e` (char at index). Out-of-range or a
+  missing key is a **loud error**, never a silent empty. Distinct from `$nth`.
+- **`..`** — the **semantic accessor**, the LLM twin of `.`: reads element N from the
+  sequence *described* by the text. `"the planets from the sun"..3` → "earth"; it
+  generalizes past integers to descriptors ("the last", "the largest"). A deterministic
+  stub (`item N of: …`) keeps det-total; the model realises llm mode. The `.`↔`..`
+  duality (structural access ↔ semantic access) rhymes with `~>` and `@`↔`=>` — the
+  det/llm pairing that recurs across the vocabulary.
+- **Limitation (v1)**: chained *numeric* access `list.1.0` lexes `1.0` as a float
+  (numeric-literal lexing runs before operator matching — which is exactly what keeps
+  `3.14` a number), so it is a clear "index must be an integer" error; use `(list.1).0`.
+  Dict/string chaining (`.k.k2`, `.1.k`) is unaffected.
+
 Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
 the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
 After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
@@ -247,6 +273,8 @@ semantics, mirrored by `nlir help` and the
 | `&` | and | mixfix · >0 | Joins operands into one "X and Y" statement (a plan, not boolean ∧); nullary `&` folds the premise stack. |
 | `\|` | or | mixfix · >0 | Joins operands into one "X or Y" choice, kept as genuine alternatives. |
 | `_` | echo | infix · 2 | Repeats the text N times, space-joined (`x_2` = "x x"). The one shell-`command`-realised op. |
+| `.` | access | infix · 2 | Polymorphic structural accessor (deterministic): `[a,b,c].1`→`b` (0-based, negative from end), `{k=v}.k`→`v`, `"the".2`→`e`. Loud on out-of-range / missing key. |
+| `..` | semantic-access | infix · 2 | The LLM twin of `.`: reads element N from the sequence *described* by the text (`"planets from the sun"..3`→"earth"), generalizing to descriptors. det-stub keeps det-total. |
 
 **Numeric operators** (`operands: number`, `result: number`, `reduce:`):
 
