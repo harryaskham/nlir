@@ -192,6 +192,10 @@ transformations differ by mode.
   stub (`item N of: …`) keeps det-total; the model realises llm mode. The `.`↔`..`
   duality (structural access ↔ semantic access) rhymes with `~>` and `@`↔`=>` — the
   det/llm pairing that recurs across the vocabulary.
+  **Seed reliability**: a terse descriptor can win on brevity (`sol..3` → "Earth", reading
+  `sol` as the Sun) but terse meaning-tokens are often ambiguous — `sol` is also the solfège
+  note, so higher indices drift (`sol..7` → "Si") — and llm realisation is non-deterministic.
+  Prefer an unambiguous seed (`"the planets from the sun"..3`) for anything you'll re-run or ship.
 - **Limitation (v1)**: chained *numeric* access `list.1.0` lexes `1.0` as a float
   (numeric-literal lexing runs before operator matching — which is exactly what keeps
   `3.14` a number), so it is a clear "index must be an integer" error; use `(list.1).0`.

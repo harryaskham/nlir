@@ -477,7 +477,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
     op: ".."
     det: "{'item '++$1++' of: '++$0}"  # det-mode structural placeholder (keeps det-total green); model realises llm mode
     description: |
-      Semantic access — the LLM twin of `.`. Reads the first operand as a described ordered collection and the second as a position or descriptor, returning only that element ("the planets from the sun"..3 → "earth"). Non-commutative.
+      Semantic access — the LLM twin of `.`. Reads the first operand as a described ordered collection and the second as a position or descriptor, returning only that element ("the planets from the sun"..3 → "earth"). Non-commutative. Terse descriptors can be ambiguous (sol = the Sun vs the solfège note), so prefer an unambiguous seed for anything you'll re-run.
     arity: 2
     fixity: infix
     priority: 16
