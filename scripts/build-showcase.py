@@ -38,6 +38,9 @@ SIMPLE = [
          out="Regular physical activity delivers lasting benefits to physical health, "
              "mental wellbeing, and overall quality of life.",
          cap="~(>…) expand then distil — a few keywords become one rich line"),
+    dict(name="semantic-access", expr="'the planets from the sun'..3", pill="llm · semantic index",
+         out="Earth",
+         cap=".. semantic access — read item N from the sequence a phrase DESCRIBES: no list, no lookup, pure meaning. structural twin . indexes a real list; .. indexes a described one. golfs to sol..3 — six chars for Earth"),
     dict(name="tip", expr="'sixty'+'sixty'*'a fifth'", pill="llm coercion · exact", out="72",
          cap="words become math — a $60 bill plus a 20% tip, with precedence"),
     dict(name="collective", expr="'half a dozen'+'a pair'+'a trio'", pill="llm coercion · exact", out="11",
