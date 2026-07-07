@@ -275,6 +275,11 @@ semantics, mirrored by `nlir help` and the
 | `_` | echo | infix · 2 | Repeats the text N times, space-joined (`x_2` = "x x"). The one shell-`command`-realised op. |
 | `.` | access | infix · 2 | Polymorphic structural accessor (deterministic): `[a,b,c].1`→`b` (0-based, negative from end), `{k=v}.k`→`v`, `"the".2`→`e`. Loud on out-of-range / missing key. |
 | `..` | access-semantic | infix · 2 | The LLM twin of `.`: reads element N from the sequence *described* by the text (`"planets from the sun"..3`→"earth"), generalizing to descriptors. det-stub keeps det-total. |
+| `++` | concat | mixfix · >0 | Concatenate the string operands (deterministic): `"foo"++"bar"` → "foobar". |
+| `//` | split | infix · 2 | Split a string by a separator into a list (deterministic): `"a,b,c"//","` → `[a,b,c]`. |
+| `Δ` | diff | infix · 2 | Directional diff — what changed from the first text to the second (added / removed / shifted). Non-commutative (`aΔb ≠ bΔa`); powers before/after, drift, changelog. |
+| `~>` | implication-check | infix · 2 | Does the LHS imply the RHS? Integrates over `&`. |
+| `~>?` | implication-infer | mixfix · >0 | Infers the implication (the consequent) of its arguments. Integrates over `&`. |
 
 **Numeric operators** (`operands: number`, `result: number`, `reduce:`):
 
@@ -285,6 +290,22 @@ semantics, mirrored by `nlir help` and the
 | `-` | sub | infix · 2 | Difference, a − b (left-associative). |
 | `/` | div | infix · 2 | Quotient, a ÷ b (guards divide-by-zero). |
 | `**` | pow | infix · 2 | a to the power b — right-associative, so `2**3**2` = `2**(3**2)` = 512 (matches math / Python). |
+
+**Comparison operators** (`result: bool`, `reduce:`-realised, deterministic):
+
+| op | name | fixity · arity | what it does |
+|---|---|---|---|
+| `==` | equals | infix · 2 | True when the operands are equal (by rendered value): `5==5` → true, `3==4` → false. |
+| `!=` | not-equals | infix · 2 | True when the operands differ: `3!=4` → true. |
+| `<=` | at-most | infix · 2 | True when the first operand is numerically ≤ the second: `3<=5` → true. |
+| `>=` | at-least | infix · 2 | True when the first operand is numerically ≥ the second: `5>=3` → true. |
+
+**Higher-order (list) operators** (deterministic; glyph aliases for the `$map` / `$fold` builtins):
+
+| op | name | fixity · arity | what it does |
+|---|---|---|---|
+| `↦` | map | infix · 2 | Apply the left form to each item of the right list: `{$0*$0}↦[1,2,3]` → `[1,4,9]`. Alias for `$map%`. |
+| `⊘` | fold | infix · 2 | Reduce the right list with the left binary form: `{$0+$1}⊘[1,2,3,4]` → `10`. Alias for `$fold%`. |
 
 **Instruction-following (generation)** — the third category. Here the operand is
 an *instruction to obey*, not text to reshape. This is the generative direction of
@@ -328,8 +349,9 @@ default `9`), `assoc` (`left`/`right`, default `left`; only meaningful for
 **Precedence (config-tunable):** `^` indexing is tightest; **prefix unary**
 (`# !`) binds above **all binary**; binary follows normal math — `**` > `* /` >
 `+ -` — then string `& |`; the postfix `?` is the deliberate loose exception
-(binds everything to its left); `=` is loosest. Concretely: `^` 20 · `# !` 14 ·
-`**` 13 · `* /` 12 · `+ -` 11 · `& |` 9 · `?` 1 · `=` 0. prefix takes one right
+(binds everything to its left); `=` is loosest. Concretely: `^` 20 · `. ..` 16 · `# !` 14 ·
+`** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `↦ ⊘` 8 · `== != <= >=` 5 · `?` 1 · `=` 0
+(`nlir help` lists the exhaustive per-op priority; this prose summarises the tiers). prefix takes one right
 operand; postfix takes leftward to its priority; variadic flattens; mixfix unifies
 infix/list/nullary; ties → prefix > infix > postfix. **Associativity:** infix
 operators are **left-associative** by default (`a-b-c` = `(a-b)-c`, `16/4/2` =
