@@ -274,7 +274,7 @@ semantics, mirrored by `nlir help` and the
 | `\|` | or | mixfix · >0 | Joins operands into one "X or Y" choice, kept as genuine alternatives. |
 | `_` | echo | infix · 2 | Repeats the text N times, space-joined (`x_2` = "x x"). The one shell-`command`-realised op. |
 | `.` | access | infix · 2 | Polymorphic structural accessor (deterministic): `[a,b,c].1`→`b` (0-based, negative from end), `{k=v}.k`→`v`, `"the".2`→`e`. Loud on out-of-range / missing key. |
-| `..` | semantic-access | infix · 2 | The LLM twin of `.`: reads element N from the sequence *described* by the text (`"planets from the sun"..3`→"earth"), generalizing to descriptors. det-stub keeps det-total. |
+| `..` | access-semantic | infix · 2 | The LLM twin of `.`: reads element N from the sequence *described* by the text (`"planets from the sun"..3`→"earth"), generalizing to descriptors. det-stub keeps det-total. |
 
 **Numeric operators** (`operands: number`, `result: number`, `reduce:`):
 
