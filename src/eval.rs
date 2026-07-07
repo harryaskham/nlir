@@ -397,6 +397,13 @@ fn as_value(expr: &Expr) -> Option<Value> {
             .map(as_value)
             .collect::<Option<Vec<_>>>()
             .map(Value::list),
+        // An all-value dict literal is itself a value (bd-27739b): each value must
+        // already be a value, mirroring the List case.
+        Expr::Dict(pairs) => pairs
+            .iter()
+            .map(|(k, v)| as_value(v).map(|val| (k.clone(), val)))
+            .collect::<Option<Vec<_>>>()
+            .map(Value::dict),
         _ => None,
     }
 }
@@ -505,6 +512,15 @@ impl<'a> Evaluator<'a> {
                 }
                 Ok(Expr::List(items))
             }
+            // Dict: reduce the leftmost non-value value (bd-27739b); once all
+            // values are values, `as_value` absorbs the dict into a Value::Dict.
+            Expr::Dict(pairs) => {
+                let mut pairs = pairs.clone();
+                if let Some(i) = pairs.iter().position(|(_, v)| as_value(v).is_none()) {
+                    pairs[i].1 = self.reduce(&pairs[i].1)?;
+                }
+                Ok(Expr::Dict(pairs))
+            }
             // Assignment: reduce the RHS; once it is a value, perform the write.
             Expr::Assign { key, value } => {
                 if as_value(value).is_some() {
@@ -588,6 +604,16 @@ impl<'a> Evaluator<'a> {
                     .map(|item| self.eval(item))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::list(values))
+            }
+            // A dict literal `{k=v, …}` (bd-27739b): evaluate each value eagerly
+            // (a `{form}` value evaluates to a Value::Form, so form-literals stay
+            // quoted), preserving insertion order.
+            Expr::Dict(pairs) => {
+                let mut entries = Vec::with_capacity(pairs.len());
+                for (key, value) in pairs {
+                    entries.push((key.clone(), self.eval(value)?));
+                }
+                Ok(Value::dict(entries))
             }
             // A serial marker only constrains scheduling; sequential evaluation
             // already satisfies it (parallelism is exec-graph bd-a32894).
@@ -941,8 +967,50 @@ impl<'a> Evaluator<'a> {
     /// Realise a `builtin:`-backed operator (bd-44c294): dispatch `map`/`fold`
     /// over the already-evaluated `(form, list)` operands.
     fn apply_builtin_op(&mut self, name: &str, operands: &[Value]) -> Result<Value, EvalError> {
+        if name == "access" {
+            return self.apply_access(operands);
+        }
         let (body, items) = builtin_op_operands(name, operands)?;
         self.run_higher_order(name, &body, items)
+    }
+
+    /// Polymorphic `.` accessor (bd-27739b): `container . key` dispatches on the
+    /// container's type — List → 0-based index (negative counts from the end),
+    /// Dict → key lookup, String → char at index. Out-of-range / missing-key is a
+    /// LOUD error, never silent-empty (the stack-error-loudly discipline). Fully
+    /// deterministic; the LLM twin is `..` (semantic access). Numbers/bools have
+    /// no `.` reading, so indexing into them is an error.
+    fn apply_access(&self, operands: &[Value]) -> Result<Value, EvalError> {
+        let [container, key] = operands else {
+            return Err(EvalError::Unsupported(format!(
+                "`.` takes (container, key); got {} operand(s)",
+                operands.len()
+            )));
+        };
+        let sep = self.sep();
+        match container {
+            Value::List(items) => {
+                let idx = resolve_index(key, items.len(), &sep, "list")?;
+                Ok(items[idx].clone())
+            }
+            Value::Dict(_) => {
+                let rendered = key.render(&sep);
+                let k = rendered.trim();
+                container
+                    .dict_get(k)
+                    .cloned()
+                    .ok_or_else(|| EvalError::Unsupported(format!("dict has no key `{k}`")))
+            }
+            Value::String(text) => {
+                let chars: Vec<char> = text.chars().collect();
+                let idx = resolve_index(key, chars.len(), &sep, "string")?;
+                Ok(Value::string(chars[idx].to_string()))
+            }
+            other => Err(EvalError::Unsupported(format!(
+                "cannot `.`-index into a {} (only list, dict, string)",
+                other.type_name()
+            ))),
+        }
     }
 
     /// Parse a `form:` operator's source into its body expression, unwrapping the
@@ -1241,6 +1309,13 @@ impl<'a> Evaluator<'a> {
                     }
                     Ok(Value::list(values))
                 }
+                Expr::Dict(pairs) => {
+                    let mut entries = Vec::with_capacity(pairs.len());
+                    for (key, value) in pairs {
+                        entries.push((key.clone(), self.eval_async(value, realiser).await?));
+                    }
+                    Ok(Value::dict(entries))
+                }
                 Expr::Assign { key, value } => {
                     let assigned = self.eval_async(value, realiser).await?;
                     self.context
@@ -1367,6 +1442,9 @@ impl<'a> Evaluator<'a> {
             // the sync path, through the async realiser (a form/builtin op may
             // realise llm ops per item).
             if let Some(builtin) = op_cfg.builtin.clone() {
+                if builtin == "access" {
+                    return self.apply_access(&operands);
+                }
                 let (body, items) = builtin_op_operands(&builtin, &operands)?;
                 return self
                     .run_higher_order_async(builtin, body, items, realiser)
@@ -1469,6 +1547,14 @@ impl<'a> Evaluator<'a> {
                         items[i] = self.reduce_async(&item, realiser).await?;
                     }
                     Ok(Expr::List(items))
+                }
+                Expr::Dict(pairs) => {
+                    let mut pairs = pairs.clone();
+                    if let Some(i) = pairs.iter().position(|(_, v)| as_value(v).is_none()) {
+                        let value = pairs[i].1.clone();
+                        pairs[i].1 = self.reduce_async(&value, realiser).await?;
+                    }
+                    Ok(Expr::Dict(pairs))
                 }
                 Expr::Assign { key, value } => {
                     if as_value(value).is_some() {
@@ -1907,6 +1993,7 @@ fn is_parallel_safe(expr: &Expr, config: &Config) -> bool {
         // not parallel-safe.
         Expr::FormApply { .. } => false,
         Expr::List(items) => items.iter().all(|e| is_parallel_safe(e, config)),
+        Expr::Dict(pairs) => pairs.iter().all(|(_, v)| is_parallel_safe(v, config)),
         // A nullary op (empty operands) pops the stack; a form:/builtin: glyph
         // operator (bd-44c294) applies a form / higher-order over an arg frame,
         // exactly like FormApply — neither is parallel-safe (the parallel operand
@@ -2016,6 +2103,16 @@ fn eval_parallel_safe(
                 .map(|item| eval_parallel_safe(item, config, context, mode, cache_on, cache))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Value::list(values))
+        }
+        Expr::Dict(pairs) => {
+            let mut entries = Vec::with_capacity(pairs.len());
+            for (key, value) in pairs {
+                entries.push((
+                    key.clone(),
+                    eval_parallel_safe(value, config, context, mode, cache_on, cache)?,
+                ));
+            }
+            Ok(Value::dict(entries))
         }
         // Form application is not run in the parallel-safe fast path (it evaluates
         // a body under an argument frame); is_parallel_safe returns false, so the
@@ -2306,6 +2403,27 @@ fn resolve_nth(index: &Value, len: usize, sep: &str) -> Result<usize, EvalError>
     if resolved < 0 || resolved >= len_i {
         return Err(EvalError::Unsupported(format!(
             "`$nth` index {i} out of range for a {len}-element list"
+        )));
+    }
+    Ok(resolved as usize)
+}
+
+/// Resolve a `.` index into a length-N sequence: 0-based forward, negative counts
+/// from the end (`-1` = last), bounds-checked with a loud error (bd-27739b). `what`
+/// names the container kind (list/string) for the error message.
+fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usize, EvalError> {
+    let raw = index.render(sep);
+    let i = raw.trim().parse::<i64>().map_err(|_| {
+        EvalError::Unsupported(format!(
+            "`.` index must be an integer, got `{}`",
+            raw.trim()
+        ))
+    })?;
+    let len_i = len as i64;
+    let resolved = if i < 0 { len_i + i } else { i };
+    if resolved < 0 || resolved >= len_i {
+        return Err(EvalError::Unsupported(format!(
+            "`.` index {i} out of range for a {len}-element {what}"
         )));
     }
     Ok(resolved as usize)

@@ -305,6 +305,11 @@ impl Builder {
                 self.walk_children(items, path);
                 self.push(path, NodeKind::List, "[ ]".to_owned());
             }
+            Expr::Dict(pairs) => {
+                let values: Vec<Expr> = pairs.iter().map(|(_, v)| v.clone()).collect();
+                self.walk_children(&values, path);
+                self.push(path, NodeKind::List, "{ }".to_owned());
+            }
             Expr::Group(inner) => {
                 let child = path.child(0);
                 self.walk(inner, &child);

@@ -461,6 +461,32 @@ operators: # `%` = operand under replacement; `%%` = literal %
     fixity: infix
     priority: 8
     builtin: fold
+  # Polymorphic `.` accessor (bd-27739b): one dot for list/dict/string.
+  access:
+    op: "."
+    description: |
+      Polymorphic accessor: `container.key` — `[a,b,c].1` (0-based list index, negative from end), `{k=v}.k` (dict field), `"the".2` (char at index). Out-of-range / missing key = loud error, never silent. Deterministic; `..` is the LLM/semantic twin.
+    arity: 2
+    fixity: infix
+    priority: 16
+    operands: string
+    result: string
+    builtin: access
+  # Semantic accessor `..` (bd-27739b): the LLM twin of `.`. Draft config — @aur-2
+  # owns the model/det/prompt shape.
+  semantic-access:
+    op: ".."
+    det: "{'item '++$1++' of: '++$0}"  # det-mode structural placeholder (keeps det-total green); model realises llm mode
+    description: |
+      Semantic accessor (the LLM twin of `.`): `"the planets from the sun"..3` → "earth". Reads element N from the sequence DESCRIBED by the text, via the model.
+    arity: 2
+    fixity: infix
+    priority: 16
+    model: medium
+    prompt: |
+      The first <text> describes a sequence or ordered set. Return element number N from it, where N is the integer in the second <text> (1-based; a negative N counts from the end). Return only that element, nothing else.
+
+      %
 
 tests:
   det-echo: { mode: det, expr: "xxx_2", expected: "xxx xxx" }
@@ -609,6 +635,14 @@ tests:
   map-glyph:            { mode: det, expr: "{$0*$0}↦[1,2,3]", expected: "1\n4\n9" }
   fold-glyph:           { mode: det, expr: "{$0+$1}⊘[1,2,3,4]", expected: "10" }
   hero-ops-gate-glyph:  { mode: det, expr: "?%({$0+$1}⊘({$contains%($0,'ERROR')}↦['ok','ERROR: oom','ok','ERROR: disk full'])>=2,'page on-call','all clear')", expected: "page on-call" }
+  # dicts + polymorphic `.` accessor + semantic `..` det stub (bd-27739b).
+  dict-lit:             { mode: det, expr: "{k=v}", expected: "k=v" }
+  dict-access:          { mode: det, expr: "{a=1, b=2}.b", expected: "2" }
+  dict-eager-val:       { mode: det, expr: "{k=1+2}.k", expected: "3" }
+  list-access:          { mode: det, expr: "[a,b,c].1", expected: "b" }
+  list-access-neg:      { mode: det, expr: "[a,b,c].-1", expected: "c" }
+  string-access:        { mode: det, expr: "'the'.2", expected: "e" }
+  semantic-access-stub: { mode: det, expr: "'the planets from the sun'..3", expected: "item 3 of: the planets from the sun" }
   msg:
     mode: det
     context:

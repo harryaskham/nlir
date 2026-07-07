@@ -103,6 +103,11 @@ pub enum Expr {
     /// is an expression. Yields the value and writes context immediately
     /// (eval-side is bd-c85dee).
     Assign { key: String, value: Box<Expr> },
+    /// A dict literal `{k=v, k2=v2}` (bd-27739b): comma-separated `key=value`
+    /// bindings. Distinct from a form-quote `{expr}` — a `{}` whose items are ALL
+    /// Assigns is a Dict (data); a single non-Assign expr is a Form. Values are
+    /// evaluated eagerly at construction, except a `{form}` value stays a Form.
+    Dict(Vec<(String, Expr)>),
     /// An operator application; `operands.len()` is 1 for prefix/postfix, 2 for
     /// infix/mixfix (until variadic flattening makes mixfix n-ary).
     Apply {
@@ -144,6 +149,14 @@ impl Expr {
             }
             Expr::Group(inner) => inner.render(),
             Expr::Quote(inner) => format!("{{{}}}", inner.render()),
+            Expr::Dict(pairs) => {
+                let body = pairs
+                    .iter()
+                    .map(|(k, v)| format!("{k} = {}", v.render()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{{body}}}")
+            }
             Expr::FormApply { form, args } => match args.as_slice() {
                 [a] => format!("({} % {})", form.render(), a.render()),
                 _ => {
@@ -816,18 +829,57 @@ impl Parser<'_> {
                 Ok(Expr::List(items))
             }
             Token::LBrace => {
-                // Form-quote `{…}` (bd-5dd86f): capture the enclosed expression as
-                // data (an `Expr::Quote`, later a `Value::Form`) rather than
-                // evaluating it.
-                let inner = self.expr(0)?;
+                // A `{…}` is either a DICT literal (bd-27739b) or a form-quote
+                // (bd-5dd86f). Disambiguation (Harry + aur-1, the conjunction):
+                // a comma-list (or single) of ALL `key=value` Assigns → Dict;
+                // a single non-Assign expr → Form; empty `{}` → empty Dict. A
+                // top-level `;` inside `{}` is unsupported (a `;`-block form would
+                // need a multi-statement body, which the form model doesn't carry).
+                if matches!(self.tokens.get(self.pos), Some(Token::RBrace)) {
+                    self.pos += 1;
+                    return Ok(Expr::Dict(Vec::new()));
+                }
+                let first = self.expr(0)?;
                 match self.tokens.get(self.pos) {
                     Some(Token::RBrace) => {
                         self.pos += 1;
-                        Ok(Expr::Quote(Box::new(inner)))
+                        match first {
+                            Expr::Assign { key, value } => Ok(Expr::Dict(vec![(key, *value)])),
+                            other => Ok(Expr::Quote(Box::new(other))),
+                        }
+                    }
+                    Some(Token::Comma) => {
+                        // Comma-list → Dict: EVERY item must be an Assign (a `{}`
+                        // with commas is a dict; a non-binding item is malformed).
+                        let mut items = vec![first];
+                        while matches!(self.tokens.get(self.pos), Some(Token::Comma)) {
+                            self.pos += 1;
+                            items.push(self.expr(0)?);
+                        }
+                        if !matches!(self.tokens.get(self.pos), Some(Token::RBrace)) {
+                            return Err(ParseError {
+                                position: self.pos,
+                                message: "expected '}'".to_owned(),
+                            });
+                        }
+                        self.pos += 1;
+                        let mut pairs = Vec::with_capacity(items.len());
+                        for item in items {
+                            match item {
+                                Expr::Assign { key, value } => pairs.push((key, *value)),
+                                _ => {
+                                    return Err(ParseError {
+                                        position: self.pos,
+                                        message: "a `{…}` dict needs every comma-separated item to be a `key=value` binding".to_owned(),
+                                    });
+                                }
+                            }
+                        }
+                        Ok(Expr::Dict(pairs))
                     }
                     _ => Err(ParseError {
                         position: self.pos,
-                        message: "expected '}'".to_owned(),
+                        message: "expected '}' — a `{…}` is a dict of comma-separated key=value bindings or a single-expression form (';' inside `{}` is not supported)".to_owned(),
                     }),
                 }
             }
@@ -969,6 +1021,7 @@ pub fn max_positional(expr: &Expr) -> Option<usize> {
         }
         Expr::Assign { value, .. } => max_positional(value),
         Expr::List(items) => items.iter().filter_map(max_positional).max(),
+        Expr::Dict(pairs) => pairs.iter().filter_map(|(_, v)| max_positional(v)).max(),
         Expr::Apply { operands, .. } => operands.iter().filter_map(max_positional).max(),
         Expr::FormApply { form, args } => {
             let mut m = max_positional(form);
@@ -1049,6 +1102,21 @@ mod tests {
         assert_eq!(render("(a+b)"), "(a + b)");
         // A form wraps any expression (here a message-subject op).
         assert_eq!(render("{#^-1}"), "{(# ^-1)}");
+    }
+
+    #[test]
+    fn dict_vs_form_disambiguation() {
+        // bd-27739b (Harry + aur-1, the conjunction): a `{…}` that is a comma-list
+        // (or single) of ALL `key=value` Assigns is a DICT — it renders WITHOUT
+        // the wrapping parens a form-quote adds around its inner expr. A single
+        // non-Assign expr stays a FORM. Empty `{}` is an empty Dict.
+        assert_eq!(render("{k=v}"), "{k = v}"); // single binding → Dict
+        assert_eq!(render("{a=1, b=2}"), "{a = 1, b = 2}"); // comma-list → Dict
+        assert_eq!(render("{}"), "{}"); // empty → empty Dict
+        // Compute-forms are NOT reinterpreted as dicts (the migration guard —
+        // a form-quote of an expression keeps its wrapping parens):
+        assert_eq!(render("{2+3}"), "{(2 + 3)}");
+        assert_eq!(render("{a+b}"), "{(a + b)}");
     }
 
     #[test]

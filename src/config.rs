@@ -1232,10 +1232,10 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
         }
         // A `builtin:` operator (bd-44c294) must name a known higher-order builtin.
         if let Some(builtin) = &op.builtin {
-            if !matches!(builtin.as_str(), "map" | "fold") {
+            if !matches!(builtin.as_str(), "map" | "fold" | "access") {
                 errs.push(ValidationError::new(
                     &loc,
-                    format!("builtin {builtin:?} is unknown (expected `map` or `fold`)"),
+                    format!("builtin {builtin:?} is unknown (expected `map`, `fold`, or `access`)"),
                 ));
             }
         }
