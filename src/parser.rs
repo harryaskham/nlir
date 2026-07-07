@@ -247,6 +247,21 @@ fn op_table(operators: &BTreeMap<String, OperatorConfig>) -> BTreeMap<String, Op
         .collect()
 }
 
+/// Build the sigil → prefix-builtin-name map (bd-2f4d5e `?`→if): an operator with
+/// `prefix_builtin` set aliases to that value-builtin at operand-start, applied
+/// via `%` (`?%(cond,then,else)` → the `if` builtin), while keeping its own
+/// realisation for its declared fixity (`?` stays the postfix question).
+fn prefix_builtin_table(operators: &BTreeMap<String, OperatorConfig>) -> BTreeMap<String, String> {
+    operators
+        .values()
+        .filter_map(|o| {
+            o.prefix_builtin
+                .as_ref()
+                .map(|builtin| (o.op.clone(), builtin.clone()))
+        })
+        .collect()
+}
+
 /// Binding power from a priority (doubled so left-associativity has room).
 fn bp(priority: i64) -> u32 {
     u32::try_from(priority.max(0))
@@ -261,9 +276,11 @@ pub fn parse_expr(
     operators: &BTreeMap<String, OperatorConfig>,
 ) -> Result<Expr, ParseError> {
     let table = op_table(operators);
+    let prefix_builtins = prefix_builtin_table(operators);
     let mut parser = Parser {
         tokens,
         table: &table,
+        prefix_builtins: &prefix_builtins,
         pos: 0,
         depth: 0,
     };
@@ -307,9 +324,11 @@ pub fn parse_program(
     operators: &BTreeMap<String, OperatorConfig>,
 ) -> Result<Program, ParseError> {
     let table = op_table(operators);
+    let prefix_builtins = prefix_builtin_table(operators);
     let mut parser = Parser {
         tokens,
         table: &table,
+        prefix_builtins: &prefix_builtins,
         pos: 0,
         depth: 0,
     };
@@ -369,6 +388,8 @@ const MAX_PARSE_DEPTH: usize = 96;
 struct Parser<'a> {
     tokens: &'a [Token],
     table: &'a BTreeMap<String, OpInfo>,
+    /// Sigil → value-builtin alias for operand-start use (bd-2f4d5e `?`→if).
+    prefix_builtins: &'a BTreeMap<String, String>,
     pos: usize,
     /// Current recursion depth of `expr`, bounded by [`MAX_PARSE_DEPTH`].
     depth: usize,
@@ -856,6 +877,26 @@ impl Parser<'_> {
                     }
                 }
                 _ => {
+                    // Operand-start prefix-builtin alias (bd-2f4d5e `?`→if): an
+                    // operator with `prefix_builtin` set, at operand-start (nud),
+                    // dispatches to that value-builtin — but REQUIRES `%(…)`
+                    // application (`?%(cond,then,else)`), which the led form-apply
+                    // wires to the builtin (reusing its short-circuit engine). A
+                    // bare operand-start `?` with no `%` is a clear parse error,
+                    // never a silent incomplete-if (aur-1's ask). Postfix use
+                    // (`expr?` after an operand) never reaches nud — the led
+                    // handles it, so the question form is unaffected.
+                    if let Some(builtin) = self.prefix_builtins.get(&op) {
+                        if matches!(self.tokens.get(self.pos), Some(Token::Percent)) {
+                            return Ok(Expr::ContextRead(builtin.clone()));
+                        }
+                        return Err(ParseError {
+                            position: self.pos,
+                            message: format!(
+                                "operator `{op}` at operand-start is `{builtin}` and requires application `{op}%(cond,then,else)`; use `expr{op}` for the postfix form"
+                            ),
+                        });
+                    }
                     // Negative numeric literal: `-` in prefix (nud) position
                     // before a number is a signed literal (`-1`, `-5.5`), which
                     // enables the `$nth%(-1,list)` last-element idiom and general
@@ -980,7 +1021,16 @@ mod tests {
             ("sub".to_owned(), op("-", Fixity::Infix, 11)),
             ("and".to_owned(), op("&", Fixity::Mixfix, 9)),
             ("or".to_owned(), op("|", Fixity::Mixfix, 9)),
-            ("question".to_owned(), op("?", Fixity::Postfix, 1)),
+            (
+                "question".to_owned(),
+                OperatorConfig {
+                    op: "?".to_owned(),
+                    fixity: Fixity::Postfix,
+                    priority: Some(1),
+                    prefix_builtin: Some("if".to_owned()),
+                    ..OperatorConfig::default()
+                },
+            ),
         ])
     }
 
@@ -1162,6 +1212,29 @@ mod tests {
     fn postfix_binds_leftward() {
         // bd-efe1ee: `?` is loose, so `a&b?` == `(a&b)?`.
         assert_eq!(render("a&b?"), "((a & b) ?)");
+    }
+
+    #[test]
+    fn prefix_question_is_if_with_application_else_errors() {
+        // bd-2f4d5e (Harry): `?` doubles as `if` at operand-START — but ONLY with
+        // `%(…)` application. `?%(c,t,e)` parses to the `if` value-builtin applied
+        // (reusing its short-circuit engine); a bare operand-start `?` (no `%`) is
+        // a CLEAR parse error, not a silent incomplete form; postfix `x?` (after
+        // an operand) is unaffected — the led handles it, so it stays the question.
+        assert!(
+            render("?%(a,b,c)").contains("$if"),
+            "operand-start `?%(…)` should dispatch to the `if` builtin"
+        );
+        assert_eq!(render("x?"), "(x ?)");
+        let ops = ladder();
+        let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
+        let tokens = tokenize("?", &sigils).expect("tokenises");
+        let err = parse_expr(&tokens, &ops).expect_err("bare operand-start ? must error");
+        assert!(
+            err.message.contains("requires application"),
+            "bare `?` error should explain the required `?%(…)`: {}",
+            err.message
+        );
     }
 
     #[test]

@@ -190,10 +190,13 @@ operators: # `%` = operand under replacement; `%%` = literal %
   question:
     op: "?"
     description: |
-      Turns the text into a question (postfix). A yes/no question is polarity-neutral (!x? is approximately x?).
+      Turns text into a question when it FOLLOWS an operand (postfix): `'the sky is blue'?`.
+      At operand-START it is instead `if` (see prefix_builtin): `?%(cond,then,else)`.
+      A yes/no question is polarity-neutral (!x? is approximately x?).
     arity: 1
     fixity: postfix
     priority: 0
+    prefix_builtin: "if"  # operand-start `?%(cond,then,else)` = if (bd-2f4d5e, Harry's call); postfix `x?` stays the question
     template: "is it the case that %?"
     model: opus
     prompt: |
@@ -440,9 +443,24 @@ operators: # `%` = operand under replacement; `%%` = literal %
   # form:  the operator applies a form to its operands ($0, $1, …):
   #   square:   { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }    # □5 → 25
   #   steelman: { op: "⇑", arity: 1, fixity: prefix, form: "{~(>@$0)}" }  # ⇑x = summarise(expand(formalise(x)))
-  # builtin:  bind a glyph to the map/fold engine:
-  #   mapop:  { op: "↦", arity: 2, fixity: infix, builtin: map }   # {$0*$0}↦[1,2,3] → [1,4,9]
-  #   foldop: { op: "⊘", arity: 2, fixity: infix, builtin: fold }  # {$0+$1}⊘[1,2,3,4] → 10
+  # builtin:  bind a glyph to the map/fold engine. ↦ (map) and ⊘ (fold) are ON
+  # by default (bd-44c294, Harry) — terser glyph forms of $map% / $fold%:
+  mapop:
+    op: "↦"
+    description: |
+      Map: apply the left form to each item of the right list — {$0*$0}↦[1,2,3] → [1,4,9]. Glyph alias for $map%.
+    arity: 2
+    fixity: infix
+    priority: 8
+    builtin: map
+  foldop:
+    op: "⊘"
+    description: |
+      Fold: reduce the right list with the left binary form — {$0+$1}⊘[1,2,3,4] → 10. Glyph alias for $fold%.
+    arity: 2
+    fixity: infix
+    priority: 8
+    builtin: fold
 
 tests:
   det-echo: { mode: det, expr: "xxx_2", expected: "xxx xxx" }
@@ -581,6 +599,16 @@ tests:
   cookbook-contains-no: { mode: det, expr: "$contains%('all systems green','broken')", expected: "false" }
   cookbook-grep:        { mode: det, expr: "$filter%({$contains%($0,'err')},['ok','err 1','err 2'])", expected: "err 1\nerr 2" }
   hero-ops-gate:        { mode: det, expr: "$if%($fold%({$0+$1},$map%({$contains%($0,'ERROR')},['ok','ERROR: oom','ok','ERROR: disk full']))>=2,'page on-call','all clear')", expected: "page on-call" }
+  # `?` dual-role (bd-2f4d5e, Harry): postfix `x?` = question; operand-start `?%(c,t,e)` = if (reuses the $if engine, short-circuits).
+  q-if-then:            { mode: det, expr: "?%(2>=2,'yes','no')", expected: "yes" }
+  q-if-else:            { mode: det, expr: "?%(1>=2,'yes','no')", expected: "no" }
+  q-if-shortcircuit:    { mode: det, expr: "?%(1>=2,$nth%(99,[a]),'safe')", expected: "safe" }
+  q-postfix:            { mode: det, expr: "'the sky is blue'?", expected: "is it the case that the sky is blue?" }
+  # ↦ (map) / ⊘ (fold) glyph aliases + the operator-form hero (bd-44c294 + bd-2f4d5e).
+  # hero-ops-gate-glyph MUST equal hero-ops-gate byte-for-byte (front-page zero-drift).
+  map-glyph:            { mode: det, expr: "{$0*$0}↦[1,2,3]", expected: "1\n4\n9" }
+  fold-glyph:           { mode: det, expr: "{$0+$1}⊘[1,2,3,4]", expected: "10" }
+  hero-ops-gate-glyph:  { mode: det, expr: "?%({$0+$1}⊘({$contains%($0,'ERROR')}↦['ok','ERROR: oom','ok','ERROR: disk full'])>=2,'page on-call','all clear')", expected: "page on-call" }
   msg:
     mode: det
     context:

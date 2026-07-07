@@ -265,6 +265,14 @@ pub struct OperatorConfig {
     /// `model:` still realises in llm mode. Parallel to how `template:` is
     /// det-only, but computed (a template can only interpolate, not compute).
     pub det: Option<String>,
+    /// A VALUE-BUILTIN this operator aliases to when it appears at operand-START
+    /// (prefix position), applied via `%(…)` (bd-2f4d5e `?`→if, Harry's call): the
+    /// op keeps its own realisation for its normal fixity (`?` stays the postfix
+    /// question after an operand), but `?%(cond,then,else)` at operand-start
+    /// dispatches to the named value-builtin (`if`), reusing its engine (so it
+    /// short-circuits for free). A bare operand-start `?` with no `%` application
+    /// is a clear parse error, never a silent incomplete form.
+    pub prefix_builtin: Option<String>,
 }
 
 impl OperatorConfig {
