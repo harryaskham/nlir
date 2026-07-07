@@ -877,9 +877,13 @@ impl Parser<'_> {
                         }
                         Ok(Expr::Dict(pairs))
                     }
+                    Some(Token::Semicolon) => Err(ParseError {
+                        position: self.pos,
+                        message: "a `;` inside `{…}` is not supported — a `{…}` is either a dict of comma-separated key=value bindings or a single-expression form".to_owned(),
+                    }),
                     _ => Err(ParseError {
                         position: self.pos,
-                        message: "expected '}' — a `{…}` is a dict of comma-separated key=value bindings or a single-expression form (';' inside `{}` is not supported)".to_owned(),
+                        message: "expected '}' — a `{…}` is a dict of comma-separated key=value bindings or a single-expression form".to_owned(),
                     }),
                 }
             }

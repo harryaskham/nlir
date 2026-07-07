@@ -472,19 +472,18 @@ operators: # `%` = operand under replacement; `%%` = literal %
     operands: string
     result: string
     builtin: access
-  # Semantic accessor `..` (bd-27739b): the LLM twin of `.`. Draft config — @aur-2
-  # owns the model/det/prompt shape.
-  semantic-access:
+  # Semantic access `..` (bd-27739b) — the LLM twin of the deterministic `.` (config: @aur-2's lane).
+  access-semantic:
     op: ".."
     det: "{'item '++$1++' of: '++$0}"  # det-mode structural placeholder (keeps det-total green); model realises llm mode
     description: |
-      Semantic accessor (the LLM twin of `.`): `"the planets from the sun"..3` → "earth". Reads element N from the sequence DESCRIBED by the text, via the model.
+      Semantic access — the LLM twin of `.`. Reads the first operand as a described ordered collection and the second as a position or descriptor, returning only that element ("the planets from the sun"..3 → "earth"). Non-commutative.
     arity: 2
     fixity: infix
     priority: 16
     model: medium
     prompt: |
-      The first <text> describes a sequence or ordered set. Return element number N from it, where N is the integer in the second <text> (1-based; a negative N counts from the end). Return only that element, nothing else.
+      The first <text> names or describes an ordered collection; the second <text> is a position or descriptor into it (a number like "3", or "the last", "the largest", "the first that ..."). Return ONLY the single element it addresses — no preamble, no explanation, and do not restate the query or the collection.
 
       %
 
