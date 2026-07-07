@@ -334,11 +334,15 @@ impl OperatorConfig {
         // interpolation or a `det:` COMPUTED form) on an llm op is a test-mode
         // det-coverage fallback, NOT the op's identity: an op carrying a `model:`
         // shows "llm" even with a det stub (e.g. `~>` = det: {$contains...} + model).
+        // `builtin:` (map/fold/access) and `form:` are offline structural dispatch,
+        // so they are det (bd-a51c62 follow-up: `.`/↦/⊘ were mis-tagged llm).
         self.model.is_none()
             && (self.reduce.is_some()
                 || self.command.is_some()
                 || self.join.is_some()
                 || self.template.is_some()
+                || self.form.is_some()
+                || self.builtin.is_some()
                 || self.det.is_some())
     }
 }
