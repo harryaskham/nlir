@@ -435,8 +435,27 @@ impl<'a> Evaluator<'a> {
     /// [`EvalError::EmptyProgram`] when there are no statements.
     pub fn run(&mut self, program: &Program) -> Result<Value, EvalError> {
         let mut last = None;
+        // Seed depth = value(s) already on the stack before eval (piped `$_stdin`).
+        // Tacit form application fires ONLY while the stack still holds exactly
+        // the seed — never once a prior statement's result has been pushed, so a
+        // named-form read like `f={…};$f` returns the form, not an application.
+        let seed_depth = self.stack.len();
         for statement in &program.statements {
-            let value = self.eval(statement)?;
+            let mut value = self.eval(statement)?;
+            // Tacit form application (bd-4b8c1e): a FORM produced against the piped
+            // seed applies to it — `echo doc | nlir -e '(# & ~)'` runs the train on
+            // stdin, `echo doc | nlir -e '{~$0}'` runs the form. A bare `nlir -e
+            // '{…}'` (no pipe, empty stack) leaves the form as a first-class value.
+            if let Value::Form(body) = &value {
+                if seed_depth > 0 && self.stack.len() == seed_depth {
+                    let body = (**body).clone();
+                    let args = self.stack.pop_all();
+                    self.arg_frames.push(args);
+                    let applied = self.eval(&body);
+                    self.arg_frames.pop();
+                    value = applied?;
+                }
+            }
             self.stack.push(value.clone());
             last = Some(value);
         }
@@ -3062,6 +3081,37 @@ operators:
         // no _stdin -> empty stack -> LOUD underflow error (not silent).
         let mut ctx2 = Context::empty(&cfg.context);
         assert!(evaluate("»", &cfg, &mut ctx2, Mode::Det).is_err());
+    }
+
+    #[test]
+    fn tacit_form_applies_to_the_piped_seed() {
+        // bd-4b8c1e (surfaced dogfooding nlir in llm mode): a residual FORM
+        // applies to the piped seed — `echo doc | nlir -e '{…}'` / a train
+        // `(# & ~)` runs on stdin instead of printing the form source. But a bare
+        // form with no seed stays a first-class value, and a named-form read
+        // (with a prior statement's result on the stack) is NOT auto-applied.
+        let cfg = config::parse_str(
+            "operators:\n  up: { op: \"»\", arity: 1, fixity: prefix, template: \"UP: %\" }\n",
+            Path::new("t.yaml"),
+        )
+        .unwrap();
+        // a form applies to the piped seed.
+        let mut ctx = Context::empty(&cfg.context);
+        ctx.set_transient("_stdin", serde_json::json!("hi"));
+        let out = evaluate("{»$0}", &cfg, &mut ctx, Mode::Det).unwrap();
+        assert_eq!(out.render(&ctx.sep()), "UP: hi");
+        // no seed -> a bare form stays a first-class value.
+        let mut ctx2 = Context::empty(&cfg.context);
+        assert!(matches!(
+            evaluate("{»$0}", &cfg, &mut ctx2, Mode::Det).unwrap(),
+            Value::Form(_)
+        ));
+        // named-form read (prior push on the stack) is NOT auto-applied.
+        let mut ctx3 = Context::empty(&cfg.context);
+        assert!(matches!(
+            evaluate("f={»'x'};$f", &cfg, &mut ctx3, Mode::Det).unwrap(),
+            Value::Form(_)
+        ));
     }
 
     #[test]
