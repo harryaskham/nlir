@@ -57,7 +57,11 @@ EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval
 - System keys (`_`-prefixed): `_messages`, `_sep` (list/range → text separator,
   default `"\n"`), `_cache` (caching on/off, default `true`), `_precision`
   (final-display decimal places for numbers, default off = exact/round-tripping;
-  display-only, never changes computation).
+  display-only, never changes computation), `_seed` (integer reproducibility
+  seed threaded into the llm request, unset by default — exported as
+  `${NLIR_SEED}` and injected as the request body's top-level `seed`;
+  OpenAI-compatible backends reproduce output, Anthropic Messages has no native
+  `seed` so it is a harmless no-op there).
 - **Context writes happen immediately** (write-through to the context file when
   one is active).
 
@@ -135,7 +139,7 @@ transformations differ by mode.
 - **`$name`** — read `context[name]` (typed; `$_messages` is the array).
 - **`key=RHS`** — assign. `key` is a **literal key string** (identifier;
   `_`-prefixed = system key), `RHS` an expression. Yields the value; **writes
-  immediately**. E.g. `_sep=\ `, `_cache=false`, `k=#^-1`.
+  immediately**. E.g. `_sep=\ `, `_cache=false`, `_seed=42`, `k=#^-1`.
 
 ### Message indexing (role-filtered views of `_messages`)
 - **`^N`** — assistant; **`^_N`** — user; **`^*N`** — all; **`^/N`** — system.

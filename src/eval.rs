@@ -1288,10 +1288,11 @@ impl<'a> Evaluator<'a> {
         }
 
         let sep = self.sep();
+        let seed = self.context.seed();
         // Coerce each operand to the operator's operand type (bd-dd7b5e).
         let coerced = operands
             .iter()
-            .map(|value| coerce_operand(value, op_cfg.operands, &sep, self.mode, self.config))
+            .map(|value| coerce_operand(value, op_cfg.operands, &sep, self.mode, self.config, seed))
             .collect::<Result<Vec<_>, _>>()?;
 
         let cache_on = self.context.cache();
@@ -1303,6 +1304,7 @@ impl<'a> Evaluator<'a> {
             &sep,
             self.mode,
             self.config,
+            seed,
             cache_on,
             &self.realise_cache,
         )
@@ -1553,6 +1555,7 @@ impl<'a> Evaluator<'a> {
             }
 
             let sep = self.sep();
+            let seed = self.context.seed();
             let mut coerced = Vec::with_capacity(operands.len());
             for value in &operands {
                 coerced.push(
@@ -1562,6 +1565,7 @@ impl<'a> Evaluator<'a> {
                         &sep,
                         self.mode,
                         self.config,
+                        seed,
                         realiser,
                     )
                     .await?,
@@ -1575,6 +1579,7 @@ impl<'a> Evaluator<'a> {
                 &sep,
                 self.mode,
                 self.config,
+                seed,
                 realiser,
             )
             .await
@@ -1689,6 +1694,7 @@ fn coerce_operand(
     sep: &str,
     mode: Mode,
     config: &Config,
+    seed: Option<i64>,
 ) -> Result<Value, EvalError> {
     if let Some(coerced) = value.coerce_deterministic(target, sep) {
         return Ok(coerced);
@@ -1703,6 +1709,7 @@ fn coerce_operand(
                     std::slice::from_ref(&rendered),
                     config,
                     None,
+                    seed,
                     |name| std::env::var(name).ok(),
                 )
                 .map_err(|error| EvalError::Llm(error.to_string()))?;
@@ -1719,6 +1726,7 @@ fn coerce_operand(
 /// `command:` / `reduce:` (always deterministic) → `det` mode `template:` /
 /// `join:` → `llm` mode `model:` + `prompt:`. Free so both the sequential and
 /// the concurrent operand paths (bd-780dbf) share it.
+#[allow(clippy::too_many_arguments)]
 fn realise(
     op: &str,
     op_cfg: &OperatorConfig,
@@ -1727,6 +1735,7 @@ fn realise(
     sep: &str,
     mode: Mode,
     config: &Config,
+    seed: Option<i64>,
 ) -> Result<Value, EvalError> {
     if let Some(command) = &op_cfg.command {
         return realise_command(command, operands, sep);
@@ -1767,6 +1776,7 @@ fn realise(
                 &args,
                 config,
                 None,
+                seed,
                 |name| std::env::var(name).ok(),
             )
             .map(Value::string)
@@ -1788,6 +1798,7 @@ async fn realise_async<R: crate::realiser::Realiser>(
     sep: &str,
     mode: Mode,
     config: &Config,
+    seed: Option<i64>,
     realiser: &R,
 ) -> Result<Value, EvalError> {
     if let Some(command) = &op_cfg.command {
@@ -1831,6 +1842,7 @@ async fn realise_async<R: crate::realiser::Realiser>(
                 &args,
                 config,
                 None,
+                seed,
                 |name| std::env::var(name).ok(),
             )
             .map_err(|error| EvalError::Llm(error.to_string()))?;
@@ -1854,6 +1866,7 @@ async fn coerce_operand_async<R: crate::realiser::Realiser>(
     sep: &str,
     mode: Mode,
     config: &Config,
+    seed: Option<i64>,
     realiser: &R,
 ) -> Result<Value, EvalError> {
     if let Some(coerced) = value.coerce_deterministic(target, sep) {
@@ -1869,6 +1882,7 @@ async fn coerce_operand_async<R: crate::realiser::Realiser>(
                     std::slice::from_ref(&rendered),
                     config,
                     None,
+                    seed,
                     |name| std::env::var(name).ok(),
                 )
                 .map_err(|error| EvalError::Llm(error.to_string()))?;
@@ -2000,11 +2014,12 @@ fn realise_cached(
     sep: &str,
     mode: Mode,
     config: &Config,
+    seed: Option<i64>,
     cache_on: bool,
     cache: &std::sync::Mutex<std::collections::HashMap<String, Value>>,
 ) -> Result<Value, EvalError> {
     if !cache_on {
-        return realise(op, op_cfg, operands, grouped, sep, mode, config);
+        return realise(op, op_cfg, operands, grouped, sep, mode, config, seed);
     }
     let key = realise_cache_key(op, mode, op_cfg.model.as_deref(), operands, grouped, sep);
     // Serve a hit without holding the lock across the realisation.
@@ -2016,7 +2031,7 @@ fn realise_cached(
     {
         return Ok(cached);
     }
-    let result = realise(op, op_cfg, operands, grouped, sep, mode, config)?;
+    let result = realise(op, op_cfg, operands, grouped, sep, mode, config, seed)?;
     cache
         .lock()
         .expect("realise cache mutex")
@@ -2226,12 +2241,13 @@ fn eval_parallel_safe(
                 (values, grouped)
             };
             let sep = context.sep();
+            let seed = context.seed();
             let coerced = values
                 .iter()
-                .map(|value| coerce_operand(value, op_cfg.operands, &sep, mode, config))
+                .map(|value| coerce_operand(value, op_cfg.operands, &sep, mode, config, seed))
                 .collect::<Result<Vec<_>, _>>()?;
             realise_cached(
-                op, op_cfg, &coerced, &grouped, &sep, mode, config, cache_on, cache,
+                op, op_cfg, &coerced, &grouped, &sep, mode, config, seed, cache_on, cache,
             )
         }
         // A value spliced in by step-through evaluation is already reduced.

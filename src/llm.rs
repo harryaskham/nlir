@@ -417,6 +417,12 @@ pub fn resolve_prompt_fragments(
 /// The env var carrying the `%`-filled operator/coercion prompt.
 pub const NLIR_PROMPT_VAR: &str = "NLIR_PROMPT";
 
+/// The env var carrying the reproducibility seed (`_seed`), when set. Threaded
+/// into the anthropic request body as top-level `seed` and exported to `command`
+/// backends as `${NLIR_SEED}` (bd-72d6d3). Absent from the var map when `_seed`
+/// is unset, so downstream backends see no seed.
+pub const NLIR_SEED_VAR: &str = "NLIR_SEED";
+
 /// The bash array variable carrying the raw operands for `command` backends.
 pub const NLIR_ARGS_VAR: &str = "NLIR_ARGS";
 
@@ -649,6 +655,17 @@ fn build_anthropic_request(
         for (key, value) in extra {
             target.insert(key.clone(), value.clone());
         }
+    }
+    // Thread the reproducibility seed into the request body when `_seed` is set
+    // (bd-72d6d3). Injected AFTER the `output_config` merge so a runtime
+    // `_seed=N` wins over any static config seed. OpenAI-compatible proxies
+    // honour a top-level `seed`; Anthropic Messages ignores it (a harmless
+    // no-op, not an error).
+    if let Some(seed) = vars
+        .get(NLIR_SEED_VAR)
+        .and_then(|raw| raw.parse::<i64>().ok())
+    {
+        body["seed"] = serde_json::Value::from(seed);
     }
     body
 }
@@ -1027,12 +1044,20 @@ pub fn assemble_llm(
     operands: &[String],
     config: &Config,
     cli_model: Option<&str>,
+    seed: Option<i64>,
     env_lookup: impl Fn(&str) -> Option<String>,
 ) -> Result<LlmCall, RealiseError> {
     let (_, model) = resolve_model(config, model_alias, cli_model).map_err(RealiseError::Model)?;
     let filled = substitute_operands(prompt_template, operands);
     let fragments = resolve_prompt_fragments(&config.prompts, &env_lookup);
-    let vars = assemble_nlir_vars(&filled, &fragments);
+    let mut vars = assemble_nlir_vars(&filled, &fragments);
+    // Export the reproducibility seed (`_seed`) as `${NLIR_SEED}` so every
+    // backend can reach it: the anthropic body injects it as top-level `seed`,
+    // and `command:` templates can reference `${NLIR_SEED}` (bd-72d6d3). Absent
+    // from the map when no seed is set.
+    if let Some(seed) = seed {
+        vars.insert(NLIR_SEED_VAR.to_owned(), seed.to_string());
+    }
     Ok(LlmCall {
         model: model.clone(),
         vars,
@@ -1078,6 +1103,7 @@ pub fn realise_llm(
     operands: &[String],
     config: &Config,
     cli_model: Option<&str>,
+    seed: Option<i64>,
     env_lookup: impl Fn(&str) -> Option<String>,
 ) -> Result<String, RealiseError> {
     let call = assemble_llm(
@@ -1086,6 +1112,7 @@ pub fn realise_llm(
         operands,
         config,
         cli_model,
+        seed,
         env_lookup,
     )?;
     run_llm(&call)
@@ -2074,6 +2101,7 @@ mod tests {
             &["a".to_owned(), "b".to_owned()],
             &config,
             None,
+            None,
             |_| None,
         )
         .expect("command realisation");
@@ -2093,6 +2121,7 @@ mod tests {
             &["x".to_owned(), "y".to_owned()],
             &config,
             None,
+            None,
             |_| None,
         )
         .expect("nlir_args realisation");
@@ -2107,7 +2136,7 @@ mod tests {
             "cmd".to_owned(),
             command_model("printf 'ok'", ModelFormat::Text),
         );
-        let out = realise_llm(None, "%", &["a".to_owned()], &config, None, |_| None)
+        let out = realise_llm(None, "%", &["a".to_owned()], &config, None, None, |_| None)
             .expect("defaults realisation");
         assert_eq!(out, "ok");
     }
@@ -2116,7 +2145,7 @@ mod tests {
     fn realise_llm_unknown_model_errors() {
         let config = Config::default();
         assert!(matches!(
-            realise_llm(Some("nope"), "%", &[], &config, None, |_| None),
+            realise_llm(Some("nope"), "%", &[], &config, None, None, |_| None),
             Err(RealiseError::Model(ModelResolveError::UnknownModel(_)))
         ));
     }
@@ -2136,6 +2165,7 @@ mod tests {
             &["z".to_owned()],
             &config,
             None,
+            None,
             |_| None,
         )
         .expect("anthropic realisation");
@@ -2149,5 +2179,45 @@ mod tests {
             request.contains("<text>z</text>"),
             "operand reached the request"
         );
+    }
+
+    // --- _seed threading (bd-72d6d3) ---
+
+    #[test]
+    fn assemble_llm_exports_seed_as_nlir_seed_var() {
+        let config = config_with_models();
+        // With a seed: it is exported as ${NLIR_SEED} for every backend.
+        let call = assemble_llm(
+            None,
+            "%",
+            &["a".to_owned()],
+            &config,
+            None,
+            Some(42),
+            |_| None,
+        )
+        .expect("assembles with seed");
+        assert_eq!(call.vars.get(NLIR_SEED_VAR).map(String::as_str), Some("42"));
+        // Without a seed: the key is absent so backends see no seed.
+        let call = assemble_llm(None, "%", &["a".to_owned()], &config, None, None, |_| None)
+            .expect("assembles without seed");
+        assert!(!call.vars.contains_key(NLIR_SEED_VAR));
+    }
+
+    #[test]
+    fn build_anthropic_request_injects_seed_when_set() {
+        let model = anthropic_model("http://unused", ModelFormat::Text);
+        let mut vars = BTreeMap::new();
+        vars.insert(NLIR_SEED_VAR.to_owned(), "42".to_owned());
+        let body = build_anthropic_request(&model, "claude-test", &vars);
+        assert_eq!(body["seed"], serde_json::json!(42));
+    }
+
+    #[test]
+    fn build_anthropic_request_omits_seed_when_unset() {
+        let model = anthropic_model("http://unused", ModelFormat::Text);
+        let vars = BTreeMap::new();
+        let body = build_anthropic_request(&model, "claude-test", &vars);
+        assert!(body.get("seed").is_none());
     }
 }

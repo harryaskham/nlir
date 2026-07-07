@@ -258,6 +258,25 @@ impl Context {
         }
     }
 
+    /// The reproducibility seed threaded into seed-supporting llm backends
+    /// (bd-72d6d3): `_seed` read as an integer — a JSON number (via
+    /// `nlir set '{"_seed": 42}'`) or a parseable string (an in-expression
+    /// `_seed=42` stores the bare literal, like `_cache=false`). `None` when the
+    /// key is absent or does not parse as an integer.
+    ///
+    /// OpenAI-compatible proxies honour a top-level `seed` for reproducible
+    /// output; Anthropic Messages has no native `seed` so this is a harmless
+    /// no-op on the default claude path. The evaluator exports it as
+    /// `${NLIR_SEED}` (see [`crate::llm::assemble_llm`]).
+    #[must_use]
+    pub fn seed(&self) -> Option<i64> {
+        match self.data.get("_seed") {
+            Some(Value::Number(number)) => number.as_i64(),
+            Some(Value::String(text)) => text.trim().parse::<i64>().ok(),
+            _ => None,
+        }
+    }
+
     /// The `_messages` array (empty when absent or not an array). The key is
     /// config-defined (`messages.key`, default `_messages`).
     #[must_use]
@@ -845,6 +864,31 @@ mod tests {
         ]));
         assert_eq!(store.sep(), " ");
         assert!(!store.cache());
+    }
+
+    #[test]
+    fn seed_reads_integer_from_number_or_string_else_none() {
+        // Absent → None (the default: no seed threaded).
+        let store = Context::empty(&cfg());
+        assert_eq!(store.seed(), None);
+
+        // JSON number (e.g. `nlir set '{"_seed": 42}'`).
+        let mut store = Context::empty(&cfg());
+        store.merge(object(&[("_seed", Value::from(42))]));
+        assert_eq!(store.seed(), Some(42));
+
+        // Bare-literal string (an in-expression `_seed=42`, like `_cache=false`).
+        let mut store = Context::empty(&cfg());
+        store.set_transient("_seed", Value::from(" 7 "));
+        assert_eq!(store.seed(), Some(7));
+
+        // Non-integer values do not parse → None (a float or garbage string).
+        let mut store = Context::empty(&cfg());
+        store.merge(object(&[("_seed", Value::from(1.5))]));
+        assert_eq!(store.seed(), None);
+        let mut store = Context::empty(&cfg());
+        store.set_transient("_seed", Value::from("nope"));
+        assert_eq!(store.seed(), None);
     }
 
     #[test]
