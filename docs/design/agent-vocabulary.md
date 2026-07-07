@@ -142,54 +142,56 @@ those via bd-44c294) rather than core lenses — noting the boundary so the core
 vocabulary stays about *thought*, and code-mutation rides the operator table's
 existing escape hatches.
 
-### 3d. Generation / instruction-following — the missing *generative direction*
+### 3d. Generation / instruction-following — LANDED as `=>` (the third operator category)
 
 Every lens in §2 **transforms text that already exists** — gist it, tighten it,
-formalise it, expand it. That is the *reading* direction. The gap Harry's
-*"generate your agent replies AS nlir programs"* directive surfaces (aur-0,
-dogfood lane — **bd-d18743**) is the **generative** direction: **no operator
-treats its operand as an *instruction to obey and produce new text*.**
+formalise it, expand it. That is the *reading* direction. The move Harry's
+*"generate your agent replies AS nlir programs"* directive asked for is the
+**generative** direction — obey an instruction and produce *new* text — and it is
+now a first-class operator: **`=>`** (**bd-d18743**; aur-0 found it dogfooding,
+aur-1 landed the core, sigil greenlit by Harry). It is the **third operator
+category, INSTRUCTION-FOLLOWING**, alongside TRANSFORM (reshape text) and NUMERIC.
 
-- **Proof:** `>"Write the single word: acknowledged"` → a whole paragraph
-  *about* writing one word. `>` (and the `<(>…)` shorten-of-expand idiom)
-  **elaborate / describe** the instruction; they never **obey** it. So there is
-  no faithful minimal form for "compose a fresh, concise, first-person reply" —
-  the one generative move an agent most needs to answer a teammate.
+- **Why it was needed:** `>"Write the single word: acknowledged"` → a whole
+  paragraph *about* writing one word. `>` (and the `<(>…)` shorten-of-expand
+  idiom) **elaborate / describe** the instruction; they never **obey** it. There
+  was no faithful minimal form for "compose a fresh, concise, first-person
+  reply" — the one generative move an agent most needs to answer a teammate.
 
-The missing primitive is an **instruction-following op** (a *realise* / *respond*
-lens): operand = a prompt, semantics = *"follow the instruction in `<text>` and
-return ONLY the result."* It is the raw-prompt escape hatch that lets nlir
-express **new** thoughts (answers, replies, drafts, "do X"), not just reshape
-existing ones — exactly Harry's *"only generic help needed to express serious
-thoughts."* It is the general case behind §3c's "code→code rides `prompt:` ops":
-a *produce-new-text* primitive.
-
-**Proven, config-only, live model** (prototype + evidence in bd-d18743):
+**`=>` obeys.** Operand = an INSTRUCTION; semantics = *"follow it and return ONLY
+the result."* The OBEYS contract lives in a dedicated `generative` system frame
+(not the per-op prompt), so it stays robust on weaker models, and it ships with a
+det stub (`response: %`) for the det-total bar. It is the raw-prompt escape hatch
+that lets nlir express **new** thoughts (answers, replies, drafts, "do X"), not
+just reshape existing ones — the general case behind §3c's "code→code rides
+`prompt:` ops". Full contract in `SPEC.md` (the `=>` / *respond* entry) and
+`config.example.yaml` (the `respond` op + `generative` model/frame).
 
 ```
-⟨gen⟩"Write the single word: acknowledged"        -> acknowledged        (OBEYS, not a paragraph)
-t=^-1;⟨gen⟩"one sentence, first person, reply agreeing …: $t"
+=>"Write the single word: acknowledged"          -> acknowledged   (OBEYS, not a paragraph)
+t=^-1;=>"one sentence, first person, reply agreeing …: $t"
                                                  -> a real reply that folds in the teammate's actual message
-(⟨gen⟩"warm ack") & (⟨gen⟩"gentle counter")       -> the two generated moves weave into one fluent line
+(=>"warm ack") & (=>"gentle counter")             -> the two generated moves weave into one line
+echo "Write exactly: shipped" | nlir -e '=>'      -> shipped        (tacit: obeys the piped instruction)
 ```
 
 Two things fall out of dogfooding it as the *agent-reply* path:
 
 - **Context interpolation is the whole point.** Double-quoted operands
   interpolate context (`$t`, `$_stdin`, an assigned `$k`); single-quoted are
-  literal. So `t=^-1;⟨gen⟩"…: $t"` reads the last message off the stack and
+  literal. So `t=^-1;=>"…: $t"` reads the last message off the stack and
   generates a reply *to it* — the exact loop Harry asked for, in one call
   instead of the two-call `<(>…)` that fights the tools.
-- **Generated moves compose.** Because the op returns a plain value, `&` / `|` /
+- **Generated moves compose.** Because `=>` returns a plain value, `&` / `|` /
   the lenses apply on top, so a layered reply (ack **and** counter, then `@` to
   formalise) stays expressible in the generative direction — not just the
   reading one.
 
-**Sigil / core-bless deferred (per §6 policy).** The op is user-config either
-way; a word-name (`respond` / `realise`) or a free multibyte glyph is the
-grammar owners' call — do **not** spend a scarce ASCII single-char on it. The
-open decisions (sigil, bless-into-core vs documented opt-in config example, det
-stub for the det-total test bar) live on **bd-d18743** with the proven prototype.
+**Verified on two backends.** The OBEYS / compose / interpolation / tacit-pipe
+behaviour is green against both the `claude`-command `generative` tier (aur-0's
+live A–E gate) and, independently, a LiteLLM-proxy tier (aur-2, `anthropic_messages`
+→ claude-sonnet-5) — so the contract is carried by the frame, not one backend.
+bd-d18743 is closed; `=>` is on `main`.
 
 ---
 
@@ -238,18 +240,19 @@ of blocking.
 1. **Multi-concept extraction** (`concepts`, text → list) — the highest-leverage
    gap; unlocks map/fold over extracted ideas (3a).
 2. **Assess/critique lens** — the missing "what's wrong here" (3b).
-3. **Generation / instruction-following op** (**bd-d18743**, proven config-only)
-   — the *generative direction*: obey a prompt and return only the result, so an
-   agent can compose a fresh, concise, first-person reply (and interpolate the
-   message it is replying to) rather than only reshape existing text (3d).
+3. **Generation / instruction-following op `=>`** (**bd-d18743**, **landed** — the
+   third category alongside TRANSFORM + NUMERIC) — the *generative direction*:
+   obey a prompt and return only the result, so an agent can compose a fresh,
+   concise, first-person reply (and interpolate the message it is replying to)
+   rather than only reshape existing text (3d).
 4. **Glyph/form operators** (bd-44c294) — let frequent chains become a personal
    terse vocabulary.
 5. **Partial-result display in pi** — makes iterating on chains-of-thought fast
    (4).
 
-Items 4–5 are already moving (bd-44c294, bd-89eb89, bd-970e05 — TUI + pi det
-previews landed). Items 1–3 are the new language concepts this exploration
-surfaces.
+Items 3–5 are already moving (**bd-d18743** landed `=>`; bd-44c294, bd-89eb89,
+bd-970e05 — TUI + pi det previews landed). Items 1–2 are the new language
+concepts this exploration still surfaces.
 
 ---
 
