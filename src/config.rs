@@ -845,7 +845,21 @@ impl fmt::Display for ConfigError {
                 write!(f, "failed to read config {}: {source}", path.display())
             }
             ConfigError::Parse { path, source } => {
-                write!(f, "failed to parse config {}: {source}", path.display())
+                write!(f, "failed to parse config {}: {source}", path.display())?;
+                // A `deny_unknown_fields` rejection almost always means the
+                // running nlir binary is OLDER than this config: the field
+                // exists in a newer schema this build predates, so one additive
+                // config field looks like a totally broken config. Surface the
+                // real cause + remedy instead of a bare serde "unknown field"
+                // (bd-1b95db; aur-1 addendum: the opaque error misleads agents
+                // into a confidently-wrong "the config is broken" diagnosis).
+                if source.to_string().contains("unknown field") {
+                    write!(
+                        f,
+                        "\n  hint: this field is unknown to THIS nlir build — your binary is likely older than the config schema (an additive field landed after it was built). Rebuild/update nlir (e.g. `just sync-install`), or remove the field if it is a typo."
+                    )?;
+                }
+                Ok(())
             }
             ConfigError::Invalid { path, issues } => {
                 writeln!(
@@ -1538,6 +1552,24 @@ tests:
         }
         // Diagnostic carries the path for the operator.
         assert!(err.to_string().contains("config.yaml"));
+    }
+
+    #[test]
+    fn unknown_field_parse_error_hints_at_binary_drift() {
+        // A field the running build does not know (deny_unknown_fields) — the
+        // exact symptom of a stale binary vs a newer config schema (bd-1b95db).
+        let path = Path::new("/some/where/config.yaml");
+        let err = parse_str("bogus_new_field: 1\n", path).unwrap_err();
+        let msg = err.to_string();
+        // Still surfaces the underlying serde "unknown field" diagnosis...
+        assert!(msg.contains("unknown field"), "message: {msg}");
+        // ...plus the actionable binary-drift hint + remedy, so an agent does
+        // not misdiagnose a stale binary as "the config is broken".
+        assert!(
+            msg.contains("older than the config schema"),
+            "expected binary-drift hint, got: {msg}"
+        );
+        assert!(msg.contains("Rebuild/update nlir"), "message: {msg}");
     }
 
     #[test]
