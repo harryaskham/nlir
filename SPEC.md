@@ -201,6 +201,34 @@ transformations differ by mode.
   `3.14` a number), so it is a clear "index must be an integer" error; use `(list.1).0`.
   Dict/string chaining (`.k.k2`, `.1.k`) is unaffected.
 
+### Set-notation builtins (`$elem` / `$union` / `$inter` / `$diff`)
+
+Deterministic, total set algebra over values (bd-49d65a). Like `$sort`/`$contains`,
+element identity is the **rendered value** (trimmed), so lists of numbers, strings,
+or mixed values compare predictably. `$union`/`$inter`/`$diff` return a list;
+results are **order-preserving** (first-occurrence order of the left operand) and
+**deduped**. Coercion for the algebra ops: a **list** spreads to its items, a
+**dict** spreads to its **keys** (set ops on a dict operate on its key set), and a
+scalar is a one-element set.
+
+- **`$elem%(item, coll)`** — membership `Bool`, the flip of `$contains`
+  ("contained-in / element-of"). Polymorphic on `coll`: a **list** → exact element
+  membership (`$elem%('b',[a,b,c])` → `true`); a **dict** → key membership
+  (`$elem%('k',{k=1,j=2})` → `true`); a **string** → substring
+  (`$elem%('broken','login page broken')` → `true`); a scalar → equality.
+- **`$union%(a, b, …)`** — variadic union: `$union%([1,2],[2,3])` → `[1,2,3]`. A
+  single list argument doubles as **unique/nub**: `$union%[a,b,a,c]` → `[a,b,c]`.
+- **`$inter%(a, b)`** — intersection `a ∩ b`: items of `a` (a-order, deduped) also
+  in `b`. `$inter%([1,2,3],[2,3,4])` → `[2,3]`; a disjoint pair → the empty list.
+- **`$diff%(a, b)`** — difference `a ∖ b`: items of `a` (a-order, deduped) not in
+  `b`. `$diff%([1,2,3],[2])` → `[1,3]`. (Distinct from the semantic `Δ` operator,
+  which is an llm text-diff, not set subtraction.)
+
+They compose with the rest of the value-builtin family:
+`$if%($elem%('ERROR',$0),'page','ok')` gates on membership;
+`$nth%(0,$sort%$union%(a,b))` = the least element of a merged set. Sigil aliases
+(`∪ ∩ ∈ ∖`) are a planned follow-up (config-operator layer).
+
 Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
 the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
 After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.

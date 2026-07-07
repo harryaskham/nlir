@@ -388,6 +388,50 @@ composed from the same small core.
 
 ---
 
+## 11. Sets — membership & algebra
+
+Four builtins bring **set notation** — membership plus union / intersection /
+difference — all deterministic and total. Element identity is the rendered value,
+so numbers, strings, and mixed lists all behave.
+
+- **`$elem`** — "is it in there?", the flip of `$contains`. Works on lists
+  (exact element), strings (substring), and dicts (key):
+
+```
+$elem%('b', [a,b,c])                 -> true    (list element)
+$elem%('broken', 'login page broken') -> true    (substring)
+$elem%('k', {k=1, j=2})              -> true    (dict key)
+```
+
+- **`$union`** — merge, order-preserving and deduped (a single list = unique/nub):
+
+```
+$union%([1,2], [2,3])                -> 1 / 2 / 3
+$union%([a,b], [b,c], [c,d])         -> a / b / c / d   (variadic)
+$union%[a,b,a,c]                     -> a / b / c        (nub)
+```
+
+- **`$inter`** — intersection (what's in both); **`$diff`** — difference (in the
+  first, not the second):
+
+```
+$inter%([1,2,3], [2,3,4])            -> 2 / 3
+$diff%([1,2,3], [2])                 -> 1 / 3
+```
+
+They compose with the rest of the core — gate on membership, or take the least of
+a merged set:
+
+```
+$if%($elem%('ERROR', 'ok ERROR: oom'), 'page', 'ok')   -> page
+$nth%(0, $sort%$union%([3,1], [2,1]))                  -> 1     (min of the union)
+```
+
+(`$diff` is set subtraction; the semantic `Δ` operator is a different thing — an
+llm text-diff, not a set op.)
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.

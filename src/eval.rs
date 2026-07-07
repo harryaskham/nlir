@@ -731,8 +731,10 @@ impl<'a> Evaluator<'a> {
             {
                 return self.eval_higher_order(name, args);
             }
-            if matches!(name.as_str(), "if" | "nth" | "sort" | "contains")
-                && self.context.get(name).is_none()
+            if matches!(
+                name.as_str(),
+                "if" | "nth" | "sort" | "contains" | "elem" | "union" | "inter" | "diff"
+            ) && self.context.get(name).is_none()
             {
                 return self.eval_value_builtin(name, args);
             }
@@ -812,6 +814,43 @@ impl<'a> Evaluator<'a> {
                     hay.render(&sep).contains(needle.render(&sep).trim()),
                 ))
             }
+            // Set-notation family (bd-49d65a, Harry's request): membership +
+            // set algebra, deterministic + total, keyed on rendered value.
+            "elem" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(item, collection)", args.len()));
+                }
+                let x = self.eval(&args[0])?;
+                let coll = self.eval(&args[1])?;
+                let sep = self.sep();
+                Ok(Value::bool(value_elem(&x, &coll, &sep)))
+            }
+            "union" => {
+                let sep = self.sep();
+                let mut all = Vec::new();
+                for arg in args {
+                    all.extend(set_items(self.eval(arg)?));
+                }
+                Ok(Value::list(dedup_values(all, &sep)))
+            }
+            "inter" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(a, b)", args.len()));
+                }
+                let a = set_items(self.eval(&args[0])?);
+                let b = set_items(self.eval(&args[1])?);
+                let sep = self.sep();
+                Ok(Value::list(set_inter(a, &b, &sep)))
+            }
+            "diff" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(a, b)", args.len()));
+                }
+                let a = set_items(self.eval(&args[0])?);
+                let b = set_items(self.eval(&args[1])?);
+                let sep = self.sep();
+                Ok(Value::list(set_diff(a, &b, &sep)))
+            }
             _ => unreachable!("unknown value builtin: {name}"),
         }
     }
@@ -883,6 +922,43 @@ impl<'a> Evaluator<'a> {
                 Ok(Value::bool(
                     hay.render(&sep).contains(needle.render(&sep).trim()),
                 ))
+            }
+            // Set-notation family (bd-49d65a), async twin: operands may await the
+            // realiser (llm mode); the set algebra itself is pure/structural.
+            "elem" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(item, collection)", args.len()));
+                }
+                let x = self.eval_async(&args[0], realiser).await?;
+                let coll = self.eval_async(&args[1], realiser).await?;
+                let sep = self.sep();
+                Ok(Value::bool(value_elem(&x, &coll, &sep)))
+            }
+            "union" => {
+                let sep = self.sep();
+                let mut all = Vec::new();
+                for arg in args {
+                    all.extend(set_items(self.eval_async(arg, realiser).await?));
+                }
+                Ok(Value::list(dedup_values(all, &sep)))
+            }
+            "inter" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(a, b)", args.len()));
+                }
+                let a = set_items(self.eval_async(&args[0], realiser).await?);
+                let b = set_items(self.eval_async(&args[1], realiser).await?);
+                let sep = self.sep();
+                Ok(Value::list(set_inter(a, &b, &sep)))
+            }
+            "diff" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(a, b)", args.len()));
+                }
+                let a = set_items(self.eval_async(&args[0], realiser).await?);
+                let b = set_items(self.eval_async(&args[1], realiser).await?);
+                let sep = self.sep();
+                Ok(Value::list(set_diff(a, &b, &sep)))
             }
             _ => unreachable!("unknown value builtin: {name}"),
         }
@@ -1356,8 +1432,16 @@ impl<'a> Evaluator<'a> {
                                 .run_higher_order_async(name.clone(), hbody, items, realiser)
                                 .await;
                         }
-                        if matches!(name.as_str(), "if" | "nth" | "sort" | "contains")
-                            && self.context.get(name).is_none()
+                        if matches!(
+                            name.as_str(),
+                            "if" | "nth"
+                                | "sort"
+                                | "contains"
+                                | "elem"
+                                | "union"
+                                | "inter"
+                                | "diff"
+                        ) && self.context.get(name).is_none()
                         {
                             return self.eval_value_builtin_async(name, args, realiser).await;
                         }
@@ -2371,6 +2455,76 @@ fn as_items(v: Value) -> Vec<Value> {
     }
 }
 
+/// Coerce a value to its "set elements" for the set-algebra builtins
+/// (`$union`/`$inter`/`$diff`, bd-49d65a): a [`Value::List`] spreads to its
+/// items, a [`Value::Dict`] spreads to its KEYS (set ops on a dict operate on
+/// its key set — "as expected"), and any scalar (`String`/`Number`/`Bool`/
+/// `Form`) is a one-element set.
+fn set_items(v: Value) -> Vec<Value> {
+    match v {
+        Value::List(items) => items,
+        Value::Dict(pairs) => pairs.into_iter().map(|(k, _)| Value::string(k)).collect(),
+        other => vec![other],
+    }
+}
+
+/// The set-membership key of a value: its rendered text, trimmed. Two values are
+/// the "same element" iff their keys are equal — the same total, deterministic
+/// equality `$sort`/`$contains` use (render then compare), so lists of numbers,
+/// strings, or mixed values all dedup predictably.
+fn set_key(v: &Value, sep: &str) -> String {
+    v.render(sep).trim().to_owned()
+}
+
+/// Order-preserving dedup by [`set_key`]: keep the first occurrence of each
+/// distinct element (so `$union` of a single list doubles as unique/nub).
+fn dedup_values(items: Vec<Value>, sep: &str) -> Vec<Value> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        if seen.insert(set_key(&item, sep)) {
+            out.push(item);
+        }
+    }
+    out
+}
+
+/// Set intersection `a ∩ b`: elements of `a` (deduped, `a`-order) whose key is
+/// also present in `b`.
+fn set_inter(a: Vec<Value>, b: &[Value], sep: &str) -> Vec<Value> {
+    let bkeys: std::collections::HashSet<String> = b.iter().map(|v| set_key(v, sep)).collect();
+    dedup_values(a, sep)
+        .into_iter()
+        .filter(|v| bkeys.contains(&set_key(v, sep)))
+        .collect()
+}
+
+/// Set difference `a ∖ b`: elements of `a` (deduped, `a`-order) whose key is NOT
+/// present in `b`.
+fn set_diff(a: Vec<Value>, b: &[Value], sep: &str) -> Vec<Value> {
+    let bkeys: std::collections::HashSet<String> = b.iter().map(|v| set_key(v, sep)).collect();
+    dedup_values(a, sep)
+        .into_iter()
+        .filter(|v| !bkeys.contains(&set_key(v, sep)))
+        .collect()
+}
+
+/// Membership test for `$elem%(item, collection)` ("item is contained in
+/// collection"), the flip of `$contains`. Polymorphic on the collection:
+/// - [`Value::List`] → exact element membership (some item's key == `item`'s key);
+/// - [`Value::Dict`] → key membership (`item` names a key);
+/// - [`Value::String`] → substring (`item`'s rendered text appears in the string);
+/// - scalar → key equality (a one-element set).
+fn value_elem(item: &Value, collection: &Value, sep: &str) -> bool {
+    let key = set_key(item, sep);
+    match collection {
+        Value::List(items) => items.iter().any(|v| set_key(v, sep) == key),
+        Value::Dict(pairs) => pairs.iter().any(|(k, _)| k.trim() == key),
+        Value::String(s) => s.contains(&key),
+        other => set_key(other, sep) == key,
+    }
+}
+
 /// Sort values ascending (`$sort`): numeric order when every item renders as a
 /// number, else lexicographic on the rendered text. Total + deterministic.
 fn sort_values(mut items: Vec<Value>, sep: &str) -> Vec<Value> {
@@ -3143,6 +3297,39 @@ operators:
         // $contains — Bool containment predicate (filter/if conds + ~> det).
         check("$contains%('login page broken','broken')", "true");
         check("$contains%('all systems green','broken')", "false");
+    }
+
+    #[test]
+    fn value_builtins_set_ops() {
+        // Set-notation family (bd-49d65a, Harry's request): membership + set
+        // algebra, deterministic + total, keyed on rendered value.
+        // $elem — membership, the flip of $contains. List = exact element.
+        assert_eq!(det("$elem%('b',[a,b,c])"), "true");
+        assert_eq!(det("$elem%('x',[a,b,c])"), "false");
+        assert_eq!(det("$elem%(2,[1,2,3])"), "true");
+        // $elem on a string = substring; on a dict = key membership.
+        assert_eq!(det("$elem%('broken','login page broken')"), "true");
+        assert_eq!(det("$elem%('green','login page broken')"), "false");
+        assert_eq!(det("$elem%('k',{k=1,j=2})"), "true");
+        assert_eq!(det("$elem%('z',{k=1,j=2})"), "false");
+        // $union — order-preserving dedup union (variadic); single list = nub.
+        assert_eq!(det("$union%([1,2],[2,3])"), "1\n2\n3");
+        assert_eq!(det("$union%([a,b],[b,c],[c,d])"), "a\nb\nc\nd");
+        assert_eq!(det("$union%[a,b,a,c]"), "a\nb\nc");
+        // dict union operates on keys.
+        assert_eq!(det("$union%({a=1,b=2},{b=3,c=4})"), "a\nb\nc");
+        // $inter — elements of a also in b (a-order, deduped); empty renders "".
+        assert_eq!(det("$inter%([1,2,3],[2,3,4])"), "2\n3");
+        assert_eq!(det("$inter%([a,b],[c,d])"), "");
+        // $diff — elements of a not in b (a-order, deduped).
+        assert_eq!(det("$diff%([1,2,3],[2])"), "1\n3");
+        assert_eq!(det("$diff%([a,b,c],[a,c])"), "b");
+        // Composes with the rest of the value-builtin family.
+        assert_eq!(det("$nth%(0,$sort%$union%([3,1],[2,1]))"), "1");
+        assert_eq!(
+            det("$if%($elem%('ERROR','ok ERROR: oom'),'page','ok')"),
+            "page"
+        );
     }
 
     #[test]

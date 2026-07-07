@@ -626,6 +626,19 @@ tests:
   cookbook-contains-no: { mode: det, expr: "$contains%('all systems green','broken')", expected: "false" }
   cookbook-grep:        { mode: det, expr: "$filter%({$contains%($0,'err')},['ok','err 1','err 2'])", expected: "err 1\nerr 2" }
   hero-ops-gate:        { mode: det, expr: "$if%($fold%({$0+$1},$map%({$contains%($0,'ERROR')},['ok','ERROR: oom','ok','ERROR: disk full']))>=2,'page on-call','all clear')", expected: "page on-call" }
+  # Set-notation family (bd-49d65a, Harry's request): membership + set algebra,
+  # deterministic + total, keyed on rendered value. Engine-layer value builtins.
+  set-elem-list:        { mode: det, expr: "$elem%('b',[a,b,c])", expected: "true" }
+  set-elem-list-no:     { mode: det, expr: "$elem%('x',[a,b,c])", expected: "false" }
+  set-elem-string:      { mode: det, expr: "$elem%('broken','login page broken')", expected: "true" }
+  set-elem-dict-key:    { mode: det, expr: "$elem%('k',{k=1, j=2})", expected: "true" }
+  set-union:            { mode: det, expr: "$union%([1,2],[2,3])", expected: "1\n2\n3" }
+  set-union-variadic:   { mode: det, expr: "$union%([a,b],[b,c],[c,d])", expected: "a\nb\nc\nd" }
+  set-union-nub:        { mode: det, expr: "$union%[a,b,a,c]", expected: "a\nb\nc" }
+  set-union-dict-keys:  { mode: det, expr: "$union%({a=1, b=2},{b=3, c=4})", expected: "a\nb\nc" }
+  set-inter:            { mode: det, expr: "$inter%([1,2,3],[2,3,4])", expected: "2\n3" }
+  set-diff:             { mode: det, expr: "$diff%([1,2,3],[2])", expected: "1\n3" }
+  set-compose-gate:     { mode: det, expr: "$if%($elem%('ERROR','ok ERROR: oom'),'page','ok')", expected: "page" }
   # `?` dual-role (bd-2f4d5e, Harry): postfix `x?` = question; operand-start `?%(c,t,e)` = if (reuses the $if engine, short-circuits).
   q-if-then:            { mode: det, expr: "?%(2>=2,'yes','no')", expected: "yes" }
   q-if-else:            { mode: det, expr: "?%(1>=2,'yes','no')", expected: "no" }
