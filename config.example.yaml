@@ -529,6 +529,8 @@ tests:
   str-split: { mode: det, expr: '_sep=\ ;"a,b,c"//","', expected: "a b c" }
   str-split-chars: { mode: det, expr: '_sep=\ ;"abc"//""', expected: "a b c" }
   str-split-map: { mode: det, expr: '_sep=\ ;$map%({$0++$0},"a,b"//",")', expected: "aa bb" }
+  pipe-fold-sum: { mode: det, expr: '{$0+$1}⊘("3,5,2"//",")', expected: "10" }
+  pipe-count-branch: { mode: det, expr: '?%({$0+$1}⊘({$contains%($0,"ERR")}↦["ok","ERR a","ok","ERR b"])>=2,"page","clear")', expected: "page" }
   gen-obeys: { mode: det, expr: "=>'x'", expected: "response: x" }  # det stub for the => generation op (bd-d18743)
   # quote-eval (bd-5dd86f): `{…}` quotes a form — evaluation is INERT (the form is
   # returned as data, not run), it round-trips through render (precedence kept),

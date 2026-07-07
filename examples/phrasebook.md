@@ -319,6 +319,32 @@ SELECT ∘ GENERATE ∘ COMPOSE: pick the input, `=>` writes the pieces, `@&[…
 
 ---
 
+## Pipe-native — det+fuzzy in a unix pipe (why nlir, not a prompt)
+
+The move a plain LLM prompt can't clone: nlir sits **mid-pipe** and **mixes exact
+computation with fuzzy judgment** in one expression. Piped stdin is `$_stdin`, `//`
+splits it to a list of lines, `↦`/`⊘` map/fold with det OR llm steps. sgu24-app's test:
+if you can't say why it isn't just one LLM prompt, it's a weak example — these pass it
+because a raw model can't do reliable exact arithmetic and no single unix tool can do
+the fuzzy half.
+
+    printf '3 apples\n5 oranges\n2 pears\n' | nlir -e '{$0+$1}⊘($_stdin//"\n")'   → 10
+      fuzzy-sum: the model reads each line's count, the EXACT `+` sums — a prompt can't be trusted to add.
+
+    logs | nlir -e '?%({$0+$1}⊘({$contains%($0,"ERROR")}↦($_stdin//"\n"))>=2,"page on-call","all clear")'
+      count-and-branch (DET, offline): grep + wc + if collapsed into one pipe stage.
+
+    reviews | nlir -e '{$0+$1}⊘({$0~>"a complaint"}↦($_stdin//"\n"))'   → 2
+      semantic grep → count: fuzzy per-line judgment, then an EXACT count. grep can't judge; a prompt can't count.
+
+    git log --oneline | nlir -e '#($_stdin//"\n")'
+      semantic awk: fold a list of commits to their shared subject — awk with understanding.
+
+`$_stdin` · `//` split · `↦`/`⊘` map/fold · `~>` implication · `#` subject — det scaffolding,
+fuzzy steps, sitting between grep and awk. Run them live: `bash examples/move-msm0-pipe.sh`.
+
+---
+
 ## See it / run it
 - **Cards** (sigils rendered literally + typeably): `showcase/` → the GitHub Pages `showcase.html` gallery.
 - **Run any move for real**: `bash examples/move-<lane>-<name>.sh`.
