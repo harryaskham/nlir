@@ -55,7 +55,9 @@ EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval
 - Messages live under **`_messages`** (`{role, content}` array); `^` indexes
   role-filtered views.
 - System keys (`_`-prefixed): `_messages`, `_sep` (list/range → text separator,
-  default `"\n"`), `_cache` (caching on/off, default `true`).
+  default `"\n"`), `_cache` (caching on/off, default `true`), `_precision`
+  (final-display decimal places for numbers, default off = exact/round-tripping;
+  display-only, never changes computation).
 - **Context writes happen immediately** (write-through to the context file when
   one is active).
 

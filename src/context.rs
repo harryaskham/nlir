@@ -220,6 +220,25 @@ impl Context {
             .map_or_else(|| self.sep_default.clone(), str::to_owned)
     }
 
+    /// The optional FINAL-display decimal precision (`_precision`, bd-50f84a):
+    /// `Some(dp)` rounds numbers to `dp` decimal places at stdout render only,
+    /// `None` (key absent) keeps exact round-tripping output. Runtime-assignable
+    /// via `_precision=N` like `_sep`; a non-numeric or negative value is ignored
+    /// (treated as unset). Display-only — it never affects stored values/coercion.
+    #[must_use]
+    pub fn precision(&self) -> Option<usize> {
+        self.data.get("_precision").and_then(|value| {
+            // Stored as a serde_json value: numbers come through `_precision=N`
+            // (a JSON float via value_to_json), strings via a quoted assignment.
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            value
+                .as_f64()
+                .filter(|f| f.is_finite() && *f >= 0.0)
+                .map(|f| f as usize)
+                .or_else(|| value.as_str().and_then(|s| s.trim().parse::<usize>().ok()))
+        })
+    }
+
     /// Whether subcall/coercion caching is on: `_cache` if set, else the config
     /// default (`true`).
     ///

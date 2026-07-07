@@ -219,6 +219,35 @@ impl Value {
         }
     }
 
+    /// Render for FINAL display output (program stdout), applying an optional
+    /// decimal-place `precision` to numbers (bd-50f84a). `None` is identical to
+    /// [`Value::render`] (exact, round-tripping); `Some(dp)` rounds numbers to at
+    /// most `dp` decimal places for display (trailing zeros trimmed). This is a
+    /// DISPLAY preference only — it is applied at the final render, so all
+    /// intermediate rendering and coercion keep full precision and `_precision`
+    /// never changes computation, only the printed form (SPEC option (c)).
+    #[must_use]
+    pub fn render_display(&self, sep: &str, precision: Option<usize>) -> String {
+        let Some(dp) = precision else {
+            return self.render(sep);
+        };
+        match self {
+            Value::Number(n) => format_number_dp(*n, dp),
+            Value::List(items) => items
+                .iter()
+                .map(|item| item.render_display(sep, precision))
+                .collect::<Vec<_>>()
+                .join(sep),
+            Value::Dict(pairs) => pairs
+                .iter()
+                .map(|(k, v)| format!("{k}={}", v.render_display(sep, precision)))
+                .collect::<Vec<_>>()
+                .join(sep),
+            // Strings, bools, and forms carry no numeric display precision.
+            _ => self.render(sep),
+        }
+    }
+
     /// Attempt a *deterministic* coercion of this value to `target`, using `sep`
     /// to join list elements when rendering to a string (SPEC §Types & coercion,
     /// steps 1–2 — before any LLM call).
@@ -360,6 +389,31 @@ pub fn format_number(n: f64) -> String {
     // Non-integral, or beyond exact-integer precision, or non-finite
     // (NaN / inf): defer to the standard shortest representation.
     format!("{n}")
+}
+
+/// Render a number to at most `dp` decimal places for DISPLAY (bd-50f84a),
+/// trimming trailing zeros and any dangling decimal point so integers stay clean
+/// (`2`, not `2.0`) and `10/3` at `dp=6` reads `3.333333`. Non-finite values
+/// defer to [`format_number`]. Display-only rounding: it never touches stored
+/// values or coercion, only the final printed form.
+#[must_use]
+fn format_number_dp(n: f64, dp: usize) -> String {
+    if !n.is_finite() {
+        return format_number(n);
+    }
+    let s = format!("{n:.dp$}");
+    // Trim trailing zeros (and a bare trailing dot) so 12.5000 -> 12.5, 2.000 -> 2.
+    let trimmed = if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        s.as_str()
+    };
+    // Normalise a rounded-to-zero negative ("-0") back to "0".
+    if trimmed.is_empty() || trimmed == "-0" || trimmed == "-" {
+        "0".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
 }
 
 /// Parse a string into a number using only **deterministic**, offline rules —
@@ -1010,5 +1064,36 @@ mod tests {
         // No deterministic rule either (confirms it is never a silent coercion).
         assert_eq!(d.coerce_deterministic(TypeName::Number, ", "), None);
         assert_eq!(d.coerce_deterministic(TypeName::Bool, ", "), None);
+    }
+
+    // --- final-display decimal precision (bd-50f84a) ---
+
+    #[test]
+    fn render_display_none_is_exact_render() {
+        // No precision = identical to render (exact, round-tripping f64).
+        let v = Value::number(10.0 / 3.0);
+        assert_eq!(v.render_display("\n", None), v.render("\n"));
+        assert_eq!(v.render_display("\n", None), "3.3333333333333335");
+    }
+
+    #[test]
+    fn render_display_rounds_numbers_to_decimal_places() {
+        // The flagship: 10/3 at 6 dp reads cleanly.
+        assert_eq!(
+            Value::number(10.0 / 3.0).render_display("\n", Some(6)),
+            "3.333333"
+        );
+        // Trailing zeros trimmed; integers stay clean; dp=0 rounds to integer.
+        assert_eq!(Value::number(0.5).render_display("\n", Some(6)), "0.5");
+        assert_eq!(Value::number(2.0).render_display("\n", Some(6)), "2");
+        assert_eq!(Value::number(12.5).render_display("\n", Some(2)), "12.5");
+        assert_eq!(Value::number(3.7).render_display("\n", Some(0)), "4");
+        // Non-numbers pass through unchanged; a list rounds each element.
+        assert_eq!(Value::string("hi").render_display("\n", Some(2)), "hi");
+        assert_eq!(
+            Value::list(vec![Value::number(1.0 / 3.0), Value::number(2.0)])
+                .render_display(", ", Some(3)),
+            "0.333, 2"
+        );
     }
 }

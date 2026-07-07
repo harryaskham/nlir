@@ -804,11 +804,13 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     let piped_stdin = read_stdin_into_context(&mut ctx);
     // Evaluate against a MUTABLE context (assignments write through).
     let result = nlir::eval::evaluate(expr, &cfg, &mut ctx, settings.mode);
-    // Read `_sep` AFTER eval so a `_sep=` assignment affects rendering.
+    // Read `_sep` / `_precision` AFTER eval so a `_sep=` / `_precision=`
+    // assignment affects rendering (bd-50f84a: precision is display-only).
     let sep = ctx.sep();
+    let precision = ctx.precision();
     match result {
         Ok(value) => {
-            let rendered = value.render(&sep);
+            let rendered = value.render_display(&sep, precision);
             // Never persist the transient piped `_stdin` to the store.
             if piped_stdin {
                 ctx.remove("_stdin");
