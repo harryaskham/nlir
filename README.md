@@ -93,6 +93,15 @@ LLM twin) — reaches the same target two ways:
 | ![structural access](showcase/nlir-structural-access.png) | ![semantic access](showcase/nlir-semantic-access.png) |
 | `[Mercury,Venus,Earth,Mars].2` → `Earth` — count a real list | `'the planets from the sun'..3` → `Earth` — index a *described* one (golfs to `sol..3`, six chars) |
 
+And the sharpest dogfood — the golf judge is *itself* nlir. `=>` regenerates a target,
+`~>` scores whether the output means the same:
+
+![nlir grades nlir — the golf judge is itself an nlir expression](showcase/nlir-self-judge.png)
+
+`(=>'first line of 1984')~>'It was a bright cold day in April, and the clocks were striking thirteen'` → `true`.
+The honest gate is mutual — `$if%((sol)~>T, T~>(sol), 'false')` — so a too-vague output
+can't cheat. nlir grading nlir, no exact-match needed.
+
 The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
 [`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
 HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):

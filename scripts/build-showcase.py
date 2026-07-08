@@ -78,6 +78,8 @@ SIMPLE = [
          cap="fuzzy-sum's sibling — ~> judges each line (is it a complaint?), the exact + counts the trues → 2. grep can't judge tone; a raw model can't be trusted to count. det+fuzzy, one pipe stage"),
     dict(name="fuzzy-decide", expr="$if%('the server keeps crashing'~>'urgent','escalate','queue')", pill="llm · fuzzy decision", out="escalate",
          cap="routing on a fuzzy test — $if branches on ~>. the SAME expression prints 'queue' in det (keyword-match: no literal 'urgent') but 'escalate' in llm (crashing IS urgent). the gap between them is exactly what ~> buys — why nlir, not grep"),
+    dict(name="self-judge", expr="(=>'first line of 1984')~>'It was a bright cold day in April, and the clocks were striking thirteen'", pill="llm · nlir grades nlir", out="true",
+         cap="the sharpest dogfood — the golf judge IS nlir. => regenerates the target from a terse clue; ~> scores 'does it MEAN the same?' → true. the honest gate is mutual (both ways: $if%(A~>B, B~>A,'false')) so a too-vague answer can't cheat. no exact-match needed"),
     dict(name="map-lang", expr="$map%({@$0},['lmk if any Qs','pls advise'])", pill="llm · $map over an llm form",
          out="Please let me know if you have any questions.\nPlease advise.",
          cap="$map an llm move over a list — formalise EACH item into its own reply. map an AI op over a list = real programs"),
