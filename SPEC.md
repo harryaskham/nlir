@@ -202,6 +202,13 @@ transformations differ by mode.
   stub (`item N of: …`) keeps det-total; the model realises llm mode. The `.`↔`..`
   duality (structural access ↔ semantic access) rhymes with `~>` and `@`↔`=>` — the
   det/llm pairing that recurs across the vocabulary.
+  **Numeric range**: when *both* operands are integer literals (`a..b`), `..` short-circuits
+  to a deterministic inclusive **range list** instead of semantic access — `1..5` →
+  `[1,2,3,4,5]` (ascending), `5..1` → `[5,4,3,2,1]` (descending), `3..3` → `[3]`. This
+  repurposes the otherwise-useless numeric case (indexing a number is nonsensical) into the
+  range literal mathy programs need: `$fold%({$0+$1},1..100)` → 5050 (Gauss), `{$0*$1}⊘(1..5)`
+  → 120 (5!). Text-LHS semantic access (`"primes"..5`) is untouched — only two integer
+  operands trigger the range.
   **Seed reliability**: a terse descriptor can win on brevity (`sol..3` → "Earth", reading
   `sol` as the Sun) but terse meaning-tokens are often ambiguous — `sol` is also the solfège
   note, so higher indices drift (`sol..7` → "Si") — and llm realisation is non-deterministic.
@@ -328,7 +335,7 @@ semantics, mirrored by `nlir help` and the
 | `\|` | or | mixfix · >0 | Joins operands into one "X or Y" choice, kept as genuine alternatives. |
 | `_` | echo | infix · 2 | Repeats the text N times, space-joined (`x_2` = "x x"). The one shell-`command`-realised op. |
 | `.` | access | infix · 2 | Polymorphic structural accessor (deterministic): `[a,b,c].1`→`b` (0-based, negative from end), `{k=v}.k`→`v`, `"the".2`→`e`. Loud on out-of-range / missing key. |
-| `..` | access-semantic | infix · 2 | The LLM twin of `.`: reads element N from the sequence *described* by the text (`"planets from the sun"..3`→"earth"), generalizing to descriptors. det-stub keeps det-total. |
+| `..` | access-semantic | infix · 2 | The LLM twin of `.`: reads element N from the sequence *described* by the text (`"planets from the sun"..3`→"earth"), generalizing to descriptors. det-stub keeps det-total. **Numeric `a..b`** (both integer operands) short-circuits to a deterministic inclusive range list: `1..5`→`[1,2,3,4,5]`, `5..1`→`[5,4,3,2,1]` (descending), repurposing the useless numeric-index case. |
 | `++` | concat | mixfix · >0 | Concatenate the string operands (deterministic): `"foo"++"bar"` → "foobar". |
 | `//` | split | infix · 2 | Split a string by a separator into a list (deterministic): `"a,b,c"//","` → `[a,b,c]`. |
 | `Δ` | diff | infix · 2 | Directional diff — what changed from the first text to the second (added / removed / shifted). Non-commutative (`aΔb ≠ bΔa`); powers before/after, drift, changelog. |

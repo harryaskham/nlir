@@ -719,6 +719,12 @@ tests:
   list-access-neg:      { mode: det, expr: "[a,b,c].-1", expected: "c" }
   string-access:        { mode: det, expr: "'the'.2", expected: "e" }
   semantic-access-stub: { mode: det, expr: "'the planets from the sun'..3", expected: "item 3 of: the planets from the sun" }
+  numeric-range-asc:    { mode: det, expr: "_sep=\\ ;1..5", expected: "1 2 3 4 5" }
+  numeric-range-desc:   { mode: det, expr: "_sep=\\ ;5..1", expected: "5 4 3 2 1" }
+  numeric-range-single: { mode: det, expr: "3..3", expected: "3" }
+  numeric-range-gauss:  { mode: det, expr: "$fold%({$0+$1},1..100)", expected: "5050" }
+  numeric-range-fact:   { mode: det, expr: "{$0*$1}⊘(1..5)", expected: "120" }
+  numeric-range-sumsq:  { mode: det, expr: "{$0+$1}⊘({$0*$0}↦(1..5))", expected: "55" }
   # nlir-grades-nlir as a DET CI gate (bd-b00961 made the mutual judge det-evaluate):
   # a generator PART self-verified by the mutual judge, fully offline. The det
   # generator (concat) produces EXACTLY the target, so mutual `j` (equivalence) is

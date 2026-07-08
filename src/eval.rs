@@ -1299,6 +1299,20 @@ impl<'a> Evaluator<'a> {
             return self.compose_form(&operands);
         }
 
+        // Numeric range (bd-791410): `a..b` with both operands integral Numbers
+        // → the inclusive range list. Repurposes the USELESS numeric case of the
+        // semantic accessor `..` (indexing a number is nonsensical); the
+        // `'str'..N` semantic-access path is untouched — a non-Number or
+        // non-integral operand falls through to the normal realisation below.
+        if op == ".." {
+            if let (Some(a), Some(b)) = (
+                operands.first().and_then(as_integer),
+                operands.get(1).and_then(as_integer),
+            ) {
+                return Ok(numeric_range(a, b));
+            }
+        }
+
         // Glyph operators (bd-44c294): a `builtin:`/`form:`-realised operator
         // dispatches BEFORE operand coercion — the operands go RAW to the builtin
         // (map/fold over a `(form, list)`) or the form (bound to `$0`, `$1`, …).
@@ -1552,6 +1566,17 @@ impl<'a> Evaluator<'a> {
             // composes the form N times (sync — no realiser await needed).
             if op == "_" && matches!(operands.first(), Some(Value::Form(_))) {
                 return self.compose_form(&operands);
+            }
+
+            // Numeric range (bd-791410), async twin: `a..b` with both operands
+            // integral Numbers → the inclusive range list (see sync path).
+            if op == ".." {
+                if let (Some(a), Some(b)) = (
+                    operands.first().and_then(as_integer),
+                    operands.get(1).and_then(as_integer),
+                ) {
+                    return Ok(numeric_range(a, b));
+                }
             }
 
             // Glyph operators (bd-44c294), async: same pre-coercion dispatch as
@@ -2661,6 +2686,34 @@ fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usi
 /// builtin forms share one deterministic semantics (dict→keys via `set_items`,
 /// `set_key`-based equality). `∪` here is the binary case; the variadic
 /// `$union%(a,b,c)` stays on the builtin path.
+/// Extract an integer from a `..` operand for the numeric-range short-circuit
+/// (bd-791410). Accepts an integral `Number` or a `String` that parses to an
+/// `i64` — bare numeric literals in nlir are text-typed (`1` evaluates to
+/// `String("1")`, coerced to a number only by arithmetic), so range endpoints
+/// arrive as strings. A non-integral or non-numeric operand (e.g. `'primes'`,
+/// `1.5`) returns None, so `'str'..N` semantic access falls through untouched.
+fn as_integer(v: &Value) -> Option<i64> {
+    match v {
+        Value::Number(n) if n.fract() == 0.0 => Some(*n as i64),
+        Value::String(s) => s.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+/// Build the inclusive integer range list for the numeric `a..b` case (bd-791410):
+/// ascending `[a, a+1, …, b]` when `a <= b`, descending `[a, a-1, …, b]` when
+/// `a > b`, and the single element `[a]` when `a == b`. Chosen over an
+/// empty-on-reversed range because a descending range is strictly more useful
+/// (free reverse sequences) and never silently empty.
+fn numeric_range(a: i64, b: i64) -> Value {
+    let items: Vec<Value> = if a <= b {
+        (a..=b).map(|n| Value::number(n as f64)).collect()
+    } else {
+        (b..=a).rev().map(|n| Value::number(n as f64)).collect()
+    };
+    Value::list(items)
+}
+
 /// Apply a boolean-logic operator (∧/∨, bd-f1ee6f) over its two already-evaluated
 /// operands: coerce each to bool via [`value_is_truthy`] and AND/OR them. First-class
 /// logical conjunction/disjunction, DISTINCT from the string compose-`&`/`|` (which
@@ -2775,6 +2828,7 @@ operators:
   setelem:  { op: "∈", arity: 2, fixity: infix, priority: 5, builtin: elem }
   booland:  { op: "∧", arity: 2, fixity: infix, priority: 4, builtin: and }
   boolor:   { op: "∨", arity: 2, fixity: infix, priority: 3, builtin: or }
+  access:   { op: "..", arity: 2, fixity: infix, priority: 9 }
   echo:
     op: "_"
     arity: 2
@@ -2823,6 +2877,17 @@ operators:
         assert_eq!(det("{$0+1}%5"), "6"); // single arg
         assert_eq!(det("{$0+$1}%(2,3)"), "5"); // tuple args
         assert_eq!(det("{$0+$1}%[2,3]"), "5"); // list args (spreads like the tuple)
+    }
+
+    #[test]
+    fn numeric_range_repurposes_dead_int_access() {
+        // bd-791410: `a..b` with integer operands short-circuits to the inclusive
+        // range list BEFORE the semantic-access realisation — repurposing the
+        // useless numeric case of `..` (indexing a number is nonsensical).
+        assert_eq!(det("1..5"), "1\n2\n3\n4\n5"); // ascending (helper sep = \n)
+        assert_eq!(det("5..1"), "5\n4\n3\n2\n1"); // descending (a>b)
+        assert_eq!(det("3..3"), "3"); // single element (a==b)
+        assert_eq!(det("0..3"), "0\n1\n2\n3"); // zero-based
     }
 
     #[test]
