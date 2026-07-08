@@ -432,6 +432,45 @@ llm text-diff, not a set op.)
 
 ---
 
+## 12. Persistent parts libraries — reuse across programs
+
+§1 named a part and reused it *within one program*. Point nlir at a
+`--context-file` and a named part **persists** — it is reusable in every LATER
+program, across sessions. Each part is a rung; a growing library is a pyramid.
+
+```
+# program 1 — define + persist (context writes happen immediately)
+nlir --context-file lib.json -e "greet={('Hello, '++$0++'!')}"
+# program 2 — a SEPARATE run reuses it
+nlir --context-file lib.json -e "$greet%'Ada'"          → Hello, Ada!
+```
+
+**Parts compose other parts.** A persisted part may reference another persisted
+part (`$other` inside its body); the reference resolves at apply-time, so you
+grow the library bottom-up and calling the top part unfolds the whole stack:
+
+```
+nlir --context-file lib.json -e "label={('['++$0++']')}"          # base part
+nlir --context-file lib.json -e "card={('title '++($label%$0))}"  # uses $label
+nlir --context-file lib.json -e "$card%'hi'"                     → title [hi]
+```
+
+Definition order does not matter (apply-time resolution), and generative (llm)
+parts compose the same way
+(`def={=>('a definition of: '++$0)}; entry={($0++': '++($def%$0))}`).
+
+Runnable end-to-end: `examples/move-msm3-persistent-parts.sh` (persistence +
+composition) and `examples/move-msm3-composable-library.sh` (a 3-level pyramid).
+Note that persisting a part with embedded prompt text relies on forms
+round-tripping through context with their string literals intact.
+
+**Gotcha — cycles error, they don't crash.** A self-referential or mutually
+cyclic part (`a={$b%$0};b={$a%$0}`) is caught: applying it returns *"form
+application nested too deep — a self-referential or cyclic form?"* rather than
+overflowing the stack.
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.
