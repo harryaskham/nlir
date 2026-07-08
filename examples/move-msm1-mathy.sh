@@ -12,7 +12,7 @@
 # exact computation OVER meaning, which numpy can't (no notion of meaning) and a raw
 # prompt can't (no reliable exactness). e.g. sum the atomic numbers the model retrieves
 # (-> 113), count messages by meaning, self-verify a semantic step. Describe in meaning
-# -> compute exactly -> gate the fuzzy honestly. See the fusion showcase for that.
+# -> compute exactly -> gate the fuzzy honestly. See examples/move-msm1-fusion.sh for that.
 #
 # What follows is that exact spine — the fold / len / filter / sqrt / mod the fusion
 # rides on. Landed primitives this round: a..b range (aur-1), $len (msm1, 568a01b),
@@ -29,7 +29,7 @@ why() { printf '   \033[2m(%s)\033[0m\n' "$1"; }
 runlit() { printf '  => '; "$NLIR" --config "$CFG" --mode det --quiet -e "$1" 2>&1 | paste -sd' ' -; }
 
 say "EXACT SUBSTRATE — this is nlir's reproducible spine, NOT its differentiator"
-why "pure det-math below is just functional/array programming (numpy/APL/J do it); the 'why nlir' is FUSION — a semantic operand ON this scaffolding: sum world-knowledge, count by meaning, self-verify. See the fusion showcase."
+why "pure det-math below is just functional/array programming (numpy/APL/J do it); the 'why nlir' is FUSION — a semantic operand ON this scaffolding: sum world-knowledge, count by meaning, self-verify. See examples/move-msm1-fusion.sh."
 
 say "RANGES — a sequence from two integers"
 why "numeric a..b is a range literal; a>b counts down (free reverse ranges)"
@@ -147,4 +147,4 @@ runlit '_precision=4;4*$fold%({$0+$1},$map%({$if%($not%($mod%($0,2)),1,0-1)/(2*$
 say "famous sequences & constants — triangular, Collatz, Leibniz π — all computed exactly from the same small primitives."
 
 say "↑ that was the EXACT SPINE (offline, CI-gated, model-free). The 'why nlir' is putting MEANING on it"
-why "FUSION: exact math over semantically-retrieved data, gated honestly — numpy has no meaning, a prompt has no exactness, nlir does both in one line. See the fusion showcase."
+why "FUSION: exact math over semantically-retrieved data, gated honestly — numpy has no meaning, a prompt has no exactness, nlir does both in one line. See examples/move-msm1-fusion.sh."
