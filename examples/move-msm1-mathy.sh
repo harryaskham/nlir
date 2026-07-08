@@ -111,6 +111,12 @@ runlit '$mod%(17,5)'                                  # -> 2    (17 mod 5)
 runlit '$len%($filter%({$not%($mod%($0,2))},1..10))'  # -> 5    (count of evens in 1..10)
 runlit '$mod%(10+5,12)'                               # -> 3    (clock arithmetic: hour 15 wraps to 3 on a 12-clock)
 
+say "PRIMALITY by trial division — nlir DERIVES it, never recalls it (credit @aur-0)"
+why "a prime has exactly two divisors (1 and itself): count the divisors in 1..N, check ==2"
+runlit '$len%($filter%({$not%($mod%(7,$0))},1..7))==2'    # -> true    (7 is prime)
+runlit '$len%($filter%({$not%($mod%(8,$0))},1..8))==2'    # -> false   (8 has divisors 1,2,4,8 — composite)
+runlit '$len%($filter%({$not%($mod%(13,$0))},1..13))==2'  # -> true    (13 is prime)
+
 say "FIZZBUZZ — the whole classic in one line: map the nested-\$if over 1..15"
 why "per element: FizzBuzz if 15 divides it, else Fizz if 3, else Buzz if 5, else the number"
 runlit '$map%({$if%($not%($mod%($0,15)),"FizzBuzz",$if%($not%($mod%($0,3)),"Fizz",$if%($not%($mod%($0,5)),"Buzz",$0)))},1..15)'   # -> 1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz
