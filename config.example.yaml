@@ -760,6 +760,11 @@ tests:
   mod-even:            { mode: det, expr: "$mod%(10,2)", expected: "0" }
   mod-euclid-negative: { mode: det, expr: "$mod%(0-1,3)", expected: "2" }
   mod-count-evens:     { mode: det, expr: "$len%($filter%({$not%($mod%($0,2))},1..10))", expected: "5" }
+  # Regression guard (bd-d50bd7, fixed @bc863e1): STRING LITERALS in a {…} map/fold
+  # body must parse — map bodies can return string-valued conditionals, so
+  # FizzBuzz-over-a-range composes (was a stale-binary false alarm on current main).
+  map-body-string:     { mode: det, expr: "$map%({$if%(1,'a','b')},1..3)", expected: "a\na\na" }
+  map-body-mod-string: { mode: det, expr: "$map%({$if%($not%($mod%($0,3)),'Fizz',$0)},1..5)", expected: "1\n2\nFizz\n4\n5" }
   # `?` dual-role (bd-2f4d5e, Harry): postfix `x?` = question; operand-start `?%(c,t,e)` = if (reuses the $if engine, short-circuits).
   q-if-then:            { mode: det, expr: "?%(2>=2,'yes','no')", expected: "yes" }
   q-if-else:            { mode: det, expr: "?%(1>=2,'yes','no')", expected: "no" }
