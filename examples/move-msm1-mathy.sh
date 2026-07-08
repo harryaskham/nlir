@@ -127,3 +127,15 @@ runlit '$fold%({$0+$1},$filter%({($not%($mod%($0,3)))∨($not%($mod%($0,5)))},1.
 runlit '$fold%({$0+$1},$filter%({($not%($mod%($0,3)))∨($not%($mod%($0,5)))},1..999))'    # -> 233168   (below 1000)
 
 say "number theory — even/odd, FizzBuzz, Project Euler #1 — exact and model-free from \$mod + \$if + \$fold."
+
+say "MATHEMATICAL GEMS — famous sequences & constants, computed exactly (credit @msm-0's narrations)"
+why "triangular numbers T(n)=1+2+…+n are Gauss sums; map the sum over each row count"
+runlit '$map%({$fold%({$0+$1},1..$0)},1..5)'          # -> 1 3 6 10 15   (triangular numbers)
+why "the hidden gem: 8·T+1 is ALWAYS a perfect square — and its roots are the odd numbers"
+runlit '$map%({√(8*$0+1)},[1,3,6,10,15])'             # -> 3 5 7 9 11    (√(8T+1), exact)
+why "COLLATZ: even→halve, odd→3n+1, repeat — every number tumbles to 1 (unproven for 90 years)"
+runlit '({$if%($not%($mod%($0,2)),$0/2,3*$0+1)}_111)%27'   # -> 1   (27 takes the famous 111 steps)
+why "LEIBNIZ: 4·(1 − 1/3 + 1/5 − 1/7 + …) creeps toward π (_precision trims the display; the value stays exact)"
+runlit '_precision=4;4*$fold%({$0+$1},$map%({$if%($not%($mod%($0,2)),1,0-1)/(2*$0+1)},0..1000))'   # -> 3.1426   (→ π, slowly)
+
+say "famous sequences & constants — triangular, Collatz, Leibniz π — all computed exactly from the same small primitives."
