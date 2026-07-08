@@ -1049,6 +1049,9 @@ impl<'a> Evaluator<'a> {
         if matches!(name, "union" | "inter" | "diff" | "elem") {
             return apply_set_op(name, operands, &self.sep());
         }
+        if matches!(name, "and" | "or") {
+            return apply_bool_op(name, operands);
+        }
         let (body, items) = builtin_op_operands(name, operands)?;
         self.run_higher_order(name, &body, items)
     }
@@ -1536,6 +1539,9 @@ impl<'a> Evaluator<'a> {
                 }
                 if matches!(builtin.as_str(), "union" | "inter" | "diff" | "elem") {
                     return apply_set_op(&builtin, &operands, &self.sep());
+                }
+                if matches!(builtin.as_str(), "and" | "or") {
+                    return apply_bool_op(&builtin, &operands);
                 }
                 let (body, items) = builtin_op_operands(&builtin, &operands)?;
                 return self
@@ -2622,6 +2628,26 @@ fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usi
 /// builtin forms share one deterministic semantics (dict→keys via `set_items`,
 /// `set_key`-based equality). `∪` here is the binary case; the variadic
 /// `$union%(a,b,c)` stays on the builtin path.
+/// Apply a boolean-logic operator (∧/∨, bd-f1ee6f) over its two already-evaluated
+/// operands: coerce each to bool via [`value_is_truthy`] and AND/OR them. First-class
+/// logical conjunction/disjunction, DISTINCT from the string compose-`&`/`|` (which
+/// weave "X and Y" text). Operands are pre-evaluated, so this does NOT short-circuit
+/// — use `$if%(a, b, 'false')` when you need to skip the second operand's llm call.
+fn apply_bool_op(name: &str, operands: &[Value]) -> Result<Value, EvalError> {
+    let [a, b] = operands else {
+        return Err(EvalError::Unsupported(format!(
+            "boolean operator `{name}` takes 2 operands; got {}",
+            operands.len()
+        )));
+    };
+    let (a, b) = (value_is_truthy(a), value_is_truthy(b));
+    Ok(Value::bool(match name {
+        "and" => a && b,
+        "or" => a || b,
+        _ => unreachable!("unknown boolean operator: {name}"),
+    }))
+}
+
 fn apply_set_op(name: &str, operands: &[Value], sep: &str) -> Result<Value, EvalError> {
     let [a, b] = operands else {
         return Err(EvalError::Unsupported(format!(
@@ -2714,6 +2740,8 @@ operators:
   setdiff:  { op: "∖", arity: 2, fixity: infix, priority: 6, builtin: diff }
   setinter: { op: "∩", arity: 2, fixity: infix, priority: 7, builtin: inter }
   setelem:  { op: "∈", arity: 2, fixity: infix, priority: 5, builtin: elem }
+  booland:  { op: "∧", arity: 2, fixity: infix, priority: 4, builtin: and }
+  boolor:   { op: "∨", arity: 2, fixity: infix, priority: 3, builtin: or }
   echo:
     op: "_"
     arity: 2
@@ -3421,6 +3449,22 @@ operators:
         // precedence: ∩ (7) binds tighter than ∪ (6); ∈ (5) loosest
         assert_eq!(det("[1,2]∪[2,3]∩[3,4]"), "1\n2\n3"); // [1,2] ∪ ([2,3]∩[3,4]) = [1,2]∪[3]
         assert_eq!(det("2∈[1,2]∪[3,4]"), "true"); // 2 ∈ ([1,2]∪[3,4])
+        // bd-f1ee6f: boolean-logic operators (∧ ∨) — first-class AND/OR, distinct from compose-&/|.
+        // (Bool operands via ∈, which the minimal test config() defines; == coverage is in the det-suite.)
+        assert_eq!(det("('b'∈[a,b,c])∧('c'∈[a,b,c])"), "true");
+        assert_eq!(det("('b'∈[a,b,c])∧('x'∈[a,b,c])"), "false");
+        assert_eq!(det("('x'∈[a,b,c])∨('c'∈[a,b,c])"), "true");
+        assert_eq!(det("('x'∈[a,b,c])∨('y'∈[a,b,c])"), "false");
+        // truthiness coercion: numbers (0 falsy), strings ('false' falsy)
+        assert_eq!(det("1∧1"), "true");
+        assert_eq!(det("1∧0"), "false");
+        assert_eq!(det("'false'∨'true'"), "true");
+        // precedence: ∧ (4) binds tighter than ∨ (3)
+        assert_eq!(det("0∨1∧0"), "false"); // 0 ∨ (1∧0) = false
+        assert_eq!(det("1∨0∧0"), "true"); // 1 ∨ (0∧0) = true
+        // NB: the mutual-judge shape `(a~>b)∧(b~>a)` works in LLM mode; in DET mode `~>`
+        // nested under a builtin-op has no det realisation (pre-existing, affects `&` too
+        // — see bd-f1ee6f) — so it's not asserted here. ∧/∨ themselves are correct (above).
         // dict union operates on keys.
         assert_eq!(det("$union%({a=1,b=2},{b=3,c=4})"), "a\nb\nc");
         // $inter — elements of a also in b (a-order, deduped); empty renders "".

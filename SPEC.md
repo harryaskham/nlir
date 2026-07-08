@@ -354,6 +354,8 @@ semantics, mirrored by `nlir help` and the
 | `∩` | setinter | infix · 2 | Set intersection: `a ∩ b` — items of `a` also in `b` (deduped, a-order). Alias for `$inter%`. Binds tighter than `∪`/`∖`. |
 | `∖` | setdiff | infix · 2 | Set difference: `a ∖ b` — items of `a` not in `b` (deduped, a-order). Alias for `$diff%`. (`∖` = U+2216 SET MINUS.) |
 | `∈` | setelem | infix · 2 | Membership: `x ∈ coll` → Bool — list element, dict key, or string substring. Alias for `$elem%` (`item ∈ collection`). |
+| `∧` | booland | infix · 2 | Logical AND: `a ∧ b` → Bool, true iff both operands are truthy. First-class conjunction, distinct from compose-`&` (string weave). Binds tighter than `∨`; evaluates both operands (use `$if` for short-circuit). |
+| `∨` | boolor | infix · 2 | Logical OR: `a ∨ b` → Bool, true iff either operand is truthy. Distinct from compose-`\|` (string choice). |
 
 **Instruction-following (generation)** — the third category. Here the operand is
 an *instruction to obey*, not text to reshape. This is the generative direction of
@@ -398,7 +400,7 @@ default `9`), `assoc` (`left`/`right`, default `left`; only meaningful for
 (`# !`) binds above **all binary**; binary follows normal math — `**` > `* /` >
 `+ -` — then string `& |`; the postfix `?` is the deliberate loose exception
 (binds everything to its left); `=` is loosest. Concretely: `^` 20 · `. ..` 16 · `# !` 14 ·
-`** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `↦ ⊘` 8 · `∩` 7 · `∪ ∖` 6 · `∈ == != <= >=` 5 · `?` 1 · `=` 0
+`** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `↦ ⊘` 8 · `∩` 7 · `∪ ∖` 6 · `∈ == != <= >=` 5 · `∧` 4 · `∨` 3 · `?` 1 · `=` 0
 (`nlir help` lists the exhaustive per-op priority; this prose summarises the tiers). prefix takes one right
 operand; postfix takes leftward to its priority; variadic flattens; mixfix unifies
 infix/list/nullary; ties → prefix > infix > postfix. **Associativity:** infix
