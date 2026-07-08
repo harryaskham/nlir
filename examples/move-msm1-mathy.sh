@@ -104,3 +104,21 @@ runlit '$sqrt%((4-1)*(4-1)+(6-2)*(6-2))'          # -> 5   (distance (1,2)->(4,6
 runlit '$sqrt%(4*9)'                              # -> 6   (geometric mean of 4 and 9)
 
 say "stddev = the square root of variance — geometry and statistics fall out of one primitive, exact and model-free."
+
+say "NUMBER THEORY — \$mod (credit @msm-3) opens even/odd, divisibility, cyclic arithmetic"
+why "\$mod is non-negative (rem_euclid); is-even = \$not%(\$mod%(n,2)) since 0 is falsy"
+runlit '$mod%(17,5)'                                  # -> 2    (17 mod 5)
+runlit '$len%($filter%({$not%($mod%($0,2))},1..10))'  # -> 5    (count of evens in 1..10)
+runlit '$mod%(10+5,12)'                               # -> 3    (clock arithmetic: hour 15 wraps to 3 on a 12-clock)
+
+say "FIZZBUZZ — the classic, as one nested-\$if conditional (\$mod + \$if + \$not)"
+why "Fizz if 3 divides it, Buzz if 5, FizzBuzz if 15 (both), else the number"
+runlit '$if%($not%($mod%(15,15)),"FizzBuzz",$if%($not%($mod%(15,3)),"Fizz",$if%($not%($mod%(15,5)),"Buzz",15)))'   # -> FizzBuzz
+runlit '$if%($not%($mod%(9,15)),"FizzBuzz",$if%($not%($mod%(9,3)),"Fizz",$if%($not%($mod%(9,5)),"Buzz",9)))'        # -> Fizz
+
+say "PROJECT EULER #1 — sum of every multiple of 3 or 5 below N, exact"
+why "filter the range by (3 divides it ∨ 5 divides it), then fold +"
+runlit '$fold%({$0+$1},$filter%({($not%($mod%($0,3)))∨($not%($mod%($0,5)))},1..9))'      # -> 23      (below 10)
+runlit '$fold%({$0+$1},$filter%({($not%($mod%($0,3)))∨($not%($mod%($0,5)))},1..999))'    # -> 233168   (below 1000)
+
+say "number theory — even/odd, FizzBuzz, Project Euler #1 — exact and model-free from \$mod + \$if + \$fold."
