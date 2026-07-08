@@ -446,6 +446,7 @@ semantics, mirrored by `nlir help` and the
 | `∧` | booland | infix · 2 | Logical AND: `a ∧ b` → Bool, true iff both operands are truthy. First-class conjunction, distinct from compose-`&` (string weave). Binds tighter than `∨`; evaluates both operands (use `$if` for short-circuit). |
 | `∨` | boolor | infix · 2 | Logical OR: `a ∨ b` → Bool, true iff either operand is truthy. Distinct from compose-`\|` (string choice). |
 | `¬` | boolnot | prefix · 1 | Logical NOT: `¬a` → Bool, true iff `a` is falsy. Negates any Bool (incl. a fuzzy `~>` result); the boolean twin of `!` (textual negation). Binds tighter than `∧ ∨`; composes in fold-fusion count-if-NOT. Glyph alias for `$not`. |
+| `√` | sqrtop | prefix · 1 | Square root: `√x` → the non-negative square root as a Number (deterministic). Enables terse stddev (`√variance`), Pythagoras `√(3*3+4*4)`→5, Euclidean distance, geometric mean. Glyph alias for `$sqrt`. |
 
 **Instruction-following (generation)** — the third category. Here the operand is
 an *instruction to obey*, not text to reshape. This is the generative direction of
@@ -487,9 +488,9 @@ default `9`), `assoc` (`left`/`right`, default `left`; only meaningful for
 `infix`), `operands`/`result` types.
 
 **Precedence (config-tunable):** `^` indexing is tightest; **prefix unary**
-(`# ! ¬`) binds above **all binary**; binary follows normal math — `**` > `* /` >
+(`# ! ¬ √`) binds above **all binary**; binary follows normal math — `**` > `* /` >
 `+ -` — then string `& |`; the postfix `?` is the deliberate loose exception
-(binds everything to its left); `=` is loosest. Concretely: `^` 20 · `. ..` 16 · `# ! ¬` 14 ·
+(binds everything to its left); `=` is loosest. Concretely: `^` 20 · `. ..` 16 · `# ! ¬ √` 14 ·
 `** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `↦ ⊘` 8 · `∩` 7 · `∪ ∖` 6 · `∈ == != <= >=` 5 · `∧` 4 · `∨` 3 · `?` 1 · `=` 0
 (`nlir help` lists the exhaustive per-op priority; this prose summarises the tiers). prefix takes one right
 operand; postfix takes leftward to its priority; variadic flattens; mixfix unifies

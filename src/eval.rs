@@ -1235,6 +1235,9 @@ impl<'a> Evaluator<'a> {
         if name == "not" {
             return apply_bool_not(operands);
         }
+        if name == "sqrt" {
+            return sqrt_builtin(operands, &self.sep());
+        }
         let (body, items) = builtin_op_operands(name, operands)?;
         self.run_higher_order(name, &body, items)
     }
@@ -1762,6 +1765,9 @@ impl<'a> Evaluator<'a> {
                 }
                 if builtin == "not" {
                     return apply_bool_not(&operands);
+                }
+                if builtin == "sqrt" {
+                    return sqrt_builtin(&operands, &self.sep());
                 }
                 let (body, items) = builtin_op_operands(&builtin, &operands)?;
                 return self
@@ -2944,6 +2950,22 @@ fn apply_bool_not(operands: &[Value]) -> Result<Value, EvalError> {
     Ok(Value::bool(!value_is_truthy(x)))
 }
 
+/// Apply the unary square-root operator (√, bd-...) to its one already-evaluated
+/// operand: coerce to a number via the shared [`number_operand`] and take
+/// `f64::sqrt`. Glyph alias for the `$sqrt` value builtin (shared coercion
+/// engine), enabling terse stddev (`√variance`) and geometry (`√(3*3+4*4)`→5).
+fn sqrt_builtin(operands: &[Value], sep: &str) -> Result<Value, EvalError> {
+    let [x] = operands else {
+        return Err(EvalError::Unsupported(format!(
+            "square-root operator `√` takes 1 operand; got {}",
+            operands.len()
+        )));
+    };
+    Ok(Value::number(
+        number_operand("sqrt", x.clone(), sep)?.sqrt(),
+    ))
+}
+
 fn apply_set_op(name: &str, operands: &[Value], sep: &str) -> Result<Value, EvalError> {
     let [a, b] = operands else {
         return Err(EvalError::Unsupported(format!(
@@ -3039,6 +3061,7 @@ operators:
   booland:  { op: "∧", arity: 2, fixity: infix, priority: 4, builtin: and }
   boolor:   { op: "∨", arity: 2, fixity: infix, priority: 3, builtin: or }
   boolnot:  { op: "¬", arity: 1, fixity: prefix, priority: 14, builtin: not }
+  sqrtop:   { op: "√", arity: 1, fixity: prefix, priority: 14, builtin: sqrt }
   access:   { op: "..", arity: 2, fixity: infix, priority: 9 }
   echo:
     op: "_"
@@ -3109,6 +3132,16 @@ operators:
         assert_eq!(det("¬(4∈[3,5])"), "true"); // ¬false
         // binds tighter than ∧∨: `¬a ∧ b` = `(¬a) ∧ b`.
         assert_eq!(det("¬(9∈[3,5])∧(3∈[3,5])"), "true"); // (¬false)∧true
+    }
+
+    #[test]
+    fn sqrt_operator() {
+        // bd-3609e6: √ is the glyph alias for $sqrt (shared number_operand +
+        // f64::sqrt engine). Prefix unary, enables terse stddev + geometry.
+        assert_eq!(det("√4"), "2");
+        assert_eq!(det("√9"), "3");
+        assert_eq!(det("√((3*3)+(4*4))"), "5"); // hypotenuse (√25); explicit parens
+        // since the minimal test config()'s +/* share a default priority.
     }
 
     #[test]

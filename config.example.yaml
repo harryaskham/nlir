@@ -552,6 +552,14 @@ operators: # `%` = operand under replacement; `%%` = literal %
     fixity: prefix
     priority: 14
     builtin: not
+  sqrtop:
+    op: "√"
+    description: |
+      Square root: √x — the non-negative square root of x as a Number (deterministic, prefix unary). Enables terse stddev (√variance), Pythagoras √(3*3+4*4)→5, Euclidean distance, geometric mean. Glyph alias for $sqrt%.
+    arity: 1
+    fixity: prefix
+    priority: 14
+    builtin: sqrt
 
 tests:
   det-echo: { mode: det, expr: "xxx_2", expected: "xxx xxx" }
@@ -571,6 +579,8 @@ tests:
   det-boolor:    { mode: det, expr: "(5==4)∨(3==3)", expected: "true" }
   det-boolnot:   { mode: det, expr: "¬(5==4)", expected: "true" }
   det-boolnot-f: { mode: det, expr: "¬(5==5)", expected: "false" }
+  det-sqrt:      { mode: det, expr: "√4", expected: "2" }
+  det-sqrt-hyp:  { mode: det, expr: "√(3*3+4*4)", expected: "5" }
   det-ge:       { mode: det, expr: "5 >= 3", expected: "true" }
   # det coverage for the formerly-llm-only text lenses + semantic ops (their
   # trivial template det-stubs, so `nlir test` covers EVERY operator offline).

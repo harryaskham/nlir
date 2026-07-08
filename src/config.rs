@@ -1262,10 +1262,11 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
                     | "and"
                     | "or"
                     | "not"
+                    | "sqrt"
             ) {
                 errs.push(ValidationError::new(
                     &loc,
-                    format!("builtin {builtin:?} is unknown (expected `map`, `fold`, `access`, `union`, `inter`, `diff`, `elem`, `and`, `or`, or `not`)"),
+                    format!("builtin {builtin:?} is unknown (expected `map`, `fold`, `access`, `union`, `inter`, `diff`, `elem`, `and`, `or`, `not`, or `sqrt`)"),
                 ));
             }
         }
