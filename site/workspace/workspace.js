@@ -84,9 +84,16 @@ const EXAMPLES = [
   { expr: "2-3-4",             mode:'det' },
   // Det-math (key-free, exact, model-free) — the mathy-round payoff, playable in
   // the browser with no LLM key: exact arithmetic, statistics, and programming.
+  // NB (per Harry): this is the exact SUBSTRATE (array programming) — nlir's
+  // differentiator is the FUSION below, semantic MEANING over this exact structure.
   { expr: "{$0+$1}⊘(1..100)", mode:'det', out:"5050" },
   { expr: "$fold%({$0+$1},1..100)/$len%(1..100)", mode:'det', out:"50.5" },
   { expr: "$map%({$if%($not%($mod%($0,15)),'FizzBuzz',$if%($not%($mod%($0,3)),'Fizz',$if%($not%($mod%($0,5)),'Buzz',$0)))},1..15)", mode:'det', out:"1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz" },
+  // ★ THE FUSION — exact structure over FUZZY MEANING, the distinctive "why nlir":
+  // fuzzy-extract each count from words + sum them EXACTLY. numpy can't read "3 apples";
+  // a raw prompt can't be trusted to add. nlir does both in one line (needs a key/realiser).
+  { expr: "{$0+$1}⊘['3 apples','5 oranges','2 pears']", mode:'llm', out:"10" },
+  { expr: "$len%($filter%({$0~>'is a complaint'},['love the app','it keeps crashing','when is dark mode','checkout is totally broken']))", mode:'llm', out:"2" },
   { expr: "@'lmk if any Qs'",  mode:'llm', out:"Please let me know if you have any questions." },
   { expr: "~'the mobile team is blocked on the shared auth library, which is late'", mode:'llm', out:"The mobile team is blocked by the late shared auth library." },
   { expr: "'too many steps';'users drop off';&;~$", mode:'llm', out:"Users drop off because there are too many steps." },
