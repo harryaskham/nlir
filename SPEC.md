@@ -138,7 +138,11 @@ transformations differ by mode.
   form is a value, not an operator.
 
 ### Context: read & assign
-- **`$name`** — read `context[name]` (typed; `$_messages` is the array).
+- **`$name`** — read `context[name]` (typed; `$_messages` is the array). The `$` is
+  **required** to reuse a binding: a **bare** `name` (no `$`) is a string *literal*, not
+  the bound value — so a "reusable part" written `part..3` silently reads the literal
+  `"part"` (garbage, no error), while `$part..3` reads the binding. Reusable-parts idiom:
+  `p='the planets from the sun'; $p..3` → Earth (bd-6995d9).
 - **`key=RHS`** — assign. `key` is a **literal key string** (identifier;
   `_`-prefixed = system key), `RHS` an expression. Yields the value; **writes
   immediately**. E.g. `_sep=\ `, `_cache=false`, `_seed=42`, `k=#^-1`.
