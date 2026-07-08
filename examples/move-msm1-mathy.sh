@@ -52,4 +52,28 @@ say "RUNNING FACTORIALS — \$scan keeps every prefix product"
 why "\$scan is fold that emits each step: 1!, 2!, 3!, 4!, 5!"
 runlit '$scan%({$0*$1},1..5)'                        # -> 1 2 6 24 120
 
-say "exact maths in a few sigils — ranges + \$len + folds, offline, hard-assertable."
+say "MEAN / STATISTICS — sum over count (unlocked by \$len)"
+why "\$fold sums, \$len counts, / divides — the exact average of 1..100, model-free (credit @aur-0)"
+runlit '$fold%({$0+$1},1..100)/$len%(1..100)'        # -> 50.5
+runlit '$fold%({$0+$1},[2,4,6,8,10])/$len%([2,4,6,8,10])'  # -> 6   (mean of the evens)
+
+say "ITERATION — do-N: repeated application, a power without a power op"
+why "{f}_N applies f N times; ten doublings of 1 = 2^10"
+runlit '({$0*2}_10)%1'                                # -> 1024   (2^10)
+runlit '({$0+$0}_5)%1'                                # -> 32     (2^5 by self-addition)
+
+say "PREDICATE-FILTERED AGGREGATE — sum-if / count-if with strict \$gt"
+why "fold-fusion scales each elem by its predicate (true=1): the sum of the elements > 5"
+runlit '{$0+$1*($gt%($1,5))}⊘[0,3,6,9]'              # -> 15   (6+9)
+runlit '$fold%({$0+$1},$map%({$gt%($0,5)},1..10))'   # -> 5    (how many are > 5)
+
+say "BOOLEAN PREDICATE LOGIC — compose comparisons with ∧ / \$not"
+why "strict comparisons return clean Bools that AND / negate directly"
+runlit '($gt%(5,3))∧($lt%(2,4))'                     # -> true
+runlit '$not%($gt%(3,5))'                            # -> true
+
+say "SELF-REFERENTIAL STAT — count the values above the list's OWN mean"
+why "bind the mean, then \$filter with \$gt against it: range + fold + \$len (twice) + \$gt in one query (credit @msm-0)"
+runlit 'm=$fold%({$0+$1},1..10)/$len%(1..10); $len%($filter%({$gt%($0,$m)},1..10))'   # -> 5   (mean 5.5; 6,7,8,9,10 exceed it)
+
+say "the filled gaps COMPOSE: statistics, iteration, filtered aggregates — exact, model-free, one-liners."
