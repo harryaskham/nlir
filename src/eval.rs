@@ -362,6 +362,15 @@ pub struct Evaluator<'a> {
     arg_frames: Vec<Vec<Value>>,
 }
 
+/// Maximum nested form-application depth before a graceful error (bd: cyclic
+/// forms). A self-referential form (`loop={($loop%$0)}`) or a cycle (`a` calls
+/// `$b` calls `$a`) would otherwise recurse until the NATIVE stack overflows and
+/// ABORTS the process (a hard crash, not an `EvalError`). This bound converts
+/// that into a catchable error. Legit nesting — pyramids of composable parts,
+/// nested map/fold — is far shallower, so 100 leaves ample headroom while staying
+/// well under the stack-overflow threshold.
+const MAX_ARG_FRAME_DEPTH: usize = 100;
+
 /// The outcome of a single small-step reduction ([`Evaluator::step_once`],
 /// bd-9c366d).
 #[derive(Debug, Clone, PartialEq)]
@@ -751,7 +760,7 @@ impl<'a> Evaluator<'a> {
         for arg in args {
             frame.push(self.eval(arg)?);
         }
-        self.arg_frames.push(frame);
+        self.enter_arg_frame(frame)?;
         let result = self.eval(&body);
         self.arg_frames.pop();
         result
@@ -1034,10 +1043,25 @@ impl<'a> Evaluator<'a> {
     /// `{form}%(operands)`. The form source is parsed with the config grammar.
     fn apply_form_op(&mut self, form_src: &str, operands: &[Value]) -> Result<Value, EvalError> {
         let body = self.parse_op_form(form_src)?;
-        self.arg_frames.push(operands.to_vec());
+        self.enter_arg_frame(operands.to_vec())?;
         let result = self.eval(&body);
         self.arg_frames.pop();
         result
+    }
+
+    /// Push a positional argument frame for a form application, erroring when the
+    /// nesting depth would exceed [`MAX_ARG_FRAME_DEPTH`] — a self-referential or
+    /// cyclic form that would otherwise overflow the native stack and abort the
+    /// process (bd: cyclic forms). Callers pair this with `self.arg_frames.pop()`
+    /// on return.
+    fn enter_arg_frame(&mut self, frame: Vec<Value>) -> Result<(), EvalError> {
+        if self.arg_frames.len() >= MAX_ARG_FRAME_DEPTH {
+            return Err(EvalError::Unsupported(format!(
+                "form application nested too deep (>{MAX_ARG_FRAME_DEPTH}) — a self-referential or cyclic form?"
+            )));
+        }
+        self.arg_frames.push(frame);
+        Ok(())
     }
 
     /// Realise a `builtin:`-backed operator (bd-44c294): dispatch `map`/`fold`
@@ -2813,6 +2837,32 @@ operators:
         let cfg = config();
         let mut ctx = Context::empty(&cfg.context);
         assert!(evaluate("5%3", &cfg, &mut ctx, Mode::Det).is_err());
+    }
+
+    #[test]
+    fn cyclic_form_application_errors_instead_of_stack_overflow() {
+        // bd-34c287: a self-referential or cyclic form would recurse until the
+        // NATIVE stack overflows and ABORTS the process (a hard crash, not an
+        // EvalError). The arg-frame depth guard (MAX_ARG_FRAME_DEPTH) turns it
+        // into a catchable error — this test would ABORT the whole test binary
+        // without the guard, so it also proves the guard bounds the recursion.
+        let cfg = config();
+        // self-reference: the form applies itself.
+        let mut ctx = Context::empty(&cfg.context);
+        let err = evaluate("loop={$loop%$0};$loop%'y'", &cfg, &mut ctx, Mode::Det)
+            .expect_err("a self-referential form must error, not overflow the stack");
+        assert!(
+            format!("{err}").contains("nested too deep"),
+            "expected the depth-guard error, got: {err}"
+        );
+        // mutual cycle: a calls b calls a.
+        let mut ctx = Context::empty(&cfg.context);
+        let err = evaluate("a={$b%$0};b={$a%$0};$a%'z'", &cfg, &mut ctx, Mode::Det)
+            .expect_err("a cyclic form must error, not overflow the stack");
+        assert!(
+            format!("{err}").contains("nested too deep"),
+            "expected the depth-guard error, got: {err}"
+        );
     }
 
     #[test]
