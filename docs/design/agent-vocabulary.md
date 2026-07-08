@@ -234,6 +234,15 @@ All three surfaces follow the same rules, so the UX is consistent:
    cache** (subexpr-identity memoization + AST-diff invalidation): a small edit
    only re-fires the edited node, reusing cached realisations for the rest. That
    is what makes iterating on an llm chain of thought affordable.
+5. **Crash-safe over all parseable input** — eval-as-you-type runs on whatever
+   you've typed so far, so a mid-edit pathological expression must never crash
+   the surface (a crash would abort the whole widget, e.g. the wasm workspace
+   until reload). Two bounds guarantee it, both surfaced by msm-3's crash-vector
+   sweep: the parser's **parse-depth guard** (deeply nested parens/forms/lists/
+   prefix-ops → graceful "expression nesting too deep") and the runtime
+   **arg-frame-depth guard** (cyclic/self-referential forms → graceful EvalError,
+   **bd-34c287**). Every such input becomes a caught error the preview simply
+   hides — never an abort.
 
 The streaming step API (`step_trace_streaming`) is the shared engine for the llm
 tier: each realisation resolves live so a long chain paints incrementally instead
