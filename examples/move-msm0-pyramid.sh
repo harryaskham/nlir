@@ -10,9 +10,9 @@
 #   ask={($0)?}; pro={@~$0}          pure-op lenses; compose: $ask%($pro%rant)
 #   c=…; [$c, >!$c]                  bind an idea ONCE ($ reads it), reuse it
 #
-# Pure-op + bare-safe parts round-trip TODAY; PROSE-prompt parts (classify/def
-# with sentence instructions) unlock on the render-with-quotes fix (bd-4fb6d0).
-# det parts run offline (CI-green); llm parts need LITELLM_MASTER_KEY (skipped else).
+# Pure-op + bare-safe parts AND prose-prompt parts now round-trip (render-with-quotes
+# fix bd-4fb6d0 @bc863e1 preserves string literals in named forms). det parts run
+# offline (CI-green); llm parts need LITELLM_MASTER_KEY (skipped else).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 NLIR="${NLIR:-./target/release/nlir}"
@@ -46,4 +46,12 @@ say "L4 TRAIN — parts composed via %: rant → professional → question"
 why "ask={(\$0)?} and pro={@~\$0} are reusable lenses; \$ask%(\$pro%rant) chains them"
 run llm "pro={@~\$0};ask={(\$0)?};\$ask%(\$pro%'why do deploys keep breaking, nobody runs tests first')"
 
-say "the library COMPOUNDS: a part built this round is reused next. Pure-op today; prose parts after bd-4fb6d0."
+say "L3 PROSE PART (unblocked by bd-4fb6d0) — a named form carrying a SENTENCE instruction"
+why "def={@>('a one-line definition of '++\$0)} now round-trips WITH its prose string; reuse it on anything"
+run llm "def={@>('a one-line definition of '++\$0)};\$def%'idempotence'"
+
+say "L4 PROSE TRAIN — a named classifier drives a decision (triage-in-a-part)"
+why "route={\$if%(\$0~>'urgent','escalate','queue')} — reuse it to route ANY item by meaning"
+run llm "route={\$if%(\$0~>'urgent','escalate','queue')};\$route%'payments are failing in production'"
+
+say "the library COMPOUNDS: a part built this round is reused next — pure-op, bare-safe, AND prose parts all round-trip now."
