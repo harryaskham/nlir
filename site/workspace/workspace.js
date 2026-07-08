@@ -82,6 +82,11 @@ const MOCK_OPERATORS = [
 const EXAMPLES = [
   { expr: "2**3**2",           mode:'det' },
   { expr: "2-3-4",             mode:'det' },
+  // Det-math (key-free, exact, model-free) — the mathy-round payoff, playable in
+  // the browser with no LLM key: exact arithmetic, statistics, and programming.
+  { expr: "{$0+$1}⊘(1..100)", mode:'det', out:"5050" },
+  { expr: "$fold%({$0+$1},1..100)/$len%(1..100)", mode:'det', out:"50.5" },
+  { expr: "$map%({$if%($not%($mod%($0,15)),'FizzBuzz',$if%($not%($mod%($0,3)),'Fizz',$if%($not%($mod%($0,5)),'Buzz',$0)))},1..15)", mode:'det', out:"1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz" },
   { expr: "@'lmk if any Qs'",  mode:'llm', out:"Please let me know if you have any questions." },
   { expr: "~'the mobile team is blocked on the shared auth library, which is late'", mode:'llm', out:"The mobile team is blocked by the late shared auth library." },
   { expr: "'too many steps';'users drop off';&;~$", mode:'llm', out:"Users drop off because there are too many steps." },
