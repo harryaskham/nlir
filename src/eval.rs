@@ -768,6 +768,7 @@ impl<'a> Evaluator<'a> {
                     | "ceil"
                     | "round"
                     | "sqrt"
+                    | "mod"
                     | "contains"
                     | "elem"
                     | "union"
@@ -924,6 +925,24 @@ impl<'a> Evaluator<'a> {
                 }
                 Ok(Value::bool(!value_is_truthy(&self.eval(&args[0])?)))
             }
+            // Modulo builtin (mathy golf, msm-3): mathematical modulo via
+            // rem_euclid — non-negative result in [0, |b|), so `$mod%(-1,3)`→2
+            // (cyclic index / number theory: even/odd, divisibility, FizzBuzz).
+            // Loud on a zero divisor. Deterministic; NOT a config op.
+            "mod" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(a, b)", args.len()));
+                }
+                let sep = self.sep();
+                let a = number_operand(name, self.eval(&args[0])?, &sep)?;
+                let b = number_operand(name, self.eval(&args[1])?, &sep)?;
+                if b == 0.0 {
+                    return Err(EvalError::Unsupported(
+                        "`$mod` divisor must be non-zero".to_string(),
+                    ));
+                }
+                Ok(Value::number(a.rem_euclid(b)))
+            }
             // Unary numeric builtins: rounding family (bd-9004bb) + sqrt (bd-92cbf0),
             // general det-math primitives. Composition-preserving — median falls out
             // of $floor%($len/2)+sort+index, and stddev = $sqrt%variance (variance
@@ -1078,6 +1097,20 @@ impl<'a> Evaluator<'a> {
                 Ok(Value::bool(!value_is_truthy(
                     &self.eval_async(&args[0], realiser).await?,
                 )))
+            }
+            "mod" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(a, b)", args.len()));
+                }
+                let sep = self.sep();
+                let a = number_operand(name, self.eval_async(&args[0], realiser).await?, &sep)?;
+                let b = number_operand(name, self.eval_async(&args[1], realiser).await?, &sep)?;
+                if b == 0.0 {
+                    return Err(EvalError::Unsupported(
+                        "`$mod` divisor must be non-zero".to_string(),
+                    ));
+                }
+                Ok(Value::number(a.rem_euclid(b)))
             }
             "floor" | "ceil" | "round" | "sqrt" => {
                 if args.len() != 1 {
@@ -1616,6 +1649,7 @@ impl<'a> Evaluator<'a> {
                                 | "ceil"
                                 | "round"
                                 | "sqrt"
+                                | "mod"
                                 | "contains"
                                 | "elem"
                                 | "union"

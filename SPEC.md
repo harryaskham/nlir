@@ -318,6 +318,16 @@ unary-numeric family. It completes **stddev** — variance already composes from
 (`$sqrt%(3*3+4*4)` → 5), Euclidean distance, and geometric mean. A `√` sigil is a
 config-operator follow-up.
 
+### Modulo builtin (`$mod`)
+
+**`$mod%(a,b)`** — mathematical modulo (mathy golf): the remainder of `a` divided
+by `b` via `rem_euclid`, so the result is **non-negative** in `[0, |b|)` —
+`$mod%(7,3)` → 1, `$mod%(0-1,3)` → 2 (not -1, unlike C-style `%`). Operands coerce
+to number like `$gt`/`$lt`; a zero divisor is a loud error. The non-negative
+convention is what makes number theory compose cleanly: even/odd (`$mod%(n,2)` →
+0/1), divisibility (`$mod%(n,k)` → 0), cyclic indexing, and Euclid-style GCD. Count
+evens in 1..10: `$len%($filter%({$not%($mod%($0,2))},1..10))` → 5.
+
 Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
 the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
 After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
