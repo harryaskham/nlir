@@ -767,6 +767,7 @@ impl<'a> Evaluator<'a> {
                     | "floor"
                     | "ceil"
                     | "round"
+                    | "sqrt"
                     | "contains"
                     | "elem"
                     | "union"
@@ -923,10 +924,11 @@ impl<'a> Evaluator<'a> {
                 }
                 Ok(Value::bool(!value_is_truthy(&self.eval(&args[0])?)))
             }
-            // Rounding builtins (bd-9004bb): general det-math primitives.
-            // Composition-preserving — median falls out of $floor%($len/2) + sort +
-            // index rather than a special $median fn. Sigil (⌊⌋) is aur-1's lane.
-            "floor" | "ceil" | "round" => {
+            // Unary numeric builtins: rounding family (bd-9004bb) + sqrt (bd-92cbf0),
+            // general det-math primitives. Composition-preserving — median falls out
+            // of $floor%($len/2)+sort+index, and stddev = $sqrt%variance (variance
+            // itself composes from fold/map/$len). Sigils (⌊⌋, √) are aur-1's lane.
+            "floor" | "ceil" | "round" | "sqrt" => {
                 if args.len() != 1 {
                     return Err(builtin_arity_err(name, "(x)", args.len()));
                 }
@@ -935,6 +937,7 @@ impl<'a> Evaluator<'a> {
                 Ok(Value::number(match name {
                     "floor" => x.floor(),
                     "ceil" => x.ceil(),
+                    "sqrt" => x.sqrt(),
                     _ => x.round(),
                 }))
             }
@@ -1076,7 +1079,7 @@ impl<'a> Evaluator<'a> {
                     &self.eval_async(&args[0], realiser).await?,
                 )))
             }
-            "floor" | "ceil" | "round" => {
+            "floor" | "ceil" | "round" | "sqrt" => {
                 if args.len() != 1 {
                     return Err(builtin_arity_err(name, "(x)", args.len()));
                 }
@@ -1085,6 +1088,7 @@ impl<'a> Evaluator<'a> {
                 Ok(Value::number(match name {
                     "floor" => x.floor(),
                     "ceil" => x.ceil(),
+                    "sqrt" => x.sqrt(),
                     _ => x.round(),
                 }))
             }
@@ -1611,6 +1615,7 @@ impl<'a> Evaluator<'a> {
                                 | "floor"
                                 | "ceil"
                                 | "round"
+                                | "sqrt"
                                 | "contains"
                                 | "elem"
                                 | "union"
@@ -3863,6 +3868,9 @@ operators:
         assert_eq!(det("$round%2.4"), "2");
         assert_eq!(det("$floor%3"), "3"); // integer unchanged
         assert_eq!(det("$ceil%3"), "3");
+        // $sqrt (bd-92cbf0) — same unary-numeric family; completes stddev.
+        assert_eq!(det("$sqrt%4"), "2");
+        assert_eq!(det("$sqrt%9"), "3");
     }
 
     #[test]

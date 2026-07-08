@@ -542,6 +542,28 @@ special-cased sugar.
 
 ---
 
+## 16. Variance, stddev & distance — `$sqrt`
+
+`$sqrt%x` → √x (`$sqrt%4` → 2; negative operand → `NaN`). **Variance** already composes
+with no new builtin — bind the mean, then average the squared deviations:
+
+```
+L=[2,4,4,4,5,5,7,9];m=$fold%({$0+$1},$L)/$len%$L;$fold%({$0+$1},$map%({($0-$m)*($0-$m)},$L))/$len%$L
+  -> 4      (variance)
+```
+
+So **standard deviation** is one `$sqrt` away — wrap the variance in `$sqrt%(…)` → 2.
+`$sqrt` also gives Pythagoras / Euclidean distance and the geometric mean:
+
+```
+$sqrt%(3*3+4*4)   -> 5      (hypotenuse of a 3-4 right triangle)
+$sqrt%(4*9)       -> 6      (geometric mean of 4 and 9)
+```
+
+One unary primitive, a whole geometry + statistics family — all exact, model-free.
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.

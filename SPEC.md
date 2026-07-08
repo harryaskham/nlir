@@ -312,6 +312,12 @@ of `($len-1)/2`, so one expression gives the median for both parities (mean of t
 middles when even). Same principle as max = sort-then-last: composable primitives over
 special-cased sugar. A sigil alias (⌊⌋) is a config-operator follow-up.
 
+**`$sqrt%x`** (bd-92cbf0) — square root (`f64::sqrt`; negative operand → `NaN`). Same
+unary-numeric family. It completes **stddev** — variance already composes from
+`$fold`/`$map`/`$len`, so stddev = `$sqrt%variance` — and unlocks Pythagoras/hypotenuse
+(`$sqrt%(3*3+4*4)` → 5), Euclidean distance, and geometric mean. A `√` sigil is a
+config-operator follow-up.
+
 Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
 the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
 After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
