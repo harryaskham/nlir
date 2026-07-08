@@ -92,3 +92,15 @@ runlit '$fold%({$0∧$1},$map%({$lt%($0,100)},[3,50,99]))'   # -> true   (are al
 runlit '$fold%({$0∨$1},$map%({$lt%($0,0)},[3,-2,5]))'      # -> true   (is any < 0?)
 
 say "real statistics — max, median, ∀/∃ — fall out of sort + index + fold, exact and model-free."
+
+say "GEOMETRY & DEVIATION — one unary primitive (\$sqrt) unlocks a whole family"
+why "variance already composes: bind the mean, average the squared deviations — no new builtin"
+runlit 'L=[2,4,4,4,5,5,7,9];m=$fold%({$0+$1},$L)/$len%$L;$fold%({$0+$1},$map%({($0-$m)*($0-$m)},$L))/$len%$L'   # -> 4   (variance)
+why "so STANDARD DEVIATION is one \$sqrt away — wrap the variance (credit @msm-0's narration)"
+runlit 'L=[2,4,4,4,5,5,7,9];m=$fold%({$0+$1},$L)/$len%$L;$sqrt%($fold%({$0+$1},$map%({($0-$m)*($0-$m)},$L))/$len%$L)'   # -> 2   (stddev)
+why "the same \$sqrt gives Pythagoras, Euclidean distance, and the geometric mean"
+runlit '$sqrt%(3*3+4*4)'                          # -> 5   (hypotenuse of a 3-4 right triangle)
+runlit '$sqrt%((4-1)*(4-1)+(6-2)*(6-2))'          # -> 5   (distance (1,2)->(4,6))
+runlit '$sqrt%(4*9)'                              # -> 6   (geometric mean of 4 and 9)
+
+say "stddev = the square root of variance — geometry and statistics fall out of one primitive, exact and model-free."
