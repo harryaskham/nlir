@@ -206,6 +206,16 @@ transformations differ by mode.
   `sol` as the Sun) but terse meaning-tokens are often ambiguous — `sol` is also the solfège
   note, so higher indices drift (`sol..7` → "Si") — and llm realisation is non-deterministic.
   Prefer an unambiguous seed (`"the planets from the sun"..3`) for anything you'll re-run or ship.
+  **Access kind**: an unambiguous seed is necessary but *not* sufficient. Reliability also
+  depends on whether the addressed element is *recalled* as a distinctive fact or *enumerated*
+  by counting. Distinctive named constants are stable across samples (`'perfect'..2` → 28 on
+  every draw — the 2nd perfect number is a recalled fact); an ordinal index into a counting
+  sequence can be flaky *within one transport* (`'primes'..5` measured 11, 7, 7 over three
+  identical runs — the model sometimes miscounts the enumeration). So `..N` is dependable only
+  when the element is a recallable fact, not a derived count. For anything asserted or shipped,
+  prefer deterministic math (fold/map over explicit lists) over ordinal semantic access; reserve
+  `..` for the "describe the math, the model supplies the sequence" demo, where the supply may
+  vary or err. (Measured 2026-07-08, sonnet CLI; see bd-429d87.)
 - **Limitation (v1)**: chained *numeric* access `list.1.0` lexes `1.0` as a float
   (numeric-literal lexing runs before operator matching — which is exactly what keeps
   `3.14` a number), so it is a clear "index must be an integer" error; use `(list.1).0`.
