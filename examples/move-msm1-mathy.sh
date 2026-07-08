@@ -76,4 +76,19 @@ say "SELF-REFERENTIAL STAT — count the values above the list's OWN mean"
 why "bind the mean, then \$filter with \$gt against it: range + fold + \$len (twice) + \$gt in one query (credit @msm-0)"
 runlit 'm=$fold%({$0+$1},1..10)/$len%(1..10); $len%($filter%({$gt%($0,$m)},1..10))'   # -> 5   (mean 5.5; 6,7,8,9,10 exceed it)
 
-say "the filled gaps COMPOSE: statistics, iteration, filtered aggregates — exact, model-free, one-liners."
+say "ORDER STATISTICS — max/min are just sort + index (no special functions)"
+why "\$sort is numeric; take the last for max, the first for min — max = sort-then-last"
+runlit '$nth%(-1,$sort%[3,1,4,1,5,9,2,6])'           # -> 9   (max)
+runlit '$nth%(0,$sort%[3,1,4,1,5,9,2,6])'            # -> 1   (min)
+
+say "MEDIAN — sort + the middle index, ONE line for both parities (needs \$floor/\$ceil)"
+why "floor & ceil of (len-1)/2 coincide when odd, straddle when even = mean of the two middles (credit @msm-0)"
+runlit 'L=[3,1,4,1,5];($nth%($floor%(($len%$L-1)/2),$sort%$L)+$nth%($ceil%(($len%$L-1)/2),$sort%$L))/2'   # -> 3   (odd)
+runlit 'L=[10,2,8,4];($nth%($floor%(($len%$L-1)/2),$sort%$L)+$nth%($ceil%(($len%$L-1)/2),$sort%$L))/2'   # -> 6   (even: (4+8)/2)
+
+say "∀ / ∃ — quantifiers: fold each element's yes/no into one verdict"
+why "map a strict predicate over the list, then fold ∧ (all) or ∨ (any)"
+runlit '$fold%({$0∧$1},$map%({$lt%($0,100)},[3,50,99]))'   # -> true   (are all < 100?)
+runlit '$fold%({$0∨$1},$map%({$lt%($0,0)},[3,-2,5]))'      # -> true   (is any < 0?)
+
+say "real statistics — max, median, ∀/∃ — fall out of sort + index + fold, exact and model-free."
