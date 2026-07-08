@@ -82,6 +82,8 @@ SIMPLE = [
          cap="the sharpest dogfood — the golf judge IS nlir. => regenerates the target from a terse clue; ~> scores 'does it MEAN the same?' → true. the honest gate is mutual (both ways: $if%(A~>B, B~>A,'false')) so a too-vague answer can't cheat. no exact-match needed"),
     dict(name="reusable-part", expr="urgent={$0~>'urgent'}; $if%($fold%({$0+$1},$urgent↦['server is down','lunch plans','payments failing'])>=2,'page the on-call engineer','queue for morning')", pill="llm+det · reusable part → train", out="page the on-call engineer",
          cap="the pyramid — name a thought-unit once, reuse it in a train. urgent={$0~>'urgent'} is a reusable fuzzy part; the train maps it → counts → thresholds → routes: 'page the on-call engineer' live (2 urgent) vs 'queue for morning' in det. one part, a whole decision train"),
+    dict(name="self-verify", expr="sat={$0~>$1}; brief={>@~$0}; $sat%($brief%'mobile onboarding spike next sprint','a plan to run a mobile onboarding feasibility spike next sprint')", pill="llm · nlir generates + checks itself", out="true",
+         cap="the pyramid's peak — nlir GENERATES a thought then CHECKS its own work. brief={>@~$0} expands a 4-word seed into a full plan; sat={$0~>$1} verifies the generation covers the intent (one-directional — a thorough answer passes; mutual equivalence is golf's job) → true. swap the seed and sat catches it → false. two library parts, a self-verifying train"),
     dict(name="map-lang", expr="$map%({@$0},['lmk if any Qs','pls advise'])", pill="llm · $map over an llm form",
          out="Please let me know if you have any questions.\nPlease advise.",
          cap="$map an llm move over a list — formalise EACH item into its own reply. map an AI op over a list = real programs"),

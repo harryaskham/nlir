@@ -110,6 +110,16 @@ And parts compose into a *pyramid* — name a thought-unit once, reuse it in a t
 live (2 urgent) but `queue for morning` in det. One reusable part (`urgent`) drives
 map → count → threshold → route — build a part once, and every later train is cheaper.
 
+At the peak, a train *checks its own work* — generate, then verify it means what you asked:
+
+![self-verifying generator — nlir generates a thought and checks it covers the intent](showcase/nlir-self-verify.png)
+
+`sat={$0~>$1}; brief={>@~$0}; $sat%($brief%'mobile onboarding spike next sprint','a plan to run a mobile onboarding feasibility spike next sprint')` → `true`
+— `brief` expands the terse seed into a full plan, then `sat` checks the generation
+*covers* the intent (one-directional, so a thorough answer passes; mutual equivalence
+is golf's job). Swap the seed and `sat` catches the mismatch → `false`. Two reusable
+parts compose into a self-verifying generative train.
+
 The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
 [`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
 HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):
