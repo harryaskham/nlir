@@ -147,4 +147,4 @@ runlit '_precision=4;4*$fold%({$0+$1},$map%({$if%($not%($mod%($0,2)),1,0-1)/(2*$
 say "famous sequences & constants — triangular, Collatz, Leibniz π — all computed exactly from the same small primitives."
 
 say "↑ that was the EXACT SPINE (offline, CI-gated, model-free). The 'why nlir' is putting MEANING on it"
-why "FUSION: exact math over semantically-retrieved data, gated honestly — numpy has no meaning, a prompt has no exactness, nlir does both in one line. See examples/move-msm1-fusion.sh."
+why "FUSION: exact math over semantically-retrieved data, gated honestly — numpy has no meaning, a prompt has no exactness, nlir does both in one line. See examples/move-msm1-fusion.sh (broad showcase) and examples/move-msm3-self-verify.sh (the self-verify discipline: why the fuzzy is trustworthy)."

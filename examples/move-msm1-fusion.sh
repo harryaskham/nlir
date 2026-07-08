@@ -54,6 +54,7 @@ runfz "out=@'the meeting is at 3pm';\$out~>'the meeting is at 3pm'"
 #  => true   (FACT-SURVIVAL: formalize the note, verify the time fact SURVIVED the transform)
 runfz "out=@'the meeting is at 3pm';\$out~>'the meeting is at 9am'"
 #  => false  (the gate catches a lost / changed fact)
+why "this is a self-verify TASTE — for the rigorous discipline (why count-by-meaning must never be asserted, content-vs-style, both robust shapes end-to-end) see examples/move-msm3-self-verify.sh"
 
 say "why nlir? — describe in meaning → compute exactly → gate the fuzzy honestly"
 why "numpy has no meaning; a raw prompt has no exactness; nlir fuses both in ONE line. The det-math gallery (move-msm1-mathy.sh) is the exact spine this rides on — this is the reason you reach for a natural-language IR instead of an array language or a bare prompt."
