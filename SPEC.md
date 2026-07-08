@@ -233,6 +233,20 @@ transformations differ by mode.
   `3.14` a number), so it is a clear "index must be an integer" error; use `(list.1).0`.
   Dict/string chaining (`.k.k2`, `.1.k`) is unaffected.
 
+### Higher-order list builtins (`$map` / `$fold` / `$scan` / `$filter`)
+
+Deterministic, model-free list combinators (bd-14af74): each takes a **form** as its
+first argument and applies it structurally — the form's body only touches the model if
+it *itself* contains an llm op. `$map`/`$fold` also have glyph aliases (`↦`/`⊘`, see the
+operator table); `$scan` and `$filter` are builtin-only.
+
+- **`$map%(f, list)`** — apply `f` to each element: `$map%({$0*$0},[1,2,3])` → `[1,4,9]`. Alias `↦`.
+- **`$fold%(f, list)`** — reduce `list` with the binary form `f` (`$0` = accumulator, `$1` = element), seeded by the first element: `$fold%({$0+$1},[1,2,3,4])` → `10`. Alias `⊘`. Pairs with the numeric range for exact aggregates: `$fold%({$0+$1},1..100)` → `5050` (Gauss).
+- **`$scan%(f, list)`** — like `$fold` but returns every intermediate accumulator (the running reduction): `$scan%({$0+$1},[1,2,3,4])` → `[1,3,6,10]` (running sums); `$scan%({$0*$1},1..5)` → running factorials `[1,2,6,24,120]`.
+- **`$filter%(f, list)`** — keep the elements for which `f` is truthy: `$filter%({$0>=5},[3,7,2,9])` → `[7,9]`; with a predicate builtin, `$filter%({$gt%($0,$m)},1..10)` selects those above a bound `$m`. Composes the whole trio: `$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3,0,4])))` → `30`.
+
+Together these are the deterministic composable core — statistics (mean = `$fold%(…)/$len%…`), running series, and predicate-filtered aggregates — all exact, model-free, and CI-gateable.
+
 ### Set-notation builtins (`$elem` / `$union` / `$inter` / `$diff`)
 
 Deterministic, total set algebra over values (bd-49d65a). Like `$sort`/`$contains`,
