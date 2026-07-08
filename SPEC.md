@@ -256,6 +256,17 @@ They compose with the rest of the value-builtin family:
 `$nth%(0,$sort%$union%(a,b))` = the least element of a merged set. Sigil aliases
 (`∪ ∩ ∈ ∖`) are a planned follow-up (config-operator layer).
 
+### Length builtin (`$len`)
+
+**`$len%coll`** — the length/cardinality of `coll` as a `Number` (bd-b9b491):
+a **list** → item count, a **dict** → key count, and anything else
+(**string**/number/bool/form) → the Unicode character count of its rendered form
+(so a string's length is its chars: `$len%'hello'` → 5, `$len%42` → 2). Total +
+deterministic — the model-free counting primitive: `$len%[2,3,5,7,11]` → 5,
+`$len%{a=1,b=2}` → 2, and set cardinality `$len%($inter%([2,3,5,7,11],[1,3,5,7,9]))`
+→ 3. A spread list `$len%[a,b,c]` (3 args) counts 3; a single scalar in a
+single-element list `$len%[x]` is indistinguishable from `$len%x` after the spread.
+
 Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
 the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
 After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.

@@ -742,7 +742,7 @@ impl<'a> Evaluator<'a> {
             }
             if matches!(
                 name.as_str(),
-                "if" | "nth" | "sort" | "contains" | "elem" | "union" | "inter" | "diff"
+                "if" | "nth" | "sort" | "len" | "contains" | "elem" | "union" | "inter" | "diff"
             ) && self.context.get(name).is_none()
             {
                 return self.eval_value_builtin(name, args);
@@ -811,6 +811,22 @@ impl<'a> Evaluator<'a> {
                 let items = self.value_builtin_list(args)?;
                 let sep = self.sep();
                 Ok(Value::list(sort_values(items, &sep)))
+            }
+            // Length (bd-b9b491, Harry's mathy directive): list items, dict keys,
+            // else the char count of the rendered value. Deterministic + total.
+            // A spread list `$len%[a,b,c]` arrives as multiple args → wrap into a
+            // list so its item count is returned; a single arg is measured directly.
+            "len" => {
+                let coll = if args.len() == 1 {
+                    self.eval(&args[0])?
+                } else {
+                    let mut items = Vec::with_capacity(args.len());
+                    for arg in args {
+                        items.push(self.eval(arg)?);
+                    }
+                    Value::list(items)
+                };
+                Ok(Value::number(value_len(&coll, &self.sep())))
             }
             "contains" => {
                 if args.len() != 2 {
@@ -920,6 +936,18 @@ impl<'a> Evaluator<'a> {
                 };
                 let sep = self.sep();
                 Ok(Value::list(sort_values(items, &sep)))
+            }
+            "len" => {
+                let coll = if args.len() == 1 {
+                    self.eval_async(&args[0], realiser).await?
+                } else {
+                    let mut items = Vec::with_capacity(args.len());
+                    for arg in args {
+                        items.push(self.eval_async(arg, realiser).await?);
+                    }
+                    Value::list(items)
+                };
+                Ok(Value::number(value_len(&coll, &self.sep())))
             }
             "contains" => {
                 if args.len() != 2 {
@@ -1482,6 +1510,7 @@ impl<'a> Evaluator<'a> {
                             name.as_str(),
                             "if" | "nth"
                                 | "sort"
+                                | "len"
                                 | "contains"
                                 | "elem"
                                 | "union"
@@ -2549,6 +2578,21 @@ fn as_items(v: Value) -> Vec<Value> {
     }
 }
 
+/// The length of a value for `$len` (bd-b9b491, Harry's mathy directive): a
+/// [`Value::List`] → item count, a [`Value::Dict`] → key count, and anything else
+/// (`String`/`Number`/`Bool`/`Form`) → the Unicode character count of its rendered
+/// form (so a string's length is its chars, a number's is its digits). Total +
+/// deterministic — the model-free counting primitive for the det-math family
+/// (e.g. set cardinality `$len%($inter%(a,b))`).
+#[allow(clippy::cast_precision_loss)]
+fn value_len(v: &Value, sep: &str) -> f64 {
+    match v {
+        Value::List(items) => items.len() as f64,
+        Value::Dict(pairs) => pairs.len() as f64,
+        other => other.render(sep).chars().count() as f64,
+    }
+}
+
 /// Coerce a value to its "set elements" for the set-algebra builtins
 /// (`$union`/`$inter`/`$diff`, bd-49d65a): a [`Value::List`] spreads to its
 /// items, a [`Value::Dict`] spreads to its KEYS (set ops on a dict operate on
@@ -3603,6 +3647,28 @@ operators:
             det("$if%($elem%('ERROR','ok ERROR: oom'),'page','ok')"),
             "page"
         );
+    }
+
+    #[test]
+    fn value_builtin_len() {
+        // $len (bd-b9b491, mathy directive): cardinality — list items, dict keys,
+        // string chars, scalar = 1. Deterministic + total, model-free.
+        assert_eq!(det("$len%[2,3,5,7,11]"), "5"); // list item count
+        assert_eq!(det("$len%{a=1,b=2,c=3}"), "3"); // dict key count
+        assert_eq!(det("$len%'hello'"), "5"); // string char count
+        assert_eq!(det("$len%42"), "2"); // rendered scalar char count ("42")
+        assert_eq!(det("$len%true"), "4"); // rendered scalar char count ("true")
+        // Cardinality of a set operation — count-of-set, the mathy use case.
+        assert_eq!(det("$len%($inter%([2,3,5,7,11],[1,3,5,7,9]))"), "3"); // odd primes ≤ 9
+        assert_eq!(det("$len%($inter%([a],[b]))"), "0"); // empty set → 0
+        assert_eq!(
+            det("$len%($diff%([1,2,3,4,5,6,7,8,9,10],[2,4,6,8,10]))"),
+            "5"
+        ); // odds 1-10
+        // Composes with the rest of the value-builtin family (no comparison op,
+        // which the minimal test config() helper does not define).
+        assert_eq!(det("$len%($sort%[3,1,2])"), "3"); // len of a sorted list
+        assert_eq!(det("$len%($union%[a,b,a,c,b])"), "3"); // distinct-count via nub
     }
 
     #[test]

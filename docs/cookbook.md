@@ -471,6 +471,30 @@ overflowing the stack.
 
 ---
 
+## 13. Length & counting — `$len`
+
+`$len` gives the length of a value as a number: a list's item count, a dict's key
+count, or (for a string or scalar) its rendered character count.
+
+```
+$len%[2,3,5,7,11]            -> 5     (list items)
+$len%{a=1, b=2, c=3}         -> 3     (dict keys)
+$len%'hello'                 -> 5     (string chars)
+```
+
+The mathy use is **cardinality** — how big is a set? Compose it with the set ops
+and ranges (`a..b`) for model-free counting:
+
+```
+$len%($inter%([2,3,5,7,11], 1..10))   -> 4     (how many primes are <= 10)
+$len%($diff%(1..10, [2,4,6,8,10]))    -> 5     (how many odd numbers 1-10)
+```
+
+All deterministic — no model, identical on every run — so a count is something you
+can assert exactly.
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.
