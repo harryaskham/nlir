@@ -1237,7 +1237,7 @@ impl<'a> Evaluator<'a> {
                 && self.parallelism > 1
                 && operand_exprs
                     .iter()
-                    .all(|e| is_parallel_safe(e, self.config))
+                    .all(|e| is_parallel_safe(e, self.config, self.mode))
             {
                 let cache_on = self.context.cache();
                 eval_operands_parallel(
@@ -2097,36 +2097,45 @@ fn realise_command(command: &str, operands: &[Value], sep: &str) -> Result<Value
 /// access (`$` / `$N`), and no nullary operator (an `Apply` with no operands
 /// pops the stack). Reads (`$name`, `^`) are fine because the parallel section
 /// never writes context.
-fn is_parallel_safe(expr: &Expr, config: &Config) -> bool {
+fn is_parallel_safe(expr: &Expr, config: &Config, mode: Mode) -> bool {
     match expr {
         Expr::Bare(_) | Expr::Quoted { .. } | Expr::Number(_) | Expr::ContextRead(_) => true,
         Expr::StackPeek | Expr::StackIndex(_) | Expr::Assign { .. } => false,
-        Expr::Message { index, .. } => is_parallel_safe(index, config),
+        Expr::Message { index, .. } => is_parallel_safe(index, config, mode),
         Expr::MessageRange { start, end, .. } => {
-            is_parallel_safe(start, config) && is_parallel_safe(end, config)
+            is_parallel_safe(start, config, mode) && is_parallel_safe(end, config, mode)
         }
-        Expr::Group(inner) | Expr::Serial(inner) => is_parallel_safe(inner, config),
+        Expr::Group(inner) | Expr::Serial(inner) => is_parallel_safe(inner, config, mode),
         // A quoted form is inert data (its inner is not evaluated) — pure/safe.
         Expr::Quote(_) => true,
         // Form application evaluates a body (may read the stack / arg frame) —
         // not parallel-safe.
         Expr::FormApply { .. } => false,
-        Expr::List(items) => items.iter().all(|e| is_parallel_safe(e, config)),
-        Expr::Dict(pairs) => pairs.iter().all(|(_, v)| is_parallel_safe(v, config)),
+        Expr::List(items) => items.iter().all(|e| is_parallel_safe(e, config, mode)),
+        Expr::Dict(pairs) => pairs.iter().all(|(_, v)| is_parallel_safe(v, config, mode)),
         // A nullary op (empty operands) pops the stack; a form:/builtin: glyph
         // operator (bd-44c294) applies a form / higher-order over an arg frame,
         // exactly like FormApply — neither is parallel-safe (the parallel operand
-        // path is a free fn with no Evaluator arg-frame to bind $0/$1).
+        // path is a free fn with no Evaluator arg-frame to bind $0/$1). A `det:`
+        // op (`~>`) is the same in DET mode: its det realisation is an arg-frame
+        // form the parallel free-fn path cannot apply (it calls realise_cached
+        // directly, skipping the det: dispatch), so it must eval on the main path
+        // (bd-b00961). In LLM mode a `det:` op realises via its `prompt:` (an llm
+        // call), which the parallel path DOES handle — so keep it parallel there,
+        // preserving concurrent judge (`~>`) calls, the judge's real use.
         Expr::Apply { op, operands, .. } => {
             if operands.is_empty() {
                 return false;
             }
             if let Some(cfg) = config.operators.values().find(|c| c.op == *op) {
-                if cfg.form.is_some() || cfg.builtin.is_some() {
+                if cfg.form.is_some()
+                    || cfg.builtin.is_some()
+                    || (mode == Mode::Det && cfg.det.is_some())
+                {
                     return false;
                 }
             }
-            operands.iter().all(|e| is_parallel_safe(e, config))
+            operands.iter().all(|e| is_parallel_safe(e, config, mode))
         }
         // A reduced value is pure (no context write, no stack, no op).
         Expr::Value(_) => true,
@@ -3500,6 +3509,35 @@ operators:
         check("'all systems green' ⊃ 'broken'", "false");
         // count idiom over a det: bool op: how many contain 'e'? bed,red -> 2.
         check("$fold%({$0+$1},$map%({$0 ⊃ 'e'},['bed','cat','red']))", "2");
+    }
+
+    #[test]
+    fn det_field_op_realises_under_a_parallel_parent() {
+        // bd-b00961: a `det:`-field op (`⊃` = {$contains%($0,$1)}) nested as an
+        // OPERAND under a compose/builtin-delegated parent (`&` join) must still
+        // get its det realisation in Det mode. Before the fix it was deemed
+        // parallel-safe (is_parallel_safe excluded form:/builtin: but not det:),
+        // so it routed through the parallel operand path, which calls
+        // realise_cached directly and skips the det: dispatch -> "operator `⊃`
+        // has no deterministic realisation". The bug ONLY fires at parallelism
+        // > 1, so force it (det_seq at parallelism=1 would hide it).
+        let mut cfg = config::parse_str(
+            "operators:\n  imp: { op: \"⊃\", arity: 2, fixity: infix, priority: 6, det: \"{$contains%($0,$1)}\" }\n  and: { op: \"&\", arity: \">0\", fixity: mixfix, priority: 5, join: \" and \" }\n",
+            Path::new("b00961.yaml"),
+        )
+        .unwrap();
+        cfg.defaults.parallelism = 4;
+        let mut ctx = Context::empty(&cfg.context);
+        // Two det: `⊃` operands under `&` — the mutual-judge shape. Each realises
+        // its det stub (contains), then `&` joins the two bools.
+        let out = evaluate(
+            "'the login page is broken' ⊃ 'broken' & 'all systems green' ⊃ 'broken'",
+            &cfg,
+            &mut ctx,
+            Mode::Det,
+        )
+        .expect("det: op realises under a parallel parent");
+        assert_eq!(out.render(&ctx.sep()), "true and false");
     }
 
     #[test]
