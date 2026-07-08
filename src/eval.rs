@@ -764,6 +764,9 @@ impl<'a> Evaluator<'a> {
                     | "gt"
                     | "lt"
                     | "not"
+                    | "floor"
+                    | "ceil"
+                    | "round"
                     | "contains"
                     | "elem"
                     | "union"
@@ -920,6 +923,21 @@ impl<'a> Evaluator<'a> {
                 }
                 Ok(Value::bool(!value_is_truthy(&self.eval(&args[0])?)))
             }
+            // Rounding builtins (bd-9004bb): general det-math primitives.
+            // Composition-preserving — median falls out of $floor%($len/2) + sort +
+            // index rather than a special $median fn. Sigil (⌊⌋) is aur-1's lane.
+            "floor" | "ceil" | "round" => {
+                if args.len() != 1 {
+                    return Err(builtin_arity_err(name, "(x)", args.len()));
+                }
+                let sep = self.sep();
+                let x = number_operand(name, self.eval(&args[0])?, &sep)?;
+                Ok(Value::number(match name {
+                    "floor" => x.floor(),
+                    "ceil" => x.ceil(),
+                    _ => x.round(),
+                }))
+            }
             _ => unreachable!("unknown value builtin: {name}"),
         }
     }
@@ -1057,6 +1075,18 @@ impl<'a> Evaluator<'a> {
                 Ok(Value::bool(!value_is_truthy(
                     &self.eval_async(&args[0], realiser).await?,
                 )))
+            }
+            "floor" | "ceil" | "round" => {
+                if args.len() != 1 {
+                    return Err(builtin_arity_err(name, "(x)", args.len()));
+                }
+                let sep = self.sep();
+                let x = number_operand(name, self.eval_async(&args[0], realiser).await?, &sep)?;
+                Ok(Value::number(match name {
+                    "floor" => x.floor(),
+                    "ceil" => x.ceil(),
+                    _ => x.round(),
+                }))
             }
             _ => unreachable!("unknown value builtin: {name}"),
         }
@@ -1578,6 +1608,9 @@ impl<'a> Evaluator<'a> {
                                 | "gt"
                                 | "lt"
                                 | "not"
+                                | "floor"
+                                | "ceil"
+                                | "round"
                                 | "contains"
                                 | "elem"
                                 | "union"
@@ -3819,6 +3852,17 @@ operators:
         assert_eq!(det("$not%(1)"), "false"); // nonzero is truthy
         // Composes with $if (gate on a strict comparison).
         assert_eq!(det("$if%($lt%(2,5),'less','not')"), "less");
+    }
+
+    #[test]
+    fn value_builtin_rounding() {
+        // $floor / $ceil / $round — general det-math primitives (bd-9004bb).
+        assert_eq!(det("$floor%2.5"), "2");
+        assert_eq!(det("$ceil%2.5"), "3");
+        assert_eq!(det("$round%2.5"), "3"); // half away from zero
+        assert_eq!(det("$round%2.4"), "2");
+        assert_eq!(det("$floor%3"), "3"); // integer unchanged
+        assert_eq!(det("$ceil%3"), "3");
     }
 
     #[test]

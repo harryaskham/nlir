@@ -518,6 +518,30 @@ All deterministic and exact — count-if / count-if-NOT with no model.
 
 ---
 
+## 15. Rounding & median — `$floor` / `$ceil` / `$round`
+
+Fundamental numeric primitives: `$floor%2.5` → 2, `$ceil%2.5` → 3, `$round%2.5` → 3
+(half away from zero). They keep `$nth` strict (it rejects a fractional index) while
+letting **median** fall out of sort + index — no special `$median` function:
+
+```
+$nth%($floor%($len%L/2), $sort%L)                     -> the middle element (odd length)
+```
+
+The two middle indices are `$floor` and `$ceil` of `($len-1)/2`, so one expression
+gives the median for BOTH parities (mean of the two middles when even):
+
+```
+($nth%($floor%(($len%L-1)/2),$sort%L)+$nth%($ceil%(($len%L-1)/2),$sort%L))/2
+  L=[3,1,4,1,5]  -> 3      (odd: both middle indices = 2)
+  L=[4,1,3,2]    -> 2.5    (even: indices 1,2 -> (2+3)/2)
+```
+
+Same principle as max = "sort then last": small composable primitives over
+special-cased sugar.
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.

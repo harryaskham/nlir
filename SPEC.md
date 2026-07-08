@@ -301,6 +301,17 @@ fold-fusion count-if-NOT. Since Bools coerce true→1 under `+`, map a predicate
 fold to count: `$fold%({$0+$1},$map%({$lt%($0,5)},0..10))` → 5. The sigil alias
 `¬` (config operator, prefix) completes `∧ ∨ ¬` — see the operator table.
 
+### Rounding builtins (`$floor` / `$ceil` / `$round`)
+
+Fundamental numeric primitives (bd-9004bb): `$floor%x` → ⌊x⌋, `$ceil%x` → ⌈x⌉,
+`$round%x` → nearest integer (half away from zero). Operand coerces to number.
+They keep `$nth` strict (it rejects a fractional index) while letting **median** fall
+out of sort + index — no special `$median` function: `$nth%($floor%($len%L/2),$sort%L)`
+is the middle element for odd length. The two middle indices are `$floor` and `$ceil`
+of `($len-1)/2`, so one expression gives the median for both parities (mean of the two
+middles when even). Same principle as max = sort-then-last: composable primitives over
+special-cased sugar. A sigil alias (⌊⌋) is a config-operator follow-up.
+
 Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
 the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
 After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
