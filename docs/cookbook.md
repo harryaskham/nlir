@@ -495,6 +495,29 @@ can assert exactly.
 
 ---
 
+## 14. Comparison & negation — `$gt` / `$lt` / `$not`
+
+`>=` and `<=` compare numerically, but `>` / `<` are taken (expand / shorten). For
+STRICT comparison use `$gt` / `$lt`; for boolean negation use `$not` (unlike `!`,
+which is *textual* negation). All return clean Bools.
+
+```
+$gt%(5, 3)                -> true      (strict: $gt%(3,3) -> false)
+$lt%(3, 5)                -> true
+$not%($lt%(5, 3))         -> true      (negate any Bool, incl. fuzzy ~> results)
+```
+
+Bools coerce true→1 under `+`, so map a predicate then fold to **count**:
+
+```
+$fold%({$0+$1}, $map%({$lt%($0, 5)}, 0..10))          -> 5   (how many are < 5)
+$fold%({$0+$1}, $map%({$not%($lt%($0, 3))}, 1..5))    -> 3   (how many are NOT < 3)
+```
+
+All deterministic and exact — count-if / count-if-NOT with no model.
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.

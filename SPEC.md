@@ -267,6 +267,21 @@ deterministic — the model-free counting primitive: `$len%[2,3,5,7,11]` → 5,
 → 3. A spread list `$len%[a,b,c]` (3 args) counts 3; a single scalar in a
 single-element list `$len%[x]` is indistinguishable from `$len%x` after the spread.
 
+### Predicate builtins (`$gt` / `$lt` / `$not`)
+
+**`$gt%(a,b)`** / **`$lt%(a,b)`** — STRICT numeric comparison (bd-89b3d0),
+`a > b` / `a < b`, returning a `Bool`. They fill the strict-comparison gap: the
+`>`/`<` sigils are taken (expand/shorten), and the `>=`/`<=` operators are
+non-strict, so `$gt%(3,3)` → false where `3>=3` → true. Operands coerce to number
+like `>=`/`<=`.
+
+**`$not%(x)`** — boolean NOT: negates `x`'s truthiness and returns a `Bool`.
+Unlike `!` (which is *textual* negation, e.g. `!(3>=5)` → the string "not (false)"),
+`$not` inverts any Bool — including a fuzzy `~>` result — so it composes in
+fold-fusion count-if-NOT. Since Bools coerce true→1 under `+`, map a predicate then
+fold to count: `$fold%({$0+$1},$map%({$lt%($0,5)},0..10))` → 5. Sigil alias `¬` for
+`$not` is a config-operator follow-up (completes `∧ ∨ ¬`).
+
 Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
 the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
 After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.

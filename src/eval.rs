@@ -742,7 +742,17 @@ impl<'a> Evaluator<'a> {
             }
             if matches!(
                 name.as_str(),
-                "if" | "nth" | "sort" | "len" | "contains" | "elem" | "union" | "inter" | "diff"
+                "if" | "nth"
+                    | "sort"
+                    | "len"
+                    | "gt"
+                    | "lt"
+                    | "not"
+                    | "contains"
+                    | "elem"
+                    | "union"
+                    | "inter"
+                    | "diff"
             ) && self.context.get(name).is_none()
             {
                 return self.eval_value_builtin(name, args);
@@ -876,6 +886,24 @@ impl<'a> Evaluator<'a> {
                 let sep = self.sep();
                 Ok(Value::list(set_diff(a, &b, &sep)))
             }
+            // Predicate builtins (bd-89b3d0, mathy golf): strict comparison +
+            // boolean NOT. Deterministic; return clean Bools that coerce true→1 in
+            // fold-fusion count-if. Sigil aliases (¬ for $not) are aur-1's lane.
+            "gt" | "lt" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(a, b)", args.len()));
+                }
+                let sep = self.sep();
+                let a = number_operand(name, self.eval(&args[0])?, &sep)?;
+                let b = number_operand(name, self.eval(&args[1])?, &sep)?;
+                Ok(Value::bool(if name == "gt" { a > b } else { a < b }))
+            }
+            "not" => {
+                if args.len() != 1 {
+                    return Err(builtin_arity_err(name, "(x)", args.len()));
+                }
+                Ok(Value::bool(!value_is_truthy(&self.eval(&args[0])?)))
+            }
             _ => unreachable!("unknown value builtin: {name}"),
         }
     }
@@ -996,6 +1024,23 @@ impl<'a> Evaluator<'a> {
                 let b = set_items(self.eval_async(&args[1], realiser).await?);
                 let sep = self.sep();
                 Ok(Value::list(set_diff(a, &b, &sep)))
+            }
+            "gt" | "lt" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(a, b)", args.len()));
+                }
+                let sep = self.sep();
+                let a = number_operand(name, self.eval_async(&args[0], realiser).await?, &sep)?;
+                let b = number_operand(name, self.eval_async(&args[1], realiser).await?, &sep)?;
+                Ok(Value::bool(if name == "gt" { a > b } else { a < b }))
+            }
+            "not" => {
+                if args.len() != 1 {
+                    return Err(builtin_arity_err(name, "(x)", args.len()));
+                }
+                Ok(Value::bool(!value_is_truthy(
+                    &self.eval_async(&args[0], realiser).await?,
+                )))
             }
             _ => unreachable!("unknown value builtin: {name}"),
         }
@@ -1511,6 +1556,9 @@ impl<'a> Evaluator<'a> {
                             "if" | "nth"
                                 | "sort"
                                 | "len"
+                                | "gt"
+                                | "lt"
+                                | "not"
                                 | "contains"
                                 | "elem"
                                 | "union"
@@ -2593,6 +2641,15 @@ fn value_len(v: &Value, sep: &str) -> f64 {
     }
 }
 
+/// Coerce a value to f64 for the strict-comparison builtins `$gt`/`$lt`
+/// (bd-89b3d0), mirroring the numeric coercion of the `>=`/`<=` operators;
+/// errors loudly on a non-numeric operand rather than guessing.
+fn number_operand(builtin: &str, v: Value, sep: &str) -> Result<f64, EvalError> {
+    v.coerce(TypeName::Number, sep)?
+        .as_number()
+        .ok_or_else(|| EvalError::Unsupported(format!("`${builtin}` operand is not a number")))
+}
+
 /// Coerce a value to its "set elements" for the set-algebra builtins
 /// (`$union`/`$inter`/`$diff`, bd-49d65a): a [`Value::List`] spreads to its
 /// items, a [`Value::Dict`] spreads to its KEYS (set ops on a dict operate on
@@ -3669,6 +3726,24 @@ operators:
         // which the minimal test config() helper does not define).
         assert_eq!(det("$len%($sort%[3,1,2])"), "3"); // len of a sorted list
         assert_eq!(det("$len%($union%[a,b,a,c,b])"), "3"); // distinct-count via nub
+    }
+
+    #[test]
+    fn value_builtin_predicates() {
+        // $gt / $lt — strict numeric comparison (bd-89b3d0), fills the </> gap.
+        assert_eq!(det("$gt%(5,3)"), "true");
+        assert_eq!(det("$gt%(3,5)"), "false");
+        assert_eq!(det("$gt%(3,3)"), "false"); // strict — not >=
+        assert_eq!(det("$lt%(3,5)"), "true");
+        assert_eq!(det("$lt%(5,3)"), "false");
+        assert_eq!(det("$lt%(3,3)"), "false"); // strict — not <=
+        // $not — boolean NOT over truthiness (bd-89b3d0).
+        assert_eq!(det("$not%($gt%(5,3))"), "false"); // not true
+        assert_eq!(det("$not%($lt%(5,3))"), "true"); // not false
+        assert_eq!(det("$not%(0)"), "true"); // 0 is falsey
+        assert_eq!(det("$not%(1)"), "false"); // nonzero is truthy
+        // Composes with $if (gate on a strict comparison).
+        assert_eq!(det("$if%($lt%(2,5),'less','not')"), "less");
     }
 
     #[test]
