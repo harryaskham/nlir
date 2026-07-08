@@ -26,6 +26,10 @@
       <div class="expreditor">
         <textarea id="expr" spellcheck="false" autocomplete="off" placeholder="e.g.  2**3**2   ·   @'lmk if any Qs'   ·   'a';'b';&amp;;~$          (⌘/Ctrl+Enter to run)"></textarea>
       </div>
+      <!-- Live det preview (bd-970e05): a debounced, speculative result-so-far as you
+           type. Det-only + non-persisting (the safe-free-default of the shared
+           partial-display contract); llm realisation stays gated behind Run. -->
+      <div class="livepreview" id="livePreview" hidden></div>
       <div class="exprctl">
         <div class="seg" id="modeSeg">
           <button data-mode="det" class="on">det</button>

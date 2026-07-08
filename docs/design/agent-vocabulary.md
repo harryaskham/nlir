@@ -209,6 +209,12 @@ resolve**. Status across the three surfaces:
 - **pi plugin** — live det-preview **landed** (**bd-970e05** slice 2): as you
   type a `|`-prefixed nlir line, the det result-so-far shows in a widget above
   the editor (debounced ~350ms, cleared on send). Closes the surface Harry named.
+- **web workspace** — live det-preview **landed** (**bd-970e05** slice 4): as you
+  type in the expression editor, ~350ms after you pause the det result-so-far
+  appears on a dim ` → ` line under the editor (its own line — never clobbers the
+  Output pane). Always det + no realiser, so llm ops stay gated behind Run; in
+  llm/on-device mode the line carries a "det preview · Run for llm" tag. The
+  browser command-VM is sandboxed, so even `_`-echo previews safely offline.
 
 ### The shared partial-display contract
 

@@ -159,6 +159,9 @@ let wasmReal = false;
     // (single source of truth, always in lockstep with the parser). Adopt it as the default.
     try { const cfg = nlir.defaultConfigYaml(); if (cfg && state.config === DEFAULT_CONFIG){ state.config = cfg; if ($('config')) $('config').value = cfg; save(); } } catch {}
     renderOps();
+    // Real wasm is now live: re-run the det preview so a restored expression shows
+    // the true evaluator's result-so-far (not the mock it may have shown at init).
+    scheduleLivePreview();
   } catch (err) {
     console.info('nlir-wasm pkg/ not present — using mock evaluator.', err && err.message);
   }
@@ -216,11 +219,11 @@ function initEditor(){
       extraKeys: { 'Cmd-Enter': () => run(), 'Ctrl-Enter': () => run() },
     });
     if (state.settings.expr) cm.setValue(state.settings.expr);
-    cm.on('change', () => { state.settings.expr = cm.getValue(); save(); });
+    cm.on('change', () => { state.settings.expr = cm.getValue(); save(); scheduleLivePreview(); });
   } else {
     // fallback: the raw textarea is already fullwidth + multiline (CSS); wire persistence + run.
     if (state.settings.expr) ta.value = state.settings.expr;
-    ta.addEventListener('input', () => { state.settings.expr = ta.value; save(); });
+    ta.addEventListener('input', () => { state.settings.expr = ta.value; save(); scheduleLivePreview(); });
     ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)){ e.preventDefault(); run(); } });
   }
   updateVimToggle();
@@ -415,6 +418,48 @@ async function step(){
   } catch (e){ box.innerHTML = `<span class="err">${e}</span>`; }
 }
 
+// ---- live det preview (bd-970e05): debounced, speculative eval as you type ----
+// The web slice of the shared partial-result-display contract (matches the TUI,
+// REPL, and Pi-plugin slices):
+//   • debounce, not per-keystroke (~350ms) — one eval after you pause typing.
+//   • DET is the safe-free-default: the preview ALWAYS evaluates in det mode
+//     (offline, instant, key-free) regardless of the selected mode, so llm/paid
+//     realisation is never fired on a keystroke — it stays gated behind Run.
+//   • speculative ≠ committed: the preview lives in its own line, never clobbers
+//     the Output pane, and never persists context writes (the wasm det path evals
+//     a FRESH context per call, so `k=RHS` here has no side effect). It hides
+//     silently on parse/eval errors (incl. an llm op in det mode) so it stays
+//     unobtrusive while you compose — exactly like the REPL's dim ` → ` hint.
+let livePreviewTimer = null;
+let livePreviewSeq = 0;
+const LIVE_PREVIEW_DEBOUNCE_MS = 350;
+const LIVE_PREVIEW_MAX_LEN = 240;
+
+function scheduleLivePreview(){
+  clearTimeout(livePreviewTimer);
+  livePreviewTimer = setTimeout(livePreviewTick, LIVE_PREVIEW_DEBOUNCE_MS);
+}
+
+async function livePreviewTick(){
+  const el = $('livePreview'); if (!el) return;
+  const hide = () => { el.hidden = true; el.innerHTML = ''; };
+  const expr = getExpr().trim();
+  const seq = ++livePreviewSeq;
+  // Nothing to preview (empty) or too heavy to speculate on every pause — stay quiet.
+  if (!expr || expr.length > LIVE_PREVIEW_MAX_LEN){ hide(); return; }
+  let r;
+  // ALWAYS det + no realisers: the speculative tier never spends an llm call.
+  try { r = await nlir.evaluate(expr, configJson(), contextJson(), 'det', {}); }
+  catch { if (seq === livePreviewSeq) hide(); return; }
+  if (seq !== livePreviewSeq) return;                 // a newer keystroke superseded this eval
+  if (!r || !r.ok || r.result == null || r.result === ''){ hide(); return; }
+  const llmGated = state.settings.mode !== 'det';
+  el.hidden = false;
+  el.innerHTML = `<span class="arrow">→</span><span class="lp-result">${esc(String(r.result))}</span>`
+    + (llmGated ? '<span class="lp-tag" title="llm ops realise only when you Run; this preview is the free det result-so-far">det preview · Run for llm</span>' : '')
+    + (r.mock ? '<span class="lp-tag mock-tag">mock</span>' : '');
+}
+
 // ---- graph (G5): dataflow graph panel + step-frame animation with node highlight ----
 let animTimer = null;
 function showGraph(){
@@ -481,6 +526,9 @@ function setMode(m){
   $('llmPanel').hidden = m!=='llm';
   $('odPanel').hidden = m!=='ondevice';
   if (m==='ondevice') checkOnDevice();
+  // Refresh the live det preview so its "det preview · Run for llm" tag tracks the
+  // selected mode (the preview itself is always det; only the label depends on mode).
+  scheduleLivePreview();
 }
 
 // ---- wire ----
@@ -506,5 +554,9 @@ function init(){
   $('baseUrl').oninput = e => { state.settings.baseUrl = e.target.value; save(); };
   $('apiKey').oninput = e => { state.settings.apiKey = e.target.value; save(); };
   $('model').oninput = e => { state.settings.model = e.target.value; save(); };
+  // Seed the live det preview for a restored expression (wasm may still be
+  // loading — the mock covers det numerics until it swaps in, then loadWasm
+  // reschedules a tick so the real evaluator's result-so-far appears).
+  scheduleLivePreview();
 }
 init();
