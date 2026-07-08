@@ -132,7 +132,25 @@ impl Expr {
             // expression visibly distinguishes what has already been evaluated.
             Expr::Value(v) => format!("\u{ab}{v}\u{bb}"),
             Expr::Bare(s) => s.clone(),
-            Expr::Quoted { content, .. } => content.clone(),
+            // Re-emit the quotes so a rendered form/dict round-trips through
+            // re-lexing (bd: named-part persistence). A bare `content` re-lexes
+            // as bare words / stray operators (`'!'` -> the `!` op, `'a: '` ->
+            // bare words), corrupting a persisted form's source. The quote CHAR
+            // is chosen by `interpolate` so a `"…$x…"` interpolating string does
+            // not silently round-trip as a raw `'…'` and lose interpolation.
+            // Single quotes are raw (the lexer's `'…'` takes no escapes, so
+            // `content` never contains a `'`); double quotes carry `$name`
+            // interpolation, so escape only `\` and `"` for a faithful re-lex.
+            Expr::Quoted {
+                content,
+                interpolate,
+            } => {
+                if *interpolate {
+                    format!("\"{}\"", content.replace('\\', "\\\\").replace('"', "\\\""))
+                } else {
+                    format!("'{content}'")
+                }
+            }
             Expr::Number(n) => {
                 if n.fract() == 0.0 && n.is_finite() {
                     format!("{}", *n as i64)
@@ -1096,6 +1114,37 @@ mod tests {
         let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
         let tokens = tokenize(input, &sigils).expect("tokenises");
         parse_expr(&tokens, &ops).expect("parses").render()
+    }
+
+    #[test]
+    fn render_round_trips_string_literals() {
+        // bd-4fb6d0: `render()` must emit RE-LEXABLE source so a form/dict
+        // persisted to context (`{"__nlir_form__":"<render() source>"}`)
+        // round-trips. Before the fix a quoted literal rendered bare: `'!'` ->
+        // the `!` not-op, a spaced `'a note'` -> two bare words, a `:` ->
+        // re-parse break — silently corrupting the stored form's source. The
+        // fix re-emits quotes (single for raw `'…'`, double for interpolating
+        // `"…"` so `$name` interpolation is not lost). Assert render -> re-parse
+        // yields the IDENTICAL AST.
+        let ops = ladder();
+        let sigils: Vec<String> = ops.values().map(|o| o.op.clone()).collect();
+        let parse =
+            |src: &str| parse_expr(&tokenize(src, &sigils).expect("lex"), &ops).expect("parse");
+        for src in [
+            "{($0 + '!')}",               // '!' previously re-lexed as the ! operator
+            "{('a note: keep it' + $0)}", // spaces + colon previously -> bare words
+            "{\"hi $x there\"}",          // interpolating literal keeps its $x
+            "'false'",                    // bare-safe literal still round-trips
+            "{('x' + 'y')}",              // multiple literals
+        ] {
+            let ast = parse(src);
+            let rendered = ast.render();
+            let reparsed = parse(&rendered);
+            assert_eq!(
+                ast, reparsed,
+                "round-trip broke for {src}: rendered as {rendered:?}"
+            );
+        }
     }
 
     #[test]

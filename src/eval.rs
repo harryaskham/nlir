@@ -3108,10 +3108,12 @@ operators:
     #[test]
     fn step_trace_of_a_literal_is_a_single_already_reduced_step() {
         // A literal is already a value: no reduction, just the rendered literal.
+        // The literal renders WITH its quotes (bd-4fb6d0) so the source is
+        // round-trippable (a bare `hi` would re-lex as a bare word, not a string).
         let cfg = config();
         let mut ctx = Context::empty(&cfg.context);
         let steps = step_trace("'hi'", &cfg, &mut ctx, Mode::Det).expect("step trace");
-        assert_eq!(steps, vec!["hi".to_owned()]);
+        assert_eq!(steps, vec!["'hi'".to_owned()]);
     }
 
     #[test]
