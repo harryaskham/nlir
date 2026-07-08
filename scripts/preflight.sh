@@ -17,6 +17,24 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$root"
 
+# bd-b15ff8: fail fast with a clear hint when run outside the nix dev shell on
+# macOS. There the system toolchain lacks libiconv, so the cargo steps below
+# fail at link time with a cryptic `ld: library not found for -liconv` after a
+# full compile. The dev shell exports NLIR_DEV_SHELL=1 (flake.nix). Only enforced
+# on Darwin; other platforms may have a working system toolchain outside nix.
+if [ -z "${NLIR_DEV_SHELL:-}" ] && [ "$(uname -s)" = "Darwin" ]; then
+  cat >&2 <<'HINT'
+==> preflight: not inside the nix dev shell (NLIR_DEV_SHELL unset) on macOS.
+    The system toolchain lacks libiconv, so cargo will fail at link time with
+    `ld: library not found for -liconv`. Run preflight through the dev shell:
+
+      nix run .#preflight
+      # or, equivalently:
+      nix develop --command bash scripts/preflight.sh
+HINT
+  exit 1
+fi
+
 step() { printf '\n==> [%s] %s\n' "$1" "$2"; }
 
 echo "==> nlir preflight: rustfmt + clippy + unit tests ($root)"

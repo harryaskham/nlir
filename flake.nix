@@ -154,6 +154,13 @@
 
         devShells.default = pkgs.mkShell {
           inputsFrom = [ nlir ];
+          # Marker so scripts/preflight.sh can detect it is running inside the dev
+          # shell (bd-b15ff8): outside it, the macOS system toolchain lacks
+          # libiconv and cargo fails at link with `ld: library not found for
+          # -liconv`. `nix develop` / `nix run .#preflight` run this shellHook.
+          shellHook = ''
+            export NLIR_DEV_SHELL=1
+          '';
           packages =
             with pkgs;
             [
