@@ -111,10 +111,9 @@ runlit '$mod%(17,5)'                                  # -> 2    (17 mod 5)
 runlit '$len%($filter%({$not%($mod%($0,2))},1..10))'  # -> 5    (count of evens in 1..10)
 runlit '$mod%(10+5,12)'                               # -> 3    (clock arithmetic: hour 15 wraps to 3 on a 12-clock)
 
-say "FIZZBUZZ — the classic, as one nested-\$if conditional (\$mod + \$if + \$not)"
-why "Fizz if 3 divides it, Buzz if 5, FizzBuzz if 15 (both), else the number"
-runlit '$if%($not%($mod%(15,15)),"FizzBuzz",$if%($not%($mod%(15,3)),"Fizz",$if%($not%($mod%(15,5)),"Buzz",15)))'   # -> FizzBuzz
-runlit '$if%($not%($mod%(9,15)),"FizzBuzz",$if%($not%($mod%(9,3)),"Fizz",$if%($not%($mod%(9,5)),"Buzz",9)))'        # -> Fizz
+say "FIZZBUZZ — the whole classic in one line: map the nested-\$if over 1..15"
+why "per element: FizzBuzz if 15 divides it, else Fizz if 3, else Buzz if 5, else the number"
+runlit '$map%({$if%($not%($mod%($0,15)),"FizzBuzz",$if%($not%($mod%($0,3)),"Fizz",$if%($not%($mod%($0,5)),"Buzz",$0)))},1..15)'   # -> 1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz
 
 say "PROJECT EULER #1 — sum of every multiple of 3 or 5 below N, exact"
 why "filter the range by (3 divides it ∨ 5 divides it), then fold +"
