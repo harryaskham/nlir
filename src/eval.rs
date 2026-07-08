@@ -52,6 +52,10 @@ pub enum EvalError {
     Stack(String),
     /// A `^` index resolved to no message.
     NoMessage { role: MessageRole, index: i64 },
+    /// A `^` read with no conversation context loaded at all (bd-85c49d): a
+    /// one-shot `-e` with no `--context-file` no longer bleeds the node-global
+    /// default, so `^` on an empty message set fails loud instead.
+    NoContext,
     /// An operand could not be coerced to the required type.
     Coerce(CoerceError),
     /// A deterministic realisation failed (e.g. div-by-zero).
@@ -79,6 +83,10 @@ impl fmt::Display for EvalError {
             EvalError::NoMessage { role, index } => {
                 write!(f, "no message at ^{}{index}", role.suffix())
             }
+            EvalError::NoContext => write!(
+                f,
+                "no conversation context to read with `^` (pass `--context-file`, set `NLIR_CONTEXT`, or import a `--session-file`)"
+            ),
             EvalError::Coerce(e) => write!(f, "{e}"),
             EvalError::Realise(e) => write!(f, "{e}"),
             EvalError::Command(m) => write!(f, "command realisation failed: {m}"),
@@ -655,6 +663,11 @@ impl<'a> Evaluator<'a> {
     /// Evaluate a `^` message index: resolve the index expression to a number,
     /// then read the role-filtered view's message content.
     fn eval_message(&mut self, role: MessageRole, index: &Expr) -> Result<Value, EvalError> {
+        // No conversation loaded at all: fail loud rather than silently reading
+        // an empty (or, pre-bd-85c49d, a bled node-global) message set.
+        if self.context.messages().is_empty() {
+            return Err(EvalError::NoContext);
+        }
         let sep = self.sep();
         let i = self.eval_index(index, &sep)?;
         let view = MessageIndex::new(
@@ -677,6 +690,9 @@ impl<'a> Evaluator<'a> {
         start: &Expr,
         end: &Expr,
     ) -> Result<Value, EvalError> {
+        if self.context.messages().is_empty() {
+            return Err(EvalError::NoContext);
+        }
         let sep = self.sep();
         let start_i = self.eval_index(start, &sep)?;
         let end_i = self.eval_index(end, &sep)?;
@@ -3348,6 +3364,33 @@ operators:
         // Prefix ^-1 still disambiguates as a single-message read.
         let out = evaluate("^-1", &cfg, &mut ctx, Mode::Det).expect("prefix eval");
         assert_eq!(out.render(&ctx.sep()), "three");
+    }
+
+    #[test]
+    fn message_read_on_empty_context_is_no_context_error() {
+        // bd-85c49d: `^` on a context with no `_messages` fails loud with a
+        // typed NoContext error (one-shot `-e` no longer bleeds the node-global
+        // default), rather than a NoMessage index read or an empty result.
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        assert!(matches!(
+            evaluate("^-1", &cfg, &mut ctx, Mode::Det),
+            Err(EvalError::NoContext)
+        ));
+        // The range form `M^N` too.
+        assert!(matches!(
+            evaluate("0^2", &cfg, &mut ctx, Mode::Det),
+            Err(EvalError::NoContext)
+        ));
+        // NoContext is empty-only: once a message exists, `^` reads normally.
+        let mut seed = Map::new();
+        seed.insert(
+            "_messages".to_owned(),
+            json!([{"role": "assistant", "content": "hi"}]),
+        );
+        ctx.merge(seed);
+        let out = evaluate("^-1", &cfg, &mut ctx, Mode::Det).expect("read after seed");
+        assert_eq!(out.render(&ctx.sep()), "hi");
     }
 
     #[test]

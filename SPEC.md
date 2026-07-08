@@ -51,9 +51,14 @@ EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval
 
 - **context** is one JSON object. Default context file
   **`~/.config/nlir/context.json`** (beside `config.yaml`); `--context-file`
-  overrides; else `NLIR_CONTEXT` env.
+  overrides; else `NLIR_CONTEXT` env. A **one-shot `-e` eval does not auto-load
+  the default file** (bd-85c49d): it uses only an explicit `--context-file` /
+  `NLIR_CONTEXT` / `--session-file`, so `^` on a bare `-e` with no context fails
+  loud instead of bleeding a shared node-global default across agents. The REPL
+  and `set` / `get` / `append-message` keep default-file persistence.
 - Messages live under **`_messages`** (`{role, content}` array); `^` indexes
-  role-filtered views.
+  role-filtered views. `^` on an empty message set is a loud
+  `no conversation context` error, not an empty read.
 - System keys (`_`-prefixed): `_messages`, `_sep` (list/range → text separator,
   default `"\n"`), `_cache` (caching on/off, default `true`), `_precision`
   (final-display decimal places for numbers, default off = exact/round-tripping;
@@ -485,6 +490,7 @@ Assume the last assistant message (`^-1`) is about *a rust-rewrite*.
 nlir -e 'EXPR' [--quiet] [--mode det|llm] [--model haiku] [--parallelism 8] [--dry-run]
 
 # context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
+# (default file loads for the REPL / set / get; a one-shot `-e` skips it — bd-85c49d)
 nlir … --context-file PATH
 nlir … --session-file PATH        # e.g. Pi session: roles kept, tool calls dropped
 

@@ -798,7 +798,7 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     if cli.dry_run {
         return run_dry_run(cli, &cfg, expr, settings.mode);
     }
-    let mut ctx = open_context(cli)?;
+    let mut ctx = open_eval_context(cli)?;
     // Smart-pipe: expose piped stdin as the reserved `$_stdin` context key so
     // `cat foo.rs | nlir -e '<expr>'` works (Harry's agentic-coding direction).
     let piped_stdin = read_stdin_into_context(&mut ctx);
@@ -2324,10 +2324,30 @@ fn repl_meta_command(cli: &Cli, meta: &str) -> Result<(), i32> {
 /// strict-precedence; bd-000666 says "merge … combinable with --context-file".
 /// This wiring implements the combinable/additive reading.
 fn open_context(cli: &Cli) -> Result<nlir::context::Context, i32> {
+    open_context_inner(cli, true)
+}
+
+/// One-shot `-e` eval context (bd-85c49d): like [`open_context`] but does NOT
+/// fall back to the node-global default context file. A bare `nlir -e '<expr>'`
+/// with no `--context-file` gets a transient empty store, so `^` fails loud
+/// ("no conversation context") instead of bleeding stale cross-agent data from
+/// the shared `~/.config/nlir/context.json`. Explicit `--context-file` /
+/// `NLIR_CONTEXT` / `--session-file` still load; the REPL + context-management
+/// commands keep default-file persistence via [`open_context`].
+fn open_eval_context(cli: &Cli) -> Result<nlir::context::Context, i32> {
+    open_context_inner(cli, false)
+}
+
+/// Shared context opener: `allow_default_file` gates the node-global default
+/// fallback (on for the REPL / context-management commands, off for one-shot
+/// `-e` eval so it cannot bleed the shared default — bd-85c49d).
+fn open_context_inner(cli: &Cli, allow_default_file: bool) -> Result<nlir::context::Context, i32> {
     let cfg = resolve_config(cli)?;
     let env_inline = std::env::var("NLIR_CONTEXT").ok();
     let home = std::env::var_os("HOME");
-    let default_file = nlir::context::default_context_path(&cfg.context, home.as_deref());
+    let default_file = allow_default_file
+        .then(|| nlir::context::default_context_path(&cfg.context, home.as_deref()))
+        .flatten();
     let sources = nlir::context::LoadSources {
         context_file: cli.context_file.as_deref(),
         session: None,
