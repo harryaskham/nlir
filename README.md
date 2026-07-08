@@ -102,6 +102,14 @@ And the sharpest dogfood — the golf judge is *itself* nlir. `=>` regenerates a
 The honest gate is mutual — `$if%((sol)~>T, T~>(sol), 'false')` — so a too-vague output
 can't cheat. nlir grading nlir, no exact-match needed.
 
+And parts compose into a *pyramid* — name a thought-unit once, reuse it in a train:
+
+![reusable part → train — a named fuzzy part drives a full decision train](showcase/nlir-reusable-part.png)
+
+`urgent={$0~>'urgent'}; $if%($fold%({$0+$1},$urgent↦['server is down','lunch plans','payments failing'])>=2,'page the on-call engineer','queue for morning')` → `page the on-call engineer`
+live (2 urgent) but `queue for morning` in det. One reusable part (`urgent`) drives
+map → count → threshold → route — build a part once, and every later train is cheaper.
+
 The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
 [`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
 HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):
