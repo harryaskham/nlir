@@ -120,16 +120,6 @@ At the peak, a train *checks its own work* — generate, then verify it means wh
 is golf's job). Swap the seed and `sat` catches the mismatch → `false`. Two reusable
 parts compose into a self-verifying generative train.
 
-And where a prompt is *unreliable* — exact arithmetic — nlir is deterministic:
-
-![gauss — sum 1 to 100 = 5050, folded over a range, model-free and exact](showcase/nlir-gauss.png)
-
-`{$0+$1}⊘(1..100)` → `5050` — 100 terms of exact arithmetic folded over a range
-literal, with **zero model**. An LLM asked to sum 1..100 is the classic flaky case;
-nlir computes it deterministically, identical on every transport, CI-hard-asserted —
-the first exact-gated card whose payoff is real computation a prompt can't be
-trusted for. (Readable form: `$fold%({$0+$1},1..100)`.)
-
 The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
 [`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
 HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):
