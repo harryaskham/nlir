@@ -719,6 +719,12 @@ tests:
   list-access-neg:      { mode: det, expr: "[a,b,c].-1", expected: "c" }
   string-access:        { mode: det, expr: "'the'.2", expected: "e" }
   semantic-access-stub: { mode: det, expr: "'the planets from the sun'..3", expected: "item 3 of: the planets from the sun" }
+  # nlir-grades-nlir as a DET CI gate (bd-b00961 made the mutual judge det-evaluate):
+  # a generator PART self-verified by the mutual judge, fully offline. The det
+  # generator (concat) produces EXACTLY the target, so mutual `j` (equivalence) is
+  # the right check — the exact-regression use of the judge. (An llm generation
+  # self-check uses one-directional `sat={$0~>$1}` instead — see the parts library.)
+  self-judge-det:      { mode: det, expr: "greet={('Hello, '++$0++'!')};j={$if%($0~>$1,$1~>$0,'false')};$j%(($greet%'Ada'),'Hello, Ada!')", expected: "true" }
   msg:
     mode: det
     context:
