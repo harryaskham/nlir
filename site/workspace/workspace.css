@@ -64,7 +64,20 @@ button.ghost { border:1px solid var(--panel-border); color:var(--muted); backgro
 
 /* output + steps */
 .output { margin-top:1rem; min-height:3rem; }
-.output .result { font-size:1.15rem; color:#fff; line-height:1.5; }
+/* result: a bounded, scrollable Fira Code block (bd-b12220) — large output
+   (long lists, LLM paragraphs) stays contained + readable instead of blowing out
+   the panel; newlines (list _sep) are preserved and long tokens wrap. */
+.output .result {
+  display:block; font-family:var(--mono); font-size:1.05rem; color:#fff; line-height:1.55;
+  white-space:pre-wrap; max-height:24rem; overflow:auto;
+  background:var(--code-bg); border:1px solid var(--code-border); border-radius:12px;
+  padding:.7rem .9rem; box-shadow:0 12px 34px rgba(0,0,0,.4) inset;
+  scrollbar-width:thin; scrollbar-color:rgba(168,85,247,.55) transparent;
+}
+.output .result::-webkit-scrollbar { width:10px; height:10px; }
+.output .result::-webkit-scrollbar-track { background:transparent; }
+.output .result::-webkit-scrollbar-thumb { background:rgba(168,85,247,.45); border-radius:8px; border:2px solid transparent; background-clip:padding-box; }
+.output .result::-webkit-scrollbar-thumb:hover { background:rgba(168,85,247,.7); border:2px solid transparent; background-clip:padding-box; }
 .output .placeholder { color:var(--dim); font-style:italic; }
 .mock { display:inline-block; font-family:var(--mono); font-size:.78rem; color:#fcd34d; background:rgba(245,158,11,.1); border:1px solid rgba(251,191,36,.3); border-radius:6px; padding:.05rem .4rem; margin-left:.4rem; }
 .steps { margin-top:1rem; display:flex; flex-direction:column; gap:.5rem; }
