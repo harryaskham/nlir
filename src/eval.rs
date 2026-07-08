@@ -1149,6 +1149,9 @@ impl<'a> Evaluator<'a> {
         if matches!(name, "and" | "or") {
             return apply_bool_op(name, operands);
         }
+        if name == "not" {
+            return apply_bool_not(operands);
+        }
         let (body, items) = builtin_op_operands(name, operands)?;
         self.run_higher_order(name, &body, items)
     }
@@ -1668,6 +1671,9 @@ impl<'a> Evaluator<'a> {
                 }
                 if matches!(builtin.as_str(), "and" | "or") {
                     return apply_bool_op(&builtin, &operands);
+                }
+                if builtin == "not" {
+                    return apply_bool_not(&operands);
                 }
                 let (body, items) = builtin_op_operands(&builtin, &operands)?;
                 return self
@@ -2835,6 +2841,21 @@ fn apply_bool_op(name: &str, operands: &[Value]) -> Result<Value, EvalError> {
     }))
 }
 
+/// Apply the unary boolean-NOT operator (¬, bd-ab27dd) to its one already-evaluated
+/// operand: negate its truthiness via [`value_is_truthy`], returning a clean Bool.
+/// The boolean twin of `!` (which is TEXTUAL negation — "not X" prose); ¬ composes
+/// in fold-fusion count-if-NOT. Glyph alias for the `$not` value builtin (shared
+/// truthiness engine), same builtin+sigil split as ∧∨ over `$and`/`$or`.
+fn apply_bool_not(operands: &[Value]) -> Result<Value, EvalError> {
+    let [x] = operands else {
+        return Err(EvalError::Unsupported(format!(
+            "boolean operator `not` (¬) takes 1 operand; got {}",
+            operands.len()
+        )));
+    };
+    Ok(Value::bool(!value_is_truthy(x)))
+}
+
 fn apply_set_op(name: &str, operands: &[Value], sep: &str) -> Result<Value, EvalError> {
     let [a, b] = operands else {
         return Err(EvalError::Unsupported(format!(
@@ -2929,6 +2950,7 @@ operators:
   setelem:  { op: "∈", arity: 2, fixity: infix, priority: 5, builtin: elem }
   booland:  { op: "∧", arity: 2, fixity: infix, priority: 4, builtin: and }
   boolor:   { op: "∨", arity: 2, fixity: infix, priority: 3, builtin: or }
+  boolnot:  { op: "¬", arity: 1, fixity: prefix, priority: 14, builtin: not }
   access:   { op: "..", arity: 2, fixity: infix, priority: 9 }
   echo:
     op: "_"
@@ -2989,6 +3011,16 @@ operators:
         assert_eq!(det("5..1"), "5\n4\n3\n2\n1"); // descending (a>b)
         assert_eq!(det("3..3"), "3"); // single element (a==b)
         assert_eq!(det("0..3"), "0\n1\n2\n3"); // zero-based
+    }
+
+    #[test]
+    fn boolean_not_operator() {
+        // bd-ab27dd: ¬ negates truthiness → clean Bool (the boolean twin of the
+        // TEXTUAL `!`), completing the ∧∨¬ logic family. Glyph alias for $not.
+        assert_eq!(det("¬(3∈[3,5])"), "false"); // ¬true
+        assert_eq!(det("¬(4∈[3,5])"), "true"); // ¬false
+        // binds tighter than ∧∨: `¬a ∧ b` = `(¬a) ∧ b`.
+        assert_eq!(det("¬(9∈[3,5])∧(3∈[3,5])"), "true"); // (¬false)∧true
     }
 
     #[test]

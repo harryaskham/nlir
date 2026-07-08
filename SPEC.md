@@ -279,8 +279,8 @@ like `>=`/`<=`.
 Unlike `!` (which is *textual* negation, e.g. `!(3>=5)` → the string "not (false)"),
 `$not` inverts any Bool — including a fuzzy `~>` result — so it composes in
 fold-fusion count-if-NOT. Since Bools coerce true→1 under `+`, map a predicate then
-fold to count: `$fold%({$0+$1},$map%({$lt%($0,5)},0..10))` → 5. Sigil alias `¬` for
-`$not` is a config-operator follow-up (completes `∧ ∨ ¬`).
+fold to count: `$fold%({$0+$1},$map%({$lt%($0,5)},0..10))` → 5. The sigil alias
+`¬` (config operator, prefix) completes `∧ ∨ ¬` — see the operator table.
 
 Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
 the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
@@ -399,6 +399,7 @@ semantics, mirrored by `nlir help` and the
 | `∈` | setelem | infix · 2 | Membership: `x ∈ coll` → Bool — list element, dict key, or string substring. Alias for `$elem%` (`item ∈ collection`). |
 | `∧` | booland | infix · 2 | Logical AND: `a ∧ b` → Bool, true iff both operands are truthy. First-class conjunction, distinct from compose-`&` (string weave). Binds tighter than `∨`; evaluates both operands (use `$if` for short-circuit). |
 | `∨` | boolor | infix · 2 | Logical OR: `a ∨ b` → Bool, true iff either operand is truthy. Distinct from compose-`\|` (string choice). |
+| `¬` | boolnot | prefix · 1 | Logical NOT: `¬a` → Bool, true iff `a` is falsy. Negates any Bool (incl. a fuzzy `~>` result); the boolean twin of `!` (textual negation). Binds tighter than `∧ ∨`; composes in fold-fusion count-if-NOT. Glyph alias for `$not`. |
 
 **Instruction-following (generation)** — the third category. Here the operand is
 an *instruction to obey*, not text to reshape. This is the generative direction of
@@ -440,9 +441,9 @@ default `9`), `assoc` (`left`/`right`, default `left`; only meaningful for
 `infix`), `operands`/`result` types.
 
 **Precedence (config-tunable):** `^` indexing is tightest; **prefix unary**
-(`# !`) binds above **all binary**; binary follows normal math — `**` > `* /` >
+(`# ! ¬`) binds above **all binary**; binary follows normal math — `**` > `* /` >
 `+ -` — then string `& |`; the postfix `?` is the deliberate loose exception
-(binds everything to its left); `=` is loosest. Concretely: `^` 20 · `. ..` 16 · `# !` 14 ·
+(binds everything to its left); `=` is loosest. Concretely: `^` 20 · `. ..` 16 · `# ! ¬` 14 ·
 `** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `↦ ⊘` 8 · `∩` 7 · `∪ ∖` 6 · `∈ == != <= >=` 5 · `∧` 4 · `∨` 3 · `?` 1 · `=` 0
 (`nlir help` lists the exhaustive per-op priority; this prose summarises the tiers). prefix takes one right
 operand; postfix takes leftward to its priority; variadic flattens; mixfix unifies

@@ -1252,11 +1252,20 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
         if let Some(builtin) = &op.builtin {
             if !matches!(
                 builtin.as_str(),
-                "map" | "fold" | "access" | "union" | "inter" | "diff" | "elem" | "and" | "or"
+                "map"
+                    | "fold"
+                    | "access"
+                    | "union"
+                    | "inter"
+                    | "diff"
+                    | "elem"
+                    | "and"
+                    | "or"
+                    | "not"
             ) {
                 errs.push(ValidationError::new(
                     &loc,
-                    format!("builtin {builtin:?} is unknown (expected `map`, `fold`, `access`, `union`, `inter`, `diff`, `elem`, `and`, or `or`)"),
+                    format!("builtin {builtin:?} is unknown (expected `map`, `fold`, `access`, `union`, `inter`, `diff`, `elem`, `and`, `or`, or `not`)"),
                 ));
             }
         }
