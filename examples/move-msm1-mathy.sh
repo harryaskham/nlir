@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# nlir showcase · msm1 · DET-MATH — exact math a prompt can't be trusted to compute
+# nlir showcase · msm1 · DET-MATH — the EXACT SUBSTRATE (not the "why nlir")
 #
-# Harry asked for interesting *mathy* use cases. This gallery is the DET-MATH family:
-# ranges, set cardinality, and arithmetic folds — every line is deterministic, runs
-# OFFLINE (no API key), and is EXACT. That is the point: unlike "ask a model for the
-# sum of the first 100 numbers" (which can slip), these compute the real answer and
-# are hard-assertable in CI — identical on every run, on every transport, zero model risk.
+# HONEST FRAMING (2026-07-08, per Harry's catch): pure det-math — ranges, folds,
+# set-ops, sqrt, mod, primality, FizzBuzz — is just functional / array programming.
+# numpy, APL, and J do every line here, often more tersely. So this gallery is NOT
+# what makes nlir distinctive. It is nlir's EXACT SPINE: deterministic, OFFLINE (no
+# API key), CI-gated, identical on every run and transport. Worth having — it's the
+# reproducible half — but it is the SUBSTRATE, not the point.
 #
-# The mathy round (2026-07-08) turned play into landed capability:
-#   a..b     numeric range literal     1..5 -> [1,2,3,4,5]   (aur-1, c790621)
-#   $len     length / cardinality       $len%coll -> Number  (msm1, 568a01b)
-#   ∪ ∩ ∖ ∈  set algebra as math        $union/$inter/$diff/$elem   (bd-49d65a)
+# The differentiator is FUSION: a SEMANTIC operand riding on this exact scaffolding —
+# exact computation OVER meaning, which numpy can't (no notion of meaning) and a raw
+# prompt can't (no reliable exactness). e.g. sum the atomic numbers the model retrieves
+# (-> 113), count messages by meaning, self-verify a semantic step. Describe in meaning
+# -> compute exactly -> gate the fuzzy honestly. See the fusion showcase for that.
 #
-# Together they read like maths: "count the intersection", "sum the range", "fold the
-# product". See move-msm1-sets.sh for the set-algebra gallery it builds on.
+# What follows is that exact spine — the fold / len / filter / sqrt / mod the fusion
+# rides on. Landed primitives this round: a..b range (aur-1), $len (msm1, 568a01b),
+# ∪∩∖∈ set algebra (bd-49d65a), $gt/$lt/$not, $floor/$ceil/$round, $sqrt, $mod (msm3).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 NLIR="${NLIR:-./target/release/nlir}"
@@ -24,6 +27,9 @@ say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 why() { printf '   \033[2m(%s)\033[0m\n' "$1"; }
 # runlit EXPR — evaluate a literal deterministic expression (no stdin).
 runlit() { printf '  => '; "$NLIR" --config "$CFG" --mode det --quiet -e "$1" 2>&1 | paste -sd' ' -; }
+
+say "EXACT SUBSTRATE — this is nlir's reproducible spine, NOT its differentiator"
+why "pure det-math below is just functional/array programming (numpy/APL/J do it); the 'why nlir' is FUSION — a semantic operand ON this scaffolding: sum world-knowledge, count by meaning, self-verify. See the fusion showcase."
 
 say "RANGES — a sequence from two integers"
 why "numeric a..b is a range literal; a>b counts down (free reverse ranges)"
@@ -131,11 +137,14 @@ say "number theory — even/odd, FizzBuzz, Project Euler #1 — exact and model-
 say "MATHEMATICAL GEMS — famous sequences & constants, computed exactly (credit @msm-0's narrations)"
 why "triangular numbers T(n)=1+2+…+n are Gauss sums; map the sum over each row count"
 runlit '$map%({$fold%({$0+$1},1..$0)},1..5)'          # -> 1 3 6 10 15   (triangular numbers)
-why "the hidden gem: 8·T+1 is ALWAYS a perfect square — and its roots are the odd numbers"
+why "the gem: 8·T_n+1 = (2n+1)² exactly, so its square roots land on the odd numbers, on the nose"
 runlit '$map%({√(8*$0+1)},[1,3,6,10,15])'             # -> 3 5 7 9 11    (√(8T+1), exact)
 why "COLLATZ: even→halve, odd→3n+1, repeat — every number tumbles to 1 (unproven for 90 years)"
-runlit '({$if%($not%($mod%($0,2)),$0/2,3*$0+1)}_111)%27'   # -> 1   (27 takes the famous 111 steps)
+runlit '({$if%($not%($mod%($0,2)),$0/2,3*$0+1)}_111)%27'   # -> 1   (27 reaches 1 in exactly 111 steps — its stopping time)
 why "LEIBNIZ: 4·(1 − 1/3 + 1/5 − 1/7 + …) creeps toward π (_precision trims the display; the value stays exact)"
 runlit '_precision=4;4*$fold%({$0+$1},$map%({$if%($not%($mod%($0,2)),1,0-1)/(2*$0+1)},0..1000))'   # -> 3.1426   (→ π, slowly)
 
 say "famous sequences & constants — triangular, Collatz, Leibniz π — all computed exactly from the same small primitives."
+
+say "↑ that was the EXACT SPINE (offline, CI-gated, model-free). The 'why nlir' is putting MEANING on it"
+why "FUSION: exact math over semantically-retrieved data, gated honestly — numpy has no meaning, a prompt has no exactness, nlir does both in one line. See the fusion showcase."
