@@ -120,6 +120,16 @@ At the peak, a train *checks its own work* — generate, then verify it means wh
 is golf's job). Swap the seed and `sat` catches the mismatch → `false`. Two reusable
 parts compose into a self-verifying generative train.
 
+The vocabulary of *concept-level* moves grows the same way — and composes:
+
+![vocab-compose — define a synonyms op, compose it with the opposite operator](showcase/nlir-vocab-compose.png)
+
+`syn={=>('reply with ONLY a comma-list of synonyms of: '++$0)}; $syn%(!'sad')` → `joyful, cheerful, delighted`
+— define a *synonyms* op as a form, then compose it with the hardened `!` (opposite):
+synonyms of the **opposite** of "sad" → synonyms of "happy". Two concept moves — antonym,
+then synonyms — in one line. numpy has no notion of opposite or synonym; a prompt won't
+compose them cleanly. (Example output — the structure is exact, the meaning is the model's.)
+
 The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
 [`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
 HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):
