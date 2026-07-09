@@ -56,5 +56,11 @@ runfz "out=@'the meeting is at 3pm';\$out~>'the meeting is at 9am'"
 #  => false  (the gate catches a lost / changed fact)
 why "this is a self-verify TASTE — for the rigorous discipline (why count-by-meaning must never be asserted, content-vs-style, both robust shapes end-to-end) see examples/move-msm3-self-verify.sh"
 
+say "COMPOSE VOCABULARY — grow a concept-move, then compute over it exactly"
+why "the model GENERATES a list by meaning (=>), // splits it into real list structure, and an EXACT reducer (\$len) computes over it — numpy has no notion of 'synonyms', a prompt can't be trusted to count them. describe-in-meaning -> exact-structure, composed in one line"
+runfz "\$len%(=>'list exactly three synonyms for happy, comma-separated'//', ')"
+#  => 3   (generate-a-list-by-meaning -> // split -> EXACT count; stable 5/5 on ms-mac)
+why "this is a compose TASTE — for the deep concept->list->exact-reduce walkthrough (antonym-over-a-list, generate->split->filter, semantic-fold, + the exact-vs-judged discipline) see examples/move-msm3-composition.sh"
+
 say "why nlir? — describe in meaning → compute exactly → gate the fuzzy honestly"
-why "numpy has no meaning; a raw prompt has no exactness; nlir fuses both in ONE line. The det-math gallery (move-msm1-mathy.sh) is the exact spine this rides on — this is the reason you reach for a natural-language IR instead of an array language or a bare prompt."
+why "numpy has no meaning; a raw prompt has no exactness; nlir fuses both in ONE line. The det-math gallery (move-msm1-mathy.sh) is the exact spine this rides on. Two deep-dives go further: examples/move-msm3-self-verify.sh (TRUST — why the fuzzy is trustworthy) and examples/move-msm3-composition.sh (COMPOSE — concept->list->exact-reduce pipelines). This is the reason you reach for a natural-language IR instead of an array language or a bare prompt."
