@@ -160,7 +160,10 @@ operators: # `%` = operand under replacement; `%%` = literal %
     template: "not %"
     model: medium
     prompt: |
-      Negate the text inside <text>...</text>, changing nothing else.
+      Look at the text inside <text>...</text>.
+      If it is a single concept-word (adjective, noun, or verb like "hot", "happy", "increase"), reply with its one-word ANTONYM: a DIFFERENT word of opposite meaning (hot->cold, happy->sad, fast->slow, rich->poor, increase->decrease). NEVER a negation or prefixed form -- not "not X", not "un-X", not "in-X", and never the input word itself.
+      Otherwise (a full clause or sentence), negate it clause-wise, changing nothing else.
+      Reply with only the result, no explanation.
 
       %
   and:
