@@ -219,6 +219,10 @@ resolve**. Status across the surfaces and shared core:
   Output pane). Always det + no realiser, so llm ops stay gated behind Run; in
   llm/on-device mode the line carries a "det preview · Run for llm" tag. The
   browser command-VM is sandboxed, so even `_`-echo previews safely offline.
+  Explicit LLM Run/streamed-Step **landed** (**bd-970e05** slice 7): the
+  long-lived WASM module retains the same bounded cache across actions, while
+  config or external endpoint/key/model changes call `clearEvaluationCache`.
+  The free line now labels “Run/Step for cached llm”; no paid call fires on edit.
 - **incremental LLM core** — cross-evaluation cache **landed** (**bd-970e05**
   slice 5): native/browser hosts can retain `EvaluationCache` across debounced
   evaluate or async step/streaming calls. Unchanged semantic

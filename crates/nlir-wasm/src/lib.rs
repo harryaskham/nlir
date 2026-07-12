@@ -23,6 +23,18 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
+thread_local! {
+    /// Long-lived browser-session cache for explicit LLM Run/Step actions
+    /// (bd-970e05 slice 7). The core bounds retention; JS clears this when
+    /// config or external realiser settings change.
+    static EVALUATION_CACHE: nlir::eval::EvaluationCache =
+        nlir::eval::EvaluationCache::default();
+}
+
+fn evaluation_cache() -> nlir::eval::EvaluationCache {
+    EVALUATION_CACHE.with(Clone::clone)
+}
+
 /// Parse `configJson` into a [`nlir::config::Config`] at the wasm boundary.
 fn parse_config(config_json: &str) -> Result<nlir::config::Config, String> {
     serde_json::from_str(config_json).map_err(|error| format!("config JSON: {error}"))
@@ -211,6 +223,14 @@ impl nlir::realiser::Realiser for JsRealiser {
     }
 }
 
+/// Clear retained explicit-LLM preview results after config/model/endpoint
+/// changes. Context edits need no blanket clear: rendered operands are in each
+/// semantic cache key and invalidate dependants naturally.
+#[wasm_bindgen(js_name = clearEvaluationCache)]
+pub fn clear_evaluation_cache() {
+    EVALUATION_CACHE.with(nlir::eval::EvaluationCache::clear);
+}
+
 /// `version() -> { crate, git }` — the co-build stamp (P7 sets `NLIR_WASM_GIT`).
 #[wasm_bindgen]
 pub fn version() -> JsValue {
@@ -296,9 +316,17 @@ async fn evaluate_inner(
         }
         Mode::Llm => {
             let realiser = JsRealiser::from_js(realisers);
-            nlir::eval::evaluate_async(expr, &cfg, &mut ctx, Mode::Llm, &realiser)
-                .await
-                .map_err(|e| e.to_string())?
+            let cache = evaluation_cache();
+            nlir::eval::evaluate_async_with_cache(
+                expr,
+                &cfg,
+                &mut ctx,
+                Mode::Llm,
+                &realiser,
+                &cache,
+            )
+            .await
+            .map_err(|e| e.to_string())?
         }
     };
     Ok(value.render(&sep))
@@ -344,7 +372,8 @@ async fn step_inner(
         }
         Mode::Llm => {
             let realiser = JsRealiser::from_js(realisers);
-            nlir::eval::step_async(expr, &cfg, &mut ctx, Mode::Llm, &realiser)
+            let cache = evaluation_cache();
+            nlir::eval::step_async_with_cache(expr, &cfg, &mut ctx, Mode::Llm, &realiser, &cache)
                 .await
                 .map_err(|e| e.to_string())
         }
@@ -406,12 +435,14 @@ async fn step_stream_inner(
         }
         Mode::Llm => {
             let realiser = JsRealiser::from_js(realisers);
-            nlir::eval::step_trace_streaming_async(
+            let cache = evaluation_cache();
+            nlir::eval::step_trace_streaming_async_with_cache(
                 expr,
                 &cfg,
                 &mut ctx,
                 Mode::Llm,
                 &realiser,
+                &cache,
                 |s: &str| {
                     count.set(count.get() + 1);
                     let _ = on_step.call1(&JsValue::NULL, &JsValue::from_str(s));
@@ -600,4 +631,39 @@ async fn graph_frames_streaming_inner(
         }
     }
     Ok(count.get())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_session_cache_is_shared_and_explicitly_clearable() {
+        clear_evaluation_cache();
+        let cache = evaluation_cache();
+        assert!(cache.is_empty());
+
+        let cfg: nlir::config::Config = serde_json::from_value(serde_json::json!({
+            "operators": {
+                "cached": {
+                    "op": "~",
+                    "arity": 1,
+                    "fixity": "prefix",
+                    "template": "cached:%"
+                }
+            }
+        }))
+        .expect("test config");
+        let mut context = nlir::context::Context::empty(&cfg.context);
+        nlir::eval::evaluate_with_cache("~x", &cfg, &mut context, Mode::Det, &cache)
+            .expect("populate browser-session cache");
+        assert_eq!(
+            evaluation_cache().len(),
+            1,
+            "thread-local clones share entries"
+        );
+
+        clear_evaluation_cache();
+        assert!(cache.is_empty(), "JS clear hook clears every clone");
+    }
 }

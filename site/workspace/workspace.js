@@ -3,7 +3,7 @@
  * The evaluator here is a MOCK. When P1 (crates/nlir-wasm, bd-3fcf96) lands, swap
  * the `nlir` object below for the real wasm bindings — the agreed P1<->P2 contract:
  *
- *   import init, { evaluate, step, operators, parse, version } from './pkg/nlir_wasm.js';
+ *   import init, { evaluate, step, operators, parse, version, clearEvaluationCache } from './pkg/nlir_wasm.js';
  *   await init();
  *   evaluate(expr, configJson, contextJson, mode, realisers?) -> Promise<{ok, result|error}>
  *   step(expr, configJson, contextJson, mode, realisers?)     -> Promise<{ok, steps: string[]}>  // msm-0: Vec<String>, each = expr-at-step
@@ -139,6 +139,7 @@ const MOCK = {
   async graphFramesStreaming(e,c,x,md,r,onFrame){ const res = this.graphFrames(); (res.frames||[]).forEach(f => onFrame(f)); return { ok:true, count:(res.frames||[]).length, mock:true }; },
   version(){ return { crate:'mock', git:'—' }; },
   defaultConfigYaml(){ return DEFAULT_CONFIG; },
+  clearEvaluationCache(){},
 };
 
 // Real nlir-wasm loads when ./pkg/ is present (CI-built + embedded by P7); else MOCK.
@@ -163,6 +164,7 @@ let wasmReal = false;
       async graphFramesStreaming(e,c,x,md,r,onFrame){ return O(await m.graphFramesStreaming(e,c,x,md,r, f => onFrame(O(f)))); },
       version(){ return O(m.version()); },
       defaultConfigYaml(){ return m.defaultConfigYaml(); },
+      clearEvaluationCache(){ m.clearEvaluationCache(); },
     };
     wasmReal = true;
     const v = nlir.version() || {};
@@ -178,6 +180,11 @@ let wasmReal = false;
     console.info('nlir-wasm pkg/ not present — using mock evaluator.', err && err.message);
   }
 })();
+
+function clearEvalCache(){
+  try { if (typeof nlir.clearEvaluationCache === 'function') nlir.clearEvaluationCache(); }
+  catch { /* cache invalidation is an optimisation boundary, never a UI failure */ }
+}
 
 // ---- state ----
 const state = load();
@@ -468,7 +475,7 @@ async function livePreviewTick(){
   const llmGated = state.settings.mode !== 'det';
   el.hidden = false;
   el.innerHTML = `<span class="arrow">→</span><span class="lp-result">${esc(String(r.result))}</span>`
-    + (llmGated ? '<span class="lp-tag" title="llm ops realise only when you Run; this preview is the free det result-so-far">det preview · Run for llm</span>' : '')
+    + (llmGated ? '<span class="lp-tag" title="typing stays free/det; Run or Step explicitly reuses cached llm subcalls">det preview · Run/Step for cached llm</span>' : '')
     + (r.mock ? '<span class="lp-tag mock-tag">mock</span>' : '');
 }
 
@@ -559,13 +566,13 @@ function init(){
   $('animBtn').onclick = animate;
   $('vimToggle').onclick = () => setVim(!state.settings.vim);
   document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
-  $('applyCfg').onclick = () => { state.config = $('config').value; save(); renderOps(); $('cfgNote').textContent = 'Applied — operators + graphs reflect this config.'; };
-  $('resetCfg').onclick = () => { state.config = DEFAULT_CONFIG; $('config').value = DEFAULT_CONFIG; save(); renderOps(); $('cfgNote').textContent = 'Reset to default config.'; };
+  $('applyCfg').onclick = () => { clearEvalCache(); state.config = $('config').value; save(); renderOps(); $('cfgNote').textContent = 'Applied — operators + graphs reflect this config; LLM preview cache cleared.'; };
+  $('resetCfg').onclick = () => { clearEvalCache(); state.config = DEFAULT_CONFIG; $('config').value = DEFAULT_CONFIG; save(); renderOps(); $('cfgNote').textContent = 'Reset to default config; LLM preview cache cleared.'; };
   $('addMsg').onclick = () => { const t = $('newMsg').value.trim(); if(!t) return; state.messages.push({role:$('newRole').value, text:t}); $('newMsg').value=''; save(); renderMessages(); };
   $('addKv').onclick = () => { const k = $('newKey').value.trim(); if(!k) return; state.kv.push({k, v:$('newVal').value}); $('newKey').value=''; $('newVal').value=''; save(); renderKvs(); };
-  $('baseUrl').oninput = e => { state.settings.baseUrl = e.target.value; save(); };
-  $('apiKey').oninput = e => { state.settings.apiKey = e.target.value; save(); };
-  $('model').oninput = e => { state.settings.model = e.target.value; save(); };
+  $('baseUrl').oninput = e => { clearEvalCache(); state.settings.baseUrl = e.target.value; save(); };
+  $('apiKey').oninput = e => { clearEvalCache(); state.settings.apiKey = e.target.value; save(); };
+  $('model').oninput = e => { clearEvalCache(); state.settings.model = e.target.value; save(); };
   // Seed the live det preview for a restored expression (wasm may still be
   // loading — the mock covers det numerics until it swaps in, then loadWasm
   // reschedules a tick so the real evaluator's result-so-far appears).
