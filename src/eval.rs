@@ -368,6 +368,25 @@ pub struct Evaluator<'a> {
     /// non-negative `$N` resolves to `args[N]`, shadowing the run stack
     /// (argument-frame hygiene). Popped when the application returns.
     arg_frames: Vec<Vec<Value>>,
+    /// Total recursive evaluator depth, including recursion that happens while
+    /// evaluating a form's arguments before an arg frame exists (bd-14402e).
+    /// Shared through an owned cell so the guard resets even if an async eval
+    /// future is cancelled while awaiting a realiser.
+    eval_depth: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+/// RAII reset for [`Evaluator::eval_depth`]. Owning the `Rc` avoids borrowing a
+/// field of `Evaluator` while recursive evaluation needs `&mut self`; `Drop`
+/// also makes cancellation of an async evaluation depth-safe.
+struct EvalDepthGuard {
+    depth: std::rc::Rc<std::cell::Cell<usize>>,
+    previous: usize,
+}
+
+impl Drop for EvalDepthGuard {
+    fn drop(&mut self) {
+        self.depth.set(self.previous);
+    }
 }
 
 /// Maximum nested form-application depth before a graceful error (bd: cyclic
@@ -378,6 +397,17 @@ pub struct Evaluator<'a> {
 /// nested map/fold — is far shallower, so 100 leaves ample headroom while staying
 /// well under the stack-overflow threshold.
 const MAX_ARG_FRAME_DEPTH: usize = 100;
+
+/// Maximum total recursive evaluator depth. The arg-frame guard above does not
+/// cover recursion while a runtime-built [`Expr::FormApply`] evaluates its args,
+/// because the frame is pushed only after every arg returns. Keep this close to
+/// the proven form bound and above normal parsed/program composition depth.
+const MAX_EVAL_DEPTH: usize = 100;
+
+/// Belt-and-suspenders cap for do-N's runtime AST builder. Without this, a huge
+/// `{form}_N` can allocate an enormous nested FormApply tree before evaluation
+/// gets a chance to enforce [`MAX_EVAL_DEPTH`].
+const MAX_FORM_COMPOSE_COUNT: usize = 64;
 
 /// The outcome of a single small-step reduction ([`Evaluator::step_once`],
 /// bd-9c366d).
@@ -447,6 +477,7 @@ impl<'a> Evaluator<'a> {
             stack,
             realise_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
             arg_frames: Vec::new(),
+            eval_depth: std::rc::Rc::new(std::cell::Cell::new(0)),
         }
     }
 
@@ -587,6 +618,14 @@ impl<'a> Evaluator<'a> {
 
     /// Evaluate one expression node to a value (operand-first / bottom-up).
     fn eval(&mut self, expr: &Expr) -> Result<Value, EvalError> {
+        let _depth_guard = self.enter_eval_depth()?;
+        self.eval_inner(expr)
+    }
+
+    /// Recursive evaluator dispatch after [`Self::eval`] has installed the
+    /// all-path depth guard. Recursive calls intentionally go back through
+    /// `eval`, so runtime-built ASTs and parsed ASTs share one bound.
+    fn eval_inner(&mut self, expr: &Expr) -> Result<Value, EvalError> {
         match expr {
             Expr::Bare(text) => Ok(Value::string(text.clone())),
             Expr::Quoted {
@@ -1205,6 +1244,22 @@ impl<'a> Evaluator<'a> {
         result
     }
 
+    /// Enter one recursive evaluator call, covering every path — including the
+    /// pre-frame argument evaluation gap that [`MAX_ARG_FRAME_DEPTH`] cannot see.
+    fn enter_eval_depth(&self) -> Result<EvalDepthGuard, EvalError> {
+        let previous = self.eval_depth.get();
+        if previous >= MAX_EVAL_DEPTH {
+            return Err(EvalError::Unsupported(format!(
+                "evaluation nested too deep (>{MAX_EVAL_DEPTH}) — a runtime-built expression or cyclic form?"
+            )));
+        }
+        self.eval_depth.set(previous + 1);
+        Ok(EvalDepthGuard {
+            depth: std::rc::Rc::clone(&self.eval_depth),
+            previous,
+        })
+    }
+
     /// Push a positional argument frame for a form application, erroring when the
     /// nesting depth would exceed [`MAX_ARG_FRAME_DEPTH`] — a self-referential or
     /// cyclic form that would otherwise overflow the native stack and abort the
@@ -1542,6 +1597,11 @@ impl<'a> Evaluator<'a> {
             })?;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let n = n.trunc() as usize;
+        if n > MAX_FORM_COMPOSE_COUNT {
+            return Err(EvalError::Unsupported(format!(
+                "`{{form}}_N` repeat count {n} exceeds the safe maximum ({MAX_FORM_COMPOSE_COUNT})"
+            )));
+        }
         // Nest N applications of the form around the composed form's own `$0`.
         // Build the inner form node as `Expr::Quote` (renders `{…}`) rather than
         // an `Expr::Value` splice (renders `«…»`), so the COMPOSED form still
@@ -1568,6 +1628,20 @@ impl<'a> Evaluator<'a> {
     /// # Errors
     /// Propagates any [`EvalError`], including realiser failures.
     fn eval_async<'e, R: crate::realiser::Realiser>(
+        &'e mut self,
+        expr: &'e Expr,
+        realiser: &'e R,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, EvalError>> + 'e>> {
+        Box::pin(async move {
+            let _depth_guard = self.enter_eval_depth()?;
+            self.eval_async_inner(expr, realiser).await
+        })
+    }
+
+    /// Async evaluator dispatch after [`Self::eval_async`] installs its
+    /// cancellation-safe depth guard. Recursive calls route back through the
+    /// guarded entrypoint.
+    fn eval_async_inner<'e, R: crate::realiser::Realiser>(
         &'e mut self,
         expr: &'e Expr,
         realiser: &'e R,
@@ -3208,6 +3282,65 @@ operators:
         assert_eq!(det("g=({$0+1}_3);$g%5"), "8");
         // `_` on plain text still repeats text (not lifted).
         assert_eq!(det("x_3"), "x x x");
+    }
+
+    #[test]
+    fn runtime_built_form_apply_depth_is_bounded_sync_and_async() {
+        // bd-14402e: arg evaluation happens BEFORE a FormApply pushes its arg
+        // frame, so MAX_ARG_FRAME_DEPTH cannot see a runtime-built chain here.
+        // Build the AST directly to exercise that gap independently of do-N's
+        // belt-and-suspenders construction cap.
+        let identity = Expr::Quote(Box::new(Expr::StackIndex(0)));
+        let mut nested = Expr::StackIndex(0);
+        for _ in 0..=MAX_EVAL_DEPTH {
+            nested = Expr::FormApply {
+                form: Box::new(identity.clone()),
+                args: vec![nested],
+            };
+        }
+
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        let mut evaluator = Evaluator::new(&cfg, &mut ctx, Mode::Det);
+        let err = evaluator
+            .eval(&nested)
+            .expect_err("runtime-built arg recursion must error, not overflow");
+        assert!(
+            format!("{err}").contains("evaluation nested too deep"),
+            "expected the all-path eval-depth error, got: {err}"
+        );
+        assert_eq!(evaluator.eval_depth.get(), 0, "sync guard must reset");
+
+        use crate::realiser::{NativeRealiser, block_on_ready};
+        let mut ctx = Context::empty(&cfg.context);
+        let mut evaluator = Evaluator::new(&cfg, &mut ctx, Mode::Det);
+        let err = block_on_ready(evaluator.eval_async(&nested, &NativeRealiser))
+            .expect_err("async runtime-built arg recursion must error, not overflow");
+        assert!(
+            format!("{err}").contains("evaluation nested too deep"),
+            "expected the async eval-depth error, got: {err}"
+        );
+        assert_eq!(evaluator.eval_depth.get(), 0, "async guard must reset");
+    }
+
+    #[test]
+    fn do_n_times_caps_runtime_ast_construction() {
+        let cfg = config();
+        let ok_src = format!("({{$0+1}}_{MAX_FORM_COMPOSE_COUNT})%0");
+        let mut ctx = Context::empty(&cfg.context);
+        let out = evaluate(&ok_src, &cfg, &mut ctx, Mode::Det)
+            .expect("the maximum safe do-N count must still evaluate");
+        assert_eq!(out.render(&ctx.sep()), MAX_FORM_COMPOSE_COUNT.to_string());
+
+        let too_many = MAX_FORM_COMPOSE_COUNT + 1;
+        let bad_src = format!("({{$0+1}}_{too_many})%0");
+        let mut ctx = Context::empty(&cfg.context);
+        let err = evaluate(&bad_src, &cfg, &mut ctx, Mode::Det)
+            .expect_err("do-N must reject an oversized runtime AST before building it");
+        assert!(
+            format!("{err}").contains("exceeds the safe maximum"),
+            "expected the construction-cap error, got: {err}"
+        );
     }
 
     #[test]

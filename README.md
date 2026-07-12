@@ -323,7 +323,10 @@ nlir -e '({$0+1}_3)%5'        # → 8           (do-N-times: compose a form N ti
 The argument frame is **hygienic** — a form's `$0` is its argument, not whatever
 is on the run stack (`9;{$0}%7` → `7`). Application binds tighter than `,` (pass a
 tuple with `%(a,b)`) and tighter than `_` (parenthesise the compose: `({form}_N)%x`).
-A **macro** is just a form whose body is a transform, applied to text, so the same
+Do-N is bounded to 64 applications: larger runtime-built compositions fail cleanly
+before allocating a deep AST, and an independent evaluator-depth guard protects every
+recursive path. A **macro** is just a form whose body is a transform, applied to text,
+so the same
 quote+apply machinery gives you reusable moves. Together — quoted forms,
 application, named lambdas/macros, and do-N-times — these are the programmable
 layer map/fold over forms builds on.

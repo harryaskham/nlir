@@ -97,6 +97,10 @@ On a **named** form, wrap the read in parens — `($f)_N`, not `$f_N` (see
 inc={$0+1};(($inc)_10)%0              → 10     # count to ten
 ```
 
+Do-N is intentionally capped at **64** applications. A larger count errors before
+building the nested runtime AST; a separate all-path evaluator-depth guard also catches
+deep runtime-built form arguments that did not come from do-N.
+
 ---
 
 ## 4. Flagship programs

@@ -185,6 +185,11 @@ transformations differ by mode.
 - **Named macros** — assign a form to a name and call it by name (forms persist in
   context): `steelman={~(>@$0)}; $steelman%'we should rewrite it in Rust'`. The whole
   idiom phrasebook becomes a named, reusable library.
+- **Do-N composition `{form}_N`** — builds a form that applies `form` repeatedly,
+  then `%` runs it: `({$0+1}_3)%5` → `8`. Runtime construction is capped at
+  **64 applications**; larger counts error before allocating a deep AST. Evaluation
+  independently bounds all recursive paths, including runtime-built form arguments,
+  so malformed/generated trees fail cleanly instead of overflowing the native stack.
 - Building/applying forms is deterministic (structural); only the realisation of the
   *expanded* body hits the model.
 

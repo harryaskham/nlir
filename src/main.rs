@@ -485,7 +485,7 @@ fn run_help(cli: &Cli) -> Result<(), i32> {
         ),
         (
             "({form}_N)",
-            "do-N-times: compose a form N times, then apply — ({$0+1}_3)%5 → 8 (add 1 thrice). Parens needed: % binds tighter than _.",
+            "do-N-times: compose a form N times (0..64), then apply — ({$0+1}_3)%5 → 8. Parens needed: % binds tighter than _; larger runtime ASTs are rejected.",
         ),
         (
             "\" \" / ' '",
