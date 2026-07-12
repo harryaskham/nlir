@@ -73,7 +73,7 @@ Its sibling counts instead of sums — `~>` judges each line, the exact `+` tota
 
 ![fuzzy-count — fuzzy filter then exact count](showcase/nlir-fuzzy-count.png)
 
-`{$0+$1}⊘({$0~>'a complaint'}↦['love it','it crashed on save','billing charged me twice'])` → `2`.
+`{$0+$1}⊘({$0~>'a complaint'}<$>['love it','it crashed on save','billing charged me twice'])` → `2`.
 grep can't judge tone; a raw model can't be trusted to count. Together the two are what
 neither a pipe filter nor a prompt does alone.
 
@@ -102,11 +102,30 @@ And the sharpest dogfood — the golf judge is *itself* nlir. `=>` regenerates a
 The honest gate is mutual — `$if%((sol)~>T, T~>(sol), 'false')` — so a too-vague output
 can't cheat. nlir grading nlir, no exact-match needed.
 
+But that famous 1984 target is a **judge demonstration, not a compression metric**:
+pretraining already contains the sentence. A short lookup key measures the target's fame, not
+how much information nlir carries. The honest comparison separates four regimes:
+
+![honest compression — recall versus derivation, novel facts, and instruction-density](showcase/nlir-honest-ratio.png)
+
+- **Recall** can look like 20–70× because the model supplies memorised facts. Reject that ratio.
+- **Derivation** from a novel seed is typically about 7–10×: the seed carries the facts and the
+  model adds form. Count it only when a semantic `~>` fact-survival check passes.
+- **Novel dense facts** approach 1×. Names, numbers, and random bits still have to be encoded.
+- **Instruction-density is the honest headline:** `{(@~$0)?}` is 9 bytes encoding the same
+  transform as “rephrase this professionally and turn it into a single clarifying question”
+  (74 bytes) — **8.2×**, applied to live input the model cannot have memorised.
+
+Run the proof with [`examples/move-msm0-honest-golf.sh`](examples/move-msm0-honest-golf.sh).
+It computes the 8.2× ratio offline, then uses nlir itself to semantically check that a novel
+fact survives expansion — avoiding false failures from harmless formatting changes such as
+`1340` → `1,340`.
+
 And parts compose into a *pyramid* — name a thought-unit once, reuse it in a train:
 
 ![reusable part → train — a named fuzzy part drives a full decision train](showcase/nlir-reusable-part.png)
 
-`urgent={$0~>'urgent'}; $if%($fold%({$0+$1},$urgent↦['server is down','lunch plans','payments failing'])>=2,'page the on-call engineer','queue for morning')` → `page the on-call engineer`
+`urgent={$0~>'urgent'}; $if%($fold%({$0+$1},$urgent<$>['server is down','lunch plans','payments failing'])>=2,'page the on-call engineer','queue for morning')` → `page the on-call engineer`
 live (2 urgent) but `queue for morning` in det. One reusable part (`urgent`) drives
 map → count → threshold → route — build a part once, and every later train is cheaper.
 

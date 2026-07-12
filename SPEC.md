@@ -237,10 +237,12 @@ transformations differ by mode.
 
 Deterministic, model-free list combinators (bd-14af74): each takes a **form** as its
 first argument and applies it structurally — the form's body only touches the model if
-it *itself* contains an llm op. `$map`/`$fold` also have glyph aliases (`↦`/`⊘`, see the
-operator table); `$scan` and `$filter` are builtin-only.
+it *itself* contains an llm op. `$map` has a keyboard-typable alias (`<$>`) and a
+visual alias (`↦`); `$fold` has `⊘` (see the operator table). `$scan` and `$filter`
+are builtin-only. These aliases are ordinary `config.yaml` operators using `builtin:` —
+the engine does not hardcode their spellings.
 
-- **`$map%(f, list)`** — apply `f` to each element: `$map%({$0*$0},[1,2,3])` → `[1,4,9]`. Alias `↦`.
+- **`$map%(f, list)`** — apply `f` to each element: `$map%({$0*$0},[1,2,3])` → `[1,4,9]`. Aliases `<$>` and `↦`: `{$0*$0}<$>[1,2,3]`.
 - **`$fold%(f, list)`** — reduce `list` with the binary form `f` (`$0` = accumulator, `$1` = element), seeded by the first element: `$fold%({$0+$1},[1,2,3,4])` → `10`. Alias `⊘`. Pairs with the numeric range for exact aggregates: `$fold%({$0+$1},1..100)` → `5050` (Gauss).
 - **`$scan%(f, list)`** — like `$fold` but returns every intermediate accumulator (the running reduction): `$scan%({$0+$1},[1,2,3,4])` → `[1,3,6,10]` (running sums); `$scan%({$0*$1},1..5)` → running factorials `[1,2,6,24,120]`.
 - **`$filter%(f, list)`** — keep the elements for which `f` is truthy: `$filter%({$0>=5},[3,7,2,9])` → `[7,9]`; with a predicate builtin, `$filter%({$gt%($0,$m)},1..10)` selects those above a bound `$m`. Composes the whole trio: `$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3,0,4])))` → `30`.
@@ -433,11 +435,12 @@ semantics, mirrored by `nlir help` and the
 | `<=` | at-most | infix · 2 | True when the first operand is numerically ≤ the second: `3<=5` → true. |
 | `>=` | at-least | infix · 2 | True when the first operand is numerically ≥ the second: `5>=3` → true. |
 
-**Higher-order (list) operators** (deterministic; glyph aliases for the `$map` / `$fold` builtins):
+**Higher-order (list) operators** (deterministic; configured aliases for the `$map` / `$fold` builtins):
 
 | op | name | fixity · arity | what it does |
 |---|---|---|---|
-| `↦` | mapop | infix · 2 | Apply the left form to each item of the right list: `{$0*$0}↦[1,2,3]` → `[1,4,9]`. Alias for `$map%`. |
+| `<$>` | mapascii | infix · 2 | Keyboard-typable map: apply the left form to each item of the right list: `{$0*$0}<$>[1,2,3]` → `[1,4,9]`. Alias for `$map%`; `↦` is its visual twin. |
+| `↦` | mapop | infix · 2 | Visual map alias with the same configured `builtin: map` semantics as `<$>`. |
 | `⊘` | foldop | infix · 2 | Reduce the right list with the left binary form: `{$0+$1}⊘[1,2,3,4]` → `10`. Alias for `$fold%`. |
 | `∪` | setunion | infix · 2 | Set union: `a ∪ b` — order-preserving, deduped. Deterministic alias for `$union%` (binary case). Dict operands → their keys. |
 | `∩` | setinter | infix · 2 | Set intersection: `a ∩ b` — items of `a` also in `b` (deduped, a-order). Alias for `$inter%`. Binds tighter than `∪`/`∖`. |
@@ -478,9 +481,13 @@ while det mode applies the literal template (`!!a` → "not not a").
 ## Grammar & parsing
 
 **Tokens:** bare literal `[a-zA-Z0-9]+`; numeric literal; quoted literal
-(`'…'`/`"…"`); operator (longest configured `op:`, so `**` before `*`); builtin
-sigils `; $ ^ = [ ] , ( )` `` ` `` (with `$name`/`$N`, `^`/`^_`/`^*`/`^/`, `LHS=`
-sub-forms); escapes `\x`.
+(`'…'`/`"…"`); operator (longest configured `op:`, so `**` before `*` and `<$>`
+as one token); builtin sigils `; $ ^ = [ ] , ( )` `` ` `` (with `$name`/`$N`,
+`^`/`^_`/`^*`/`^/`, `LHS=` sub-forms); escapes `\x`. A builtin sigil may appear
+later in a configured punctuation operator — `<$>` is config, not a lexer special
+case. At a leading `$`, configured punctuation operators such as `$>`/`$(` longest-match
+before the fallback; `$name`, `$_key`, `$N`, `$-N`, and bare `$` remain reserved
+stack/context forms and cannot be shadowed by config.
 
 **Operator attributes (config):** `op`, `arity` (`1`,`2`,…,`>0`), `fixity`
 (`prefix`/`postfix`/`infix`/`mixfix`), `priority` (higher binds tighter,
@@ -491,7 +498,7 @@ default `9`), `assoc` (`left`/`right`, default `left`; only meaningful for
 (`# ! ¬ √`) binds above **all binary**; binary follows normal math — `**` > `* /` >
 `+ -` — then string `& |`; the postfix `?` is the deliberate loose exception
 (binds everything to its left); `=` is loosest. Concretely: `^` 20 · `. ..` 16 · `# ! ¬ √` 14 ·
-`** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `↦ ⊘` 8 · `∩` 7 · `∪ ∖` 6 · `∈ == != <= >=` 5 · `∧` 4 · `∨` 3 · `?` 1 · `=` 0
+`** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `<$> ↦ ⊘` 8 · `∩` 7 · `∪ ∖` 6 · `∈ == != <= >=` 5 · `∧` 4 · `∨` 3 · `?` 1 · `=` 0
 (`nlir help` lists the exhaustive per-op priority; this prose summarises the tiers). prefix takes one right
 operand; postfix takes leftward to its priority; variadic flattens; mixfix unifies
 infix/list/nullary; ties → prefix > infix > postfix. **Associativity:** infix

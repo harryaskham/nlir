@@ -17,10 +17,13 @@ Requires: chromium (headless); ImageMagick montage (optional) for a contact shee
 from __future__ import annotations
 import argparse
 import html
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # --- simple cards: expr -> output (det exact; llm = real claude-sonnet-5) ------
@@ -74,13 +77,13 @@ SIMPLE = [
          cap="map then fold — sum of squares, 1+4+9. higher-order forms compose into real programs"),
     dict(name="fuzzy-sum", expr="{$0+$1}⊘(['3 apples','5 oranges','2 pears'])", pill="llm+det · fuzzy-extract → precise sum", out="10",
          cap="the signature mix — the model reads each fuzzily-worded count (3 apples → 3), the EXACT + sums them to 10. a raw prompt can't be trusted to add; no unix tool reads the numbers. det+fuzzy in one pipe stage: cat items | nlir -e '{$0+$1}⊘($_stdin//NL)'"),
-    dict(name="fuzzy-count", expr="{$0+$1}⊘({$0~>'a complaint'}↦['love it','it crashed on save','billing charged me twice'])", pill="llm+det · fuzzy filter → precise count", out="2",
+    dict(name="fuzzy-count", expr="{$0+$1}⊘({$0~>'a complaint'}<$>['love it','it crashed on save','billing charged me twice'])", pill="llm+det · fuzzy filter → precise count", out="2",
          cap="fuzzy-sum's sibling — ~> judges each line (is it a complaint?), the exact + counts the trues → 2. grep can't judge tone; a raw model can't be trusted to count. det+fuzzy, one pipe stage"),
     dict(name="fuzzy-decide", expr="$if%('the server keeps crashing'~>'urgent','escalate','queue')", pill="llm · fuzzy decision", out="escalate",
          cap="routing on a fuzzy test — $if branches on ~>. the SAME expression prints 'queue' in det (keyword-match: no literal 'urgent') but 'escalate' in llm (crashing IS urgent). the gap between them is exactly what ~> buys — why nlir, not grep"),
     dict(name="self-judge", expr="(=>'first line of 1984')~>'It was a bright cold day in April, and the clocks were striking thirteen'", pill="llm · nlir grades nlir", out="true",
          cap="the sharpest dogfood — the golf judge IS nlir. => regenerates the target from a terse clue; ~> scores 'does it MEAN the same?' → true. the honest gate is mutual (both ways: $if%(A~>B, B~>A,'false')) so a too-vague answer can't cheat. no exact-match needed"),
-    dict(name="reusable-part", expr="urgent={$0~>'urgent'}; $if%($fold%({$0+$1},$urgent↦['server is down','lunch plans','payments failing'])>=2,'page the on-call engineer','queue for morning')", pill="llm+det · reusable part → train", out="page the on-call engineer",
+    dict(name="reusable-part", expr="urgent={$0~>'urgent'}; $if%($fold%({$0+$1},$urgent<$>['server is down','lunch plans','payments failing'])>=2,'page the on-call engineer','queue for morning')", pill="llm+det · reusable part → train", out="page the on-call engineer",
          cap="the pyramid — name a thought-unit once, reuse it in a train. urgent={$0~>'urgent'} is a reusable fuzzy part; the train maps it → counts → thresholds → routes: 'page the on-call engineer' live (2 urgent) vs 'queue for morning' in det. one part, a whole decision train"),
     dict(name="self-verify", expr="sat={$0~>$1}; brief={>@~$0}; $sat%($brief%'mobile onboarding spike next sprint','a plan to run a mobile onboarding feasibility spike next sprint')", pill="llm · nlir generates + checks itself", out="true",
          cap="the pyramid's peak — nlir GENERATES a thought then CHECKS its own work. brief={>@~$0} expands a 4-word seed into a full plan; sat={$0~>$1} verifies the generation covers the intent (one-directional — a thorough answer passes; mutual equivalence is golf's job) → true. swap the seed and sat catches it → false. two library parts, a self-verifying train"),
@@ -114,8 +117,8 @@ SIMPLE = [
     dict(name="glyph-steelman", expr="⇑'we should just merge it now'", pill="glyph-op · your macro as one symbol", config_op=True,
          out="The recommendation is to proceed with the merge now, as all conditions are met and further delay would add risk.",
          cap="define ⇑ = {~(>@$0)} once — the whole steelman chain (formalise→expand→distil) becomes ONE symbol you own. your saved recipes become verbs, not re-typed prompts"),
-    dict(name="glyph-map", expr="{$0*$0}↦[1,2,3]", pill="glyph-op · bind a glyph to map", config_op=True, out="1\n4\n9",
-         cap="map as a glyph — bind ↦ = map in config, then {form}↦list maps the form over each item: {$0*$0}↦[1,2,3] = [1,4,9]. the higher-order engine as your own symbol"),
+    dict(name="glyph-map", expr="{$0*$0}<$>[1,2,3]", pill="configured op · typable map", config_op=True, out="1\n4\n9",
+         cap="map as config — bind <$> to builtin: map, then form <$> list maps over every item. the engine does not hardcode the spelling; ↦ remains the same configured builtin's visual twin"),
     dict(name="subject", expr="#^-1", pill="llm · reads your chat",
          out="the primary subject of the last assistant message",
          cap="# subject · ^-1 last message — one glance at the conversation"),
@@ -668,6 +671,21 @@ GRID = [
              ("python worker.py 2>&1 | nlir -e '~$_stdin'   → the root cause",
               "A batch-processing job crashed because a required \"weight\" key was missing from the payload during transformation."),
          ]),
+    dict(name="honest-ratio", expr="{(@~$0)?}%LIVE_INPUT", pill="honest compression · zero recall",
+         claim="what does nlir compress when the input was never in the model's pretraining?",
+         cap="recall is not compression. the honest headline is instruction-density over live input: "
+             "74 bytes of English instruction become 9 bytes of reusable nlir (8.2×); semantic "
+             "self-checking verifies that novel facts survive",
+         cols=2, height=700, cells=[
+             ("RECALL · reject the ratio", "A famous target can show 20–70× only because pretraining supplies "
+              "the facts. That measures fame, not nlir."),
+             ("DERIVATION · about 7–10×", "A novel seed carries the facts; the model adds derivable form. Count "
+              "the ratio only when a semantic fact-survival check passes."),
+             ("NOVEL DENSE FACTS · about 1×", "Names, numbers, and random specifics must still be encoded. "
+              "Shannon wins: genuinely novel bits do not disappear."),
+             ("INSTRUCTION-DENSITY · 8.2× ★", "{(@~$0)?} is 9 bytes versus a 74-byte English instruction, "
+              "applied to live input the model cannot have memorised."),
+         ]),
     dict(name="handoff", expr="k=@~0^*-1;[$k, ^_-1, ~$k]", pill="llm · hand off a whole thread",
          claim="a 5-turn incident thread — 500s after the 2pm deploy → 2026-expiry bug → hotfix + 'brief the VP'",
          cap="the handoff dossier — bind a formal brief, then emit it + what's still open + its own headline (msm-0 SELECT ∘ aur-0's self-reflection)",
@@ -849,7 +867,7 @@ GRID = [
 # --- lightweight nlir syntax highlighter --------------------------------------
 STRING_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
 NUM_RE = re.compile(r"\b\d+\b")
-OPS = ["**", "^-", "^*", "^_", "^/", "#", "!", "&", "|", "?", "@", ":", "~>?", "~>", "~",
+OPS = ["<$>", "**", "^-", "^*", "^_", "^/", "#", "!", "&", "|", "?", "@", ":", "~>?", "~>", "~",
        ">", "<", "+", "-", "*", "/", "^", ";", "=", "$", "[", "]", "(", ")", ",", "%"]
 
 
@@ -1013,10 +1031,49 @@ SCALE = 1.0
 
 
 def shot(chrome, htmlp, pngp, w, h):
+    """Capture one card without trusting headless Chrome to exit after writing it.
+
+    Chrome 150 on macOS can emit the complete PNG and then hang in allocator
+    teardown. Poll the output to completion, terminate the isolated process group,
+    and keep the bounded renderer deterministic on both the normal and hung paths.
+    """
     url = f"file://{Path(htmlp).resolve()}"
-    subprocess.run([chrome, "--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
-                    f"--force-device-scale-factor={SCALE}", f"--window-size={w},{h}",
-                    f"--screenshot={pngp}", url], check=True, capture_output=True)
+    png = Path(pngp)
+    png.unlink(missing_ok=True)
+    cmd = [chrome, "--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
+           f"--force-device-scale-factor={SCALE}", f"--window-size={w},{h}",
+           f"--screenshot={png}", url]
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
+    deadline = time.monotonic() + 60
+    last_size = -1
+    stable_polls = 0
+    while time.monotonic() < deadline:
+        size = png.stat().st_size if png.exists() else -1
+        stable_polls = stable_polls + 1 if size > 0 and size == last_size else 0
+        last_size = size
+        if proc.poll() is not None or stable_polls >= 8:
+            break
+        time.sleep(0.1)
+
+    if proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait(timeout=3)
+
+    if not png.exists() or png.stat().st_size == 0:
+        raise subprocess.TimeoutExpired(cmd, 60)
+    if proc.returncode not in (None, 0, -signal.SIGTERM, -signal.SIGKILL):
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
 
 
 def render_simple(card, outdir, chrome):
@@ -1032,7 +1089,7 @@ def render_simple(card, outdir, chrome):
 def render_grid(card, outdir, chrome):
     cells = card["cells"]
     rows = (len(cells) + card["cols"] - 1) // card["cols"]
-    h = 300 + rows * 150
+    h = card.get("height", 300 + rows * 150)
     tsz = 22 if max(len(t) for _, t in cells) <= 130 else 19
     cellhtml = "".join(
         f'<div class="cell"><div class="lbl">{html.escape(lbl)}</div>'

@@ -110,8 +110,8 @@ whole ask, my amendment, my caveat] into one formal reply.
 | plain recap | `:~0^*-1` | whole thread → plain, jargon-free recap | msm-0 |
 | tone knob | `[@~0^*-1, :~0^*-1, ~0^*-1]` | one thread, three registers (formal/plain/terse) | msm-0 |
 | the handoff dossier | `k=@~0^*-1;[$k, ^_-1, ~$k]` | hand off a thread: brief + what's open + a headline | msm-0 |
-| extract a column | `{$0.FIELD}↦[RECORDS]` | pull one field out of every record | msm-0 |
-| sum a column | `{$0+$1}⊘({$0.FIELD}↦[RECORDS])` | total a field across a list of records | msm-0 |
+| extract a column | `{$0.FIELD}<$>[RECORDS]` | pull one field out of every record | msm-0 |
+| sum a column | `{$0+$1}⊘({$0.FIELD}<$>[RECORDS])` | total a field across a list of records | msm-0 |
 | addressed pick | `DESCRIBED_LIST..'DESCRIPTOR'` | grab the item a description points to (`..'the largest'`) | msm-0 |
 
 (Full slot rules + more moves per lane below and in each `CATALOG-<lane>.md`.)
@@ -134,10 +134,10 @@ List algebra (aur-0/aur-1 verified): `op[list]` = the op applied to the list *re
 a structural map (in DET, `!['a','b','c']` prepends "not " ONCE to the whole multi-line render, not
 per item). In practice only
 `:[list]` reliably maps per-item (the changelog); `@[list]`/`>[list]` are non-deterministic (bloom-last
-or weave); reductive `#`/`~`/`<[list]` FOLD to one; `&[list]` WEAVES structurally. The proposed MAP
-`↦` would be the true structural per-item map. (msm-0: message RANGES are the SAME algebra — `op^*`
-is likewise op-on-rendered-text: `:^*` maps in practice, `@^*` weaves, `~^*` folds; so `↦` would also
-enable per-message ops like `@↦^_` = formalise EACH of their turns.)
+or weave); reductive `#`/`~`/`<[list]` FOLD to one; `&[list]` WEAVES structurally. The map aliases
+`<$>` (typable) and `↦` (visual) are the true structural per-item map. (msm-0: message RANGES are the
+SAME algebra — `op^*` is likewise op-on-rendered-text: `:^*` maps in practice, `@^*` weaves,
+`~^*` folds; use `{@$0}<$>^_` to formalise EACH of their turns structurally.)
 → `examples/CATALOG-aur2.md` · `examples/move-aur2-*.sh` · cards `nlir-composer-reply`, `nlir-empathetic-redirect`
 
 ### REPLY / AMEND — answer a live suggestion (aur-1)
@@ -197,8 +197,9 @@ SELECT chooses the words, the tone knob chooses the register, the composer choos
 
 `map` and `fold` turn nlir from moves into **small programs**. A form `{…}` is the
 step; `$map%(form, list)` runs it over each item, `$fold%(form, list)` reduces the
-list with it — and the glyphs **↦** / **⊘** are terser aliases (`{$0*$0}↦[1,2,3]` = map,
-`{$0+$1}⊘[1,2,3]` = fold). The **structure is deterministic** — the iteration and the reduction are
+list with it. **`<$>`** is map's keyboard-typable alias, **`↦`** its visual twin, and **`⊘`**
+aliases fold (`{$0*$0}<$>[1,2,3]` = map, `{$0+$1}⊘[1,2,3]` = fold). All are ordinary
+configured `builtin:` operators, not hardcoded engine sigils. The **structure is deterministic** — the iteration and the reduction are
 pure — while the **step is where det or llm plugs in**. That split is the whole point:
 exact scaffolding, fuzzy steps. (A list result renders as its elements, one per line —
 not bracketed — so it stays a first-class operand and `fold∘map` pipelines compose.)
@@ -260,8 +261,8 @@ Out-of-range or a missing key is a **loud error**, never a silent empty.
 
 **Records compose with map & fold — the payoff:**
 
-    {$0.name}↦[{name=alice,age=30},{name=bob,age=25}]     → alice, bob   (extract a column)
-    {$0+$1}⊘({$0.age}↦[{name=a,age=30},{name=b,age=25}])  → 55           (sum a field across records)
+    {$0.name}<$>[{name=alice,age=30},{name=bob,age=25}]     → alice, bob   (extract a column)
+    {$0+$1}⊘({$0.age}<$>[{name=a,age=30},{name=b,age=25}])  → 55           (sum a field across records)
     ?%({mode=fast}.mode, go, stop)                         → go           (branch on a record field)
 
 Pull a field out of every record (a `map` of `.`), then `fold` the column to one answer — "sum
@@ -323,7 +324,7 @@ SELECT ∘ GENERATE ∘ COMPOSE: pick the input, `=>` writes the pieces, `@&[…
 
 The move a plain LLM prompt can't clone: nlir sits **mid-pipe** and **mixes exact
 computation with fuzzy judgment** in one expression. Piped stdin is `$_stdin`, `//`
-splits it to a list of lines, `↦`/`⊘` map/fold with det OR llm steps. sgu24-app's test:
+splits it to a list of lines, `<$>`/`⊘` map/fold with det OR llm steps (`↦` is map's visual twin). sgu24-app's test:
 if you can't say why it isn't just one LLM prompt, it's a weak example — these pass it
 because a raw model can't do reliable exact arithmetic and no single unix tool can do
 the fuzzy half.
@@ -331,16 +332,16 @@ the fuzzy half.
     printf '3 apples\n5 oranges\n2 pears\n' | nlir -e '{$0+$1}⊘($_stdin//"\n")'   → 10
       fuzzy-sum: the model reads each line's count, the EXACT `+` sums — a prompt can't be trusted to add.
 
-    logs | nlir -e '?%({$0+$1}⊘({$contains%($0,"ERROR")}↦($_stdin//"\n"))>=2,"page on-call","all clear")'
+    logs | nlir -e '?%({$0+$1}⊘({$contains%($0,"ERROR")}<$>($_stdin//"\n"))>=2,"page on-call","all clear")'
       count-and-branch (DET, offline): grep + wc + if collapsed into one pipe stage.
 
-    reviews | nlir -e '{$0+$1}⊘({$0~>"a complaint"}↦($_stdin//"\n"))'   → 2
+    reviews | nlir -e '{$0+$1}⊘({$0~>"a complaint"}<$>($_stdin//"\n"))'   → 2
       semantic grep → count: fuzzy per-line judgment, then an EXACT count. grep can't judge; a prompt can't count.
 
     git log --oneline | nlir -e '#($_stdin//"\n")'
       semantic awk: fold a list of commits to their shared subject — awk with understanding.
 
-`$_stdin` · `//` split · `↦`/`⊘` map/fold · `~>` implication · `#` subject — det scaffolding,
+`$_stdin` · `//` split · `<$>`/`⊘` map/fold (`↦` visual map) · `~>` implication · `#` subject — det scaffolding,
 fuzzy steps, sitting between grep and awk. Run them live: `bash examples/move-msm0-pipe.sh`.
 
 ---

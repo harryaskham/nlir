@@ -3,10 +3,11 @@
 #
 # The signature nlir can't be replaced by "just ask an LLM": it sits MID-PIPE and
 # MIXES exact computation with fuzzy judgment in one expression. stdin arrives as
-# $_stdin, `//` splits it to a list of lines, `↦`/`⊘` map/fold with det OR llm steps.
+# $_stdin, `//` splits it to a list of lines, `<$>`/`⊘` map/fold with det OR llm steps
+# (`↦` remains map's visual alias; both are configured `builtin: map` operators).
 #
-#   {$0+$1}⊘($_stdin//"\n")            fold: LLM reads each line's number, `+` sums EXACTLY
-#   {$contains%($0,"X")}↦(…) then ⊘    map a per-line test, then a det count/branch
+#   {$0+$1}⊘($_stdin//"\n")             fold: LLM reads each line's number, `+` sums EXACTLY
+#   {$contains%($0,"X")}<$>(…) then ⊘   map a per-line test, then a det count/branch
 #   #($_stdin//"\n")                   fold to the ONE theme (semantic awk)
 #
 # Each example fails sgu24-app's test — "why isn't this just one LLM prompt?" — because
@@ -34,7 +35,7 @@ runpipe() {
 say "COUNT-AND-BRANCH (DET, offline) — page if >=2 lines mention ERROR"
 why "det count over a per-line test -> threshold -> branch: grep+wc+if in one pipe stage"
 runpipe "$(printf 'boot ok\nERROR disk full\nwarn cpu\nERROR oom killed\n')" det \
-  '?%({$0+$1}⊘({$contains%($0,"ERROR")}↦($_stdin//"\n"))>=2,"PAGE on-call","all clear")'
+  '?%({$0+$1}⊘({$contains%($0,"ERROR")}<$>($_stdin//"\n"))>=2,"PAGE on-call","all clear")'
 
 say "FUZZY-SUM (LLM) — sum fuzzily-worded amounts, exactly"
 why "the model extracts each count; the EXACT + sums it — a raw prompt can't be trusted to add"
@@ -43,7 +44,7 @@ runpipe "$(printf '3 apples\n5 oranges\n2 pears\n')" llm '{$0+$1}⊘($_stdin//"\
 say "SEMANTIC GREP -> COUNT (LLM) — how many reviews are complaints"
 why "fuzzy per-line judgment, then an EXACT count — grep can't judge, a prompt can't count reliably"
 runpipe "$(printf 'love the new ui\nit keeps crashing on save\nfast support\nbilling charged me twice\n')" llm \
-  '{$0+$1}⊘({$0~>"a complaint"}↦($_stdin//"\n"))'
+  '{$0+$1}⊘({$0~>"a complaint"}<$>($_stdin//"\n"))'
 
 say "SEMANTIC AWK (LLM) — the one theme across recent commits"
 why "fold a list of commits to their shared subject: awk with understanding"

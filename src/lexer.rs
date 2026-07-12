@@ -301,9 +301,22 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
                 }
             }
             '$' => {
-                let (tok, next) = lex_dollar(&chars, i)?;
-                tokens.push(tok);
-                i = next;
+                // A configured punctuation operator may start with `$` (`$>`,
+                // `$(`, …): longest-match it before falling back to the engine's
+                // actual stack/context forms. Config validation reserves only
+                // `$name`, `$_key`, `$N`, and `$-N`-shaped prefixes, so no
+                // configured op can steal those reads (bd-80e76f).
+                match match_operator(&chars, i, op_sigils) {
+                    Some((op, next)) if op.chars().count() > 1 => {
+                        tokens.push(Token::Operator(op));
+                        i = next;
+                    }
+                    _ => {
+                        let (tok, next) = lex_dollar(&chars, i)?;
+                        tokens.push(tok);
+                        i = next;
+                    }
+                }
             }
             '^' => {
                 let (tok, next) = lex_caret(&chars, i);
@@ -876,6 +889,41 @@ mod tests {
                 Token::Operator(">".to_owned()),
                 Token::Bare("foo".to_owned()),
             ]
+        );
+    }
+
+    #[test]
+    fn configured_punctuation_operators_disambiguate_from_dollar_reads() {
+        // bd-80e76f: only the actual `$name` / `$N` / bare-$ shapes are special.
+        // Configured punctuation operators longest-match generically; the engine
+        // does not hardcode `<$>`, `$>`, or their meanings.
+        let ops = ops(&["<$>", "$>", "$(", "<", ">"]);
+        assert_eq!(
+            tokenize("f<$>xs", &ops).unwrap(),
+            vec![
+                Token::Bare("f".to_owned()),
+                Token::Operator("<$>".to_owned()),
+                Token::Bare("xs".to_owned()),
+            ]
+        );
+        assert_eq!(
+            tokenize("$>xs", &ops).unwrap(),
+            vec![
+                Token::Operator("$>".to_owned()),
+                Token::Bare("xs".to_owned()),
+            ]
+        );
+        assert_eq!(
+            tokenize("$(x", &ops).unwrap(),
+            vec![
+                Token::Operator("$(".to_owned()),
+                Token::Bare("x".to_owned())
+            ]
+        );
+        assert_eq!(tokenize("$0", &ops).unwrap(), vec![Token::StackIndex(0)]);
+        assert_eq!(
+            tokenize("$name", &ops).unwrap(),
+            vec![Token::ContextRead("name".to_owned())]
         );
     }
 

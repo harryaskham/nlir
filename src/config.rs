@@ -1070,8 +1070,11 @@ fn interpolate_str(input: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Stri
 // validation (bd-cef403)
 // ---------------------------------------------------------------------------
 
-/// Builtin sigils reserved by the engine (SPEC §Builtins). A configured operator
-/// `op` may not contain any of these, or it would shadow a builtin.
+/// Builtin sigils reserved by the engine (SPEC §Builtins). Most may not start a
+/// configured operator because the lexer dispatches them specially. Two generic
+/// longest-match exceptions exist: multi-character `=` operators, and `$` followed
+/// by punctuation that cannot begin `$name` / `$_key` / `$N` / `$-N`. Reserved
+/// sigils remain valid later in an operator (`<$>` is an ordinary config alias).
 pub const RESERVED_SIGILS: &[char] = &[
     ';', '$', '^', '=', '[', ']', ',', '(', ')', '`', '"', '\'', '\\',
 ];
@@ -1171,16 +1174,20 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
         if op.op.is_empty() {
             errs.push(ValidationError::new(&loc, "`op` must not be empty"));
         } else {
-            // The lexer dispatches on the FIRST char: a hardcoded builtin sigil is
-            // intercepted before operator longest-match, so an op that STARTS with
-            // one cannot lex and is rejected — EXCEPT a multi-char op starting with
-            // `=`, which the lexer longest-matches (`==`) while keeping a lone `=`
-            // as assignment (msm-0 @3b9a291). A reserved char in a LATER position
-            // (`>=`, `<=`, `!=` extending `>` `<` `!`) is fine: longest-match
-            // consumes the whole sigil from its non-reserved first char.
-            let first = op.op.chars().next();
-            let single = op.op.chars().count() == 1;
-            if first.is_some_and(|c| RESERVED_SIGILS.contains(&c) && (c != '=' || single)) {
+            // The lexer dispatches on the FIRST char: most hardcoded builtin
+            // sigils are intercepted before operator longest-match. Exceptions:
+            // multi-char `=` operators (`==`, `=>`) and `$` followed by punctuation
+            // that cannot be a context/stack read (`$>`, `$(`, …). A reserved char
+            // later in an op (`<$>`, `>=`) is always fine.
+            let mut chars = op.op.chars();
+            let first = chars.next();
+            let second = chars.next();
+            let single = second.is_none();
+            let dollar_read_prefix =
+                second.is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'));
+            let allowed_longest_match = matches!(first, Some('=')) && !single
+                || matches!(first, Some('$')) && !single && !dollar_read_prefix;
+            if first.is_some_and(|c| RESERVED_SIGILS.contains(&c)) && !allowed_longest_match {
                 errs.push(ValidationError::new(
                     &loc,
                     format!("op {:?} collides with a reserved builtin sigil", op.op),
@@ -1709,8 +1716,11 @@ models:
         let cfg: Config = serde_yaml::from_str(
             r##"
 operators:
-  semi: { op: ";", arity: 1, fixity: prefix, template: "x" }
-  a:    { op: "&", arity: ">0", fixity: mixfix, join: " and " }
+  semi:  { op: ";", arity: 1, fixity: prefix, template: "x" }
+  fmap:  { op: "<$>", arity: 2, fixity: infix, builtin: map }
+  rmap:  { op: "$>", arity: 2, fixity: infix, builtin: map }
+  shadow: { op: "$map", arity: 2, fixity: infix, builtin: map }
+  a:     { op: "&", arity: ">0", fixity: mixfix, join: " and " }
   b:    { op: "&", arity: ">0", fixity: mixfix, join: " et " }
 "##,
         )
@@ -1728,6 +1738,17 @@ operators:
                 .iter()
                 .any(|e| e.message.contains("duplicates operator")),
             "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .all(|e| !matches!(e.location.as_str(), "operators.fmap" | "operators.rmap")),
+            "punctuation operators containing/starting `$` are valid: {issues:?}"
+        );
+        assert!(
+            issues.iter().any(|e| e.location == "operators.shadow"
+                && e.message.contains("reserved builtin sigil")),
+            "a `$name`-shaped operator must not steal a context read: {issues:?}"
         );
     }
 

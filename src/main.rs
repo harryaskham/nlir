@@ -605,11 +605,16 @@ fn print_help_examples(color: bool) {
         (
             "map / fold — higher-order over lists",
             &[
-                ("$map%({$0*$0},[1,2,3])", "1 4 9", "transform each item"),
+                ("$map%({$0*$0},[1,2,3])", "1 4 9", "map builtin"),
+                (
+                    "{$0*$0}<$>[1,2,3]",
+                    "1 4 9",
+                    "typable map alias (↦ is its visual twin)",
+                ),
                 ("$fold%({$0+$1},[1,2,3,4])", "10", "reduce (sum)"),
                 ("$fold%({$0*$1},[1,2,3,4])", "24", "reduce (product)"),
                 (
-                    "$fold%({$0+$1},$map%({$0*$0},[1,2,3]))",
+                    "$fold%({$0+$1},{$0*$0}<$>[1,2,3])",
                     "14",
                     "sum of squares (fold ∘ map)",
                 ),

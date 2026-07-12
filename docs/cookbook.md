@@ -226,28 +226,30 @@ where you want it.
 
 ---
 
-## 7. Glyph operators — bind a form or builtin to your own symbol
+## 7. Configured operators — bind a form or builtin to your own symbol
 
 Config operators can be realised by a **form** or a **builtin**, alongside the
-usual `command:`/`prompt:` — so any saved recipe becomes a one-symbol operator,
-and map/fold get glyphs. Multibyte sigils lex for free (like `Δ`), so you spend
-zero of the scarce ASCII set — pick any glyph in *your* config
-(config.example.yaml ships these as commented demos):
+usual `command:`/`prompt:` — so any saved recipe becomes an operator, and map/fold
+get both keyboard and visual spellings. The engine does not hardcode these
+symbols: each is an ordinary `config.yaml` entry. Multibyte sigils lex for free
+(like `Δ`), while `<$>` gives map a Haskell-familiar typable form:
 
 ```yaml
 square:   { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
 steelman: { op: "⇑", arity: 1, fixity: prefix, form: "{~(>@$0)}" }
+mapascii: { op: "<$>", arity: 2, fixity: infix, builtin: map }
 mapop:    { op: "↦", arity: 2, fixity: infix, builtin: map }
 foldop:   { op: "⊘", arity: 2, fixity: infix, builtin: fold }
 ```
 
 `form:` applies the form to the operands (`$0, $1, …`); `builtin:` binds the
-glyph to the map/fold engine. Verified:
+configured operator to the map/fold engine. Verified:
 
 ```
 □5                     -> 25          (a form-op: {$0*$0})
 □(3+1)                 -> 16
-{$0*$0}↦[1,2,3]        -> 1 / 4 / 9   (↦ = map)
+{$0*$0}<$>[1,2,3]      -> 1 / 4 / 9   (<$> = typable map)
+{$0*$0}↦[1,2,3]        -> 1 / 4 / 9   (↦ = visual map)
 {$0+$1}⊘[1,2,3,4]      -> 10          (⊘ = fold)
 ```
 
@@ -261,8 +263,9 @@ The payoff is a **personal terse vocabulary**. `⇑` bundles the steelman chain
      significant issues warranting delay.
 ```
 
-And the map glyph runs a lens over a list — `{~$0}↦[…]` summarises each item.
-Your recipes stop being long chains you retype and become verbs you own.
+And map runs a lens over a list — `{~$0}<$>[…]` is fully typable, while
+`{~$0}↦[…]` is the same configured builtin with a visual sigil. Both summarise
+each item. Your recipes stop being long chains you retype and become verbs you own.
 
 ---
 

@@ -58,6 +58,19 @@ All use `@` as a **formalise-decompressor** (terse seed → the full sentence).
 - **pow right-associativity** (`2**3**2` was 64, should be 512) — caught, fixed three-lane, landed; celebrated in `34-powertower`.
 - **`\$` escape defeated** in double-quote interpolation (bd-65b737) — root-caused, filed with a proposed patch; workaround documented in `44-quotes`.
 
+## The honest ratio — instructions, not memorised targets
+
+A famous-target golf such as `=>'first line of 1984'` is a lookup into model weights, not
+nlir carrying the sentence. The honest metric is **instruction-density over live input**:
+`{(@~$0)?}` is 9 bytes for a 74-byte English instruction (8.2×), applied to content the
+model has never seen. Derivation from a novel seed can still reach roughly 7–10× because
+the model adds conventional form, but the ratio counts only if a semantic `~>` check shows
+the seed's novel facts survived. Genuinely dense novel bits approach the Shannon floor (~1×).
+
+Runnable proof: [`move-msm0-honest-golf.sh`](move-msm0-honest-golf.sh). It computes the
+instruction ratio offline and uses nlir as the semantic fact-survival judge, rather than a
+format-sensitive literal grep (`1340` and `1,340` mean the same fact).
+
 ---
 
 ## Showcase power-moves — multi-message digest/select (Harry's "language of thought")

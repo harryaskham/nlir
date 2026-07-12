@@ -3652,10 +3652,12 @@ operators:
         // the (here multibyte) glyph in config — no core-sigil cost.
         let yaml = r##"
 operators:
-  sq:     { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
-  add2:   { op: "⊕", arity: 2, fixity: infix,  form: "{$0+$1}" }
-  mapop:  { op: "↦", arity: 2, fixity: infix,  builtin: map }
-  foldop: { op: "⊘", arity: 2, fixity: infix,  builtin: fold }
+  sq:       { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
+  add2:     { op: "⊕", arity: 2, fixity: infix,  form: "{$0+$1}" }
+  mapascii:  { op: "<$>", arity: 2, fixity: infix,  builtin: map }
+  mapdollar: { op: "$>",  arity: 2, fixity: infix,  builtin: map }
+  mapop:     { op: "↦",  arity: 2, fixity: infix,  builtin: map }
+  foldop:   { op: "⊘", arity: 2, fixity: infix,  builtin: fold }
   add: { op: "+", arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
   mul: { op: "*", arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
 "##;
@@ -3667,7 +3669,9 @@ operators:
         };
         check("□5", "25"); // form-op: square
         check("2⊕3", "5"); // form-op: add2 (infix)
-        check("{$0*$0}↦[1,2,3]", "1\n4\n9"); // builtin map-op
+        check("{$0*$0}<$>[1,2,3]", "1\n4\n9"); // configured typable map-op
+        check("{$0*$0}$>[1,2,3]", "1\n4\n9"); // generic `$`-leading op
+        check("{$0*$0}↦[1,2,3]", "1\n4\n9"); // configured visual map-op
         check("{$0+$1}⊘[1,2,3,4]", "10"); // builtin fold-op
     }
 
