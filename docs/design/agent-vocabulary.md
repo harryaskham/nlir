@@ -199,13 +199,17 @@ bd-d18743 is closed; `=>` is on `main`.
 
 Harry: *"better partial result display in e.g. pi would let us quickly iterate on
 chains of thought."* The vocabulary only pays off if you can **watch a chain
-resolve**. Status across the three surfaces:
+resolve**. Status across the surfaces and shared core:
 
 - **CLI** — `nlir step` streams each reduction live (**bd-89eb89**, landed): you
   see `~(>@^-1)` unfold one realisation at a time.
 - **TUI workbench** — live det-preview **landed** (**bd-970e05** slice 1,
   @e38868b): type an expression and ~350ms after you pause, the det
-  result-so-far appears italic in the Output pane; Enter commits.
+  result-so-far appears italic in the Output pane; Enter commits. Explicit LLM
+  preview **landed** (**bd-16d86c / bd-970e05** slice 6): Ctrl-L starts one
+  non-persisting worker, streams cached reduction steps into the same live pane,
+  keeps the event loop responsive, suppresses stale edited results, and clearly
+  labels the request as explicit/paid. Automatic typing preview remains det-only.
 - **pi plugin** — live det-preview **landed** (**bd-970e05** slice 2): as you
   type a `|`-prefixed nlir line, the det result-so-far shows in a widget above
   the editor (debounced ~350ms, cleared on send). Closes the surface Harry named.

@@ -2608,26 +2608,121 @@ fn run_feedback_report(args: &FeedbackArgs) -> Result<(), i32> {
 #[derive(Debug, Args)]
 struct TuiArgs {}
 
+/// Background events from one explicit TUI LLM preview (Ctrl-L). The job id
+/// suppresses late/stale steps after the edited expression has moved on.
+enum TuiLlmPreviewEvent {
+    Step {
+        job: u64,
+        expr: String,
+        rendered: String,
+    },
+    Done {
+        job: u64,
+        expr: String,
+        result: Result<(), String>,
+    },
+}
+
+fn tui_llm_job_matches(active: &Option<(u64, String)>, job: u64, expr: &str) -> bool {
+    active
+        .as_ref()
+        .is_some_and(|(active_job, active_expr)| *active_job == job && active_expr == expr)
+}
+
+fn tui_llm_step_is_current(
+    active: &Option<(u64, String)>,
+    job: u64,
+    expr: &str,
+    current_buffer: &str,
+) -> bool {
+    tui_llm_job_matches(active, job, expr) && current_buffer.trim() == expr
+}
+
+/// Run one non-persisting LLM step stream through the shared incremental cache.
+/// The caller chooses whether this runs on a worker thread (the TUI does) or
+/// inline (unit tests do with an injected realiser).
+fn tui_llm_preview<R: nlir::realiser::Realiser>(
+    expr: &str,
+    config: &nlir::config::Config,
+    context: &mut nlir::context::Context,
+    cache: &nlir::eval::EvaluationCache,
+    realiser: &R,
+    mut on_step: impl FnMut(&str),
+) -> Result<(), String> {
+    nlir::realiser::block_on_ready(nlir::eval::step_trace_streaming_async_with_cache(
+        expr,
+        config,
+        context,
+        nlir::Mode::Llm,
+        realiser,
+        cache,
+        |step| on_step(step),
+    ))
+    .map_err(|error| error.to_string())
+}
+
+/// Spawn an explicit, paid LLM preview without blocking the crossterm event
+/// loop. Context is an owned clone and is never saved; completed semantic calls
+/// live in the bounded shared cache for the next Ctrl-L run.
+fn spawn_tui_llm_preview(
+    job: u64,
+    expr: String,
+    config: nlir::config::Config,
+    mut context: nlir::context::Context,
+    cache: nlir::eval::EvaluationCache,
+    tx: std::sync::mpsc::Sender<TuiLlmPreviewEvent>,
+) -> Result<(), String> {
+    std::thread::Builder::new()
+        .name("nlir-tui-llm-preview".to_owned())
+        .spawn(move || {
+            let step_tx = tx.clone();
+            let step_expr = expr.clone();
+            let result = tui_llm_preview(
+                &expr,
+                &config,
+                &mut context,
+                &cache,
+                &nlir::realiser::NativeRealiser,
+                |rendered| {
+                    let _ = step_tx.send(TuiLlmPreviewEvent::Step {
+                        job,
+                        expr: step_expr.clone(),
+                        rendered: rendered.to_owned(),
+                    });
+                },
+            );
+            let _ = tx.send(TuiLlmPreviewEvent::Done { job, expr, result });
+        })
+        .map(|_| ())
+        .map_err(|error| format!("could not start llm preview: {error}"))
+}
+
 /// Full-screen workbench (bd-ae1730): a session browser + context manager +
 /// live deterministic expression eval, the terminal sibling of the browser
 /// workspace. Shares the REPL's on-disk session pool (aur-0's
 /// `sessions_dir`/`list_sessions`/`restore_session`/`archive_session`): it lists
 /// the same `sessions/<ts>.json` snapshots and archives the context on exit, so
 /// `nlir repl` `:resume`/`--continue` and the workbench see each other's work.
-/// Evaluation runs in deterministic [`Mode::Det`] so the live pane never blocks
-/// on an LLM call or needs a key.
+/// Automatic evaluation stays deterministic [`Mode::Det`] so typing never
+/// blocks or spends a call. Ctrl-L is the explicit opt-in LLM preview: a worker
+/// thread streams cached steps back to the event loop without persisting context.
 fn run_tui(cli: &Cli, _args: &TuiArgs) -> Result<(), i32> {
-    use crossterm::event::{self, Event, KeyEventKind};
+    use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
     use std::io::IsTerminal;
 
-    // Validate config before we take over the screen (clear error, cooked mode).
-    resolve_config(cli)?;
+    // Validate + retain config before we take over the screen (clear error,
+    // cooked mode). Explicit Ctrl-L previews reuse this stable config snapshot.
+    let tui_config = resolve_config(cli)?;
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         eprintln!("nlir tui: requires an interactive terminal (stdin + stdout must be a TTY).");
         return Err(2);
     }
 
     let mut wb = tui::Workbench::new(tui_build_sessions(cli), tui_build_context(cli));
+    let llm_cache = nlir::eval::EvaluationCache::default();
+    let (llm_tx, llm_rx) = std::sync::mpsc::channel::<TuiLlmPreviewEvent>();
+    let mut llm_job_seq = 0_u64;
+    let mut active_llm: Option<(u64, String)> = None;
 
     // ratatui::init enters the alternate screen + raw mode and installs a
     // panic-restore hook; ratatui::restore undoes it on every exit path.
@@ -2641,6 +2736,40 @@ fn run_tui(cli: &Cli, _args: &TuiArgs) -> Result<(), i32> {
         let mut prev_buffer = wb.expr_buffer();
         let mut dirty_since: Option<Instant> = None;
         loop {
+            // Drain streamed LLM steps on the UI thread. A step is shown only
+            // while both its job and source expression are still current; an
+            // edit makes late results harmlessly stale without cancelling the
+            // paid call already requested explicitly by Ctrl-L.
+            while let Ok(message) = llm_rx.try_recv() {
+                match message {
+                    TuiLlmPreviewEvent::Step {
+                        job,
+                        expr,
+                        rendered,
+                    } if tui_llm_step_is_current(&active_llm, job, &expr, &wb.expr_buffer()) => {
+                        wb.set_preview(Some(rendered));
+                        wb.set_status("llm preview · streaming (Ctrl-L is explicit/paid)");
+                    }
+                    TuiLlmPreviewEvent::Done { job, expr, result }
+                        if tui_llm_job_matches(&active_llm, job, &expr) =>
+                    {
+                        active_llm = None;
+                        if wb.expr_buffer().trim() == expr {
+                            match result {
+                                Ok(()) => wb.set_status(
+                                    "llm preview complete · speculative, not committed",
+                                ),
+                                Err(error) => {
+                                    wb.set_preview(None);
+                                    wb.set_status(format!("llm preview error: {error}"));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             terminal
                 .draw(|frame| tui::render(frame, &wb))
                 .map_err(|_| 1i32)?;
@@ -2652,7 +2781,55 @@ fn run_tui(cli: &Cli, _args: &TuiArgs) -> Result<(), i32> {
                 if let Event::Key(key) = ev
                     && key.kind == KeyEventKind::Press
                 {
-                    handle_tui_key(cli, &mut wb, key);
+                    let ctrl_l = key.code == KeyCode::Char('l')
+                        && key.modifiers.contains(KeyModifiers::CONTROL);
+                    if ctrl_l {
+                        let modal_open = wb.is_palette_open()
+                            || wb.is_stepping()
+                            || wb.is_confirming()
+                            || wb.is_editing();
+                        if wb.focus() != tui::Pane::Expr || modal_open {
+                            wb.set_status("close the modal and focus Expression for Ctrl-L");
+                        } else if active_llm.is_some() {
+                            wb.set_status("llm preview already running · wait for completion");
+                        } else {
+                            let expr = wb.expr_buffer().trim().to_owned();
+                            if expr.is_empty() {
+                                wb.set_status("nothing to preview · type an expression first");
+                            } else {
+                                match open_context(cli) {
+                                    Ok(context) => {
+                                        llm_job_seq = llm_job_seq.wrapping_add(1);
+                                        let job = llm_job_seq;
+                                        match spawn_tui_llm_preview(
+                                            job,
+                                            expr.clone(),
+                                            tui_config.clone(),
+                                            context,
+                                            llm_cache.clone(),
+                                            llm_tx.clone(),
+                                        ) {
+                                            Ok(()) => {
+                                                active_llm = Some((job, expr));
+                                                wb.set_preview(Some(
+                                                    "starting llm preview…".to_owned(),
+                                                ));
+                                                wb.set_status(
+                                                    "llm preview requested explicitly · streaming",
+                                                );
+                                            }
+                                            Err(error) => wb.set_status(error),
+                                        }
+                                    }
+                                    Err(error) => {
+                                        wb.set_status(format!("llm preview context error: {error}"))
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        handle_tui_key(cli, &mut wb, key);
+                    }
                     if wb.should_quit() {
                         break;
                     }
@@ -3317,6 +3494,84 @@ mod cli_tests {
     // bd-970e05 (REPL slice): the live-preview helper shows a det result-so-far
     // hint, and crucially SKIPS any expression that uses a shell-`command:`
     // operator (det eval would shell out) as well as meta/empty/parse-error lines.
+    #[test]
+    fn tui_llm_preview_suppresses_stale_jobs_and_edited_buffers() {
+        let active = Some((7, "~'alpha'".to_owned()));
+        assert!(tui_llm_step_is_current(&active, 7, "~'alpha'", "~'alpha'"));
+        assert!(!tui_llm_step_is_current(&active, 6, "~'alpha'", "~'alpha'"));
+        assert!(!tui_llm_step_is_current(&active, 7, "~'beta'", "~'beta'"));
+        assert!(!tui_llm_step_is_current(
+            &active,
+            7,
+            "~'alpha'",
+            "~'edited'"
+        ));
+    }
+
+    #[test]
+    fn tui_llm_preview_streams_and_reuses_the_incremental_cache() {
+        use std::path::Path;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Default)]
+        struct PreviewRealiser(AtomicUsize);
+        impl nlir::realiser::Realiser for PreviewRealiser {
+            fn llm<'a>(
+                &'a self,
+                call: &'a nlir::llm::LlmCall,
+            ) -> nlir::realiser::RealiseFuture<'a> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                let operand = call.operands.join("|");
+                Box::pin(async move { Ok(format!("preview:{operand}")) })
+            }
+            fn command<'a>(
+                &'a self,
+                _command: &'a str,
+                _operands: &'a [String],
+            ) -> nlir::realiser::RealiseFuture<'a> {
+                Box::pin(async move { Ok(String::new()) })
+            }
+        }
+
+        let yaml = r##"
+models:
+  any: { type: command, format: text, command: "true" }
+operators:
+  summary: { op: "~", arity: 1, fixity: prefix, model: any, prompt: "summary: %" }
+"##;
+        let cfg = nlir::config::parse_str(yaml, Path::new("tui-llm-preview.yaml"))
+            .expect("valid test config");
+        let cache = nlir::eval::EvaluationCache::default();
+        let realiser = PreviewRealiser::default();
+
+        let run = || {
+            let mut context = nlir::context::Context::empty(&cfg.context);
+            let mut steps = Vec::new();
+            tui_llm_preview("~'alpha'", &cfg, &mut context, &cache, &realiser, |step| {
+                steps.push(step.to_owned())
+            })
+            .expect("tui llm preview");
+            steps
+        };
+
+        let first = run();
+        assert!(first.len() >= 2, "initial + completed step expected");
+        assert!(
+            first
+                .last()
+                .is_some_and(|step| step.contains("preview:alpha")),
+            "final streamed step should contain the realised preview: {first:?}"
+        );
+        assert_eq!(realiser.0.load(Ordering::SeqCst), 1);
+        let second = run();
+        assert_eq!(second.last(), first.last());
+        assert_eq!(
+            realiser.0.load(Ordering::SeqCst),
+            1,
+            "second Ctrl-L-style run must hit the retained cache"
+        );
+    }
+
     #[test]
     fn repl_preview_hints_pure_det_and_skips_command_ops() {
         use std::path::Path;

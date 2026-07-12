@@ -140,9 +140,9 @@ pub struct Workbench {
     palette: Option<PaletteState>,
     /// The open step-through view (Ctrl-T), if any.
     steps: Option<StepView>,
-    /// A live deterministic preview of the in-progress expression (bd-970e05):
-    /// the debounced result-so-far, shown until Enter commits. `None` when the
-    /// buffer is empty or currently unparseable.
+    /// A live speculative preview of the in-progress expression (bd-970e05):
+    /// automatic debounced det output or explicit Ctrl-L LLM streaming steps,
+    /// shown until Enter commits. `None` when empty/unparseable.
     preview: Option<String>,
 }
 
@@ -158,8 +158,7 @@ impl Workbench {
             editor: LineEditor::new(),
             output: String::new(),
             output_is_error: false,
-            status: "Tab switches pane · Enter evaluates / restores · Ctrl-D or Esc quits"
-                .to_owned(),
+            status: "Tab panes · Enter det-eval · Ctrl-L LLM preview · Ctrl-D/Esc quit".to_owned(),
             should_quit: false,
             editing: None,
             confirm: None,
@@ -251,7 +250,7 @@ impl Workbench {
         self.status = status.into();
     }
 
-    /// Set (or clear) the live deterministic preview of the in-progress
+    /// Set (or clear) a speculative det/LLM preview of the in-progress
     /// expression (bd-970e05).
     pub fn set_preview(&mut self, preview: Option<String>) {
         self.preview = preview;
@@ -608,9 +607,9 @@ fn render_expr(frame: &mut Frame, area: Rect, wb: &Workbench) {
 
 fn render_output(frame: &mut Frame, area: Rect, wb: &Workbench) {
     let focused = wb.focus == Pane::Expr; // output tracks the expr pane
-    // A live deterministic preview of the in-progress expression (bd-970e05)
+    // A live speculative preview of the in-progress expression (bd-970e05)
     // takes precedence over the last committed result: shown italic-cyan under a
-    // "live" title, so it reads as speculative and uncommitted.
+    // "live" title, so det and explicit LLM steps read as uncommitted.
     let (title, body) = if let Some(preview) = wb.preview.as_ref() {
         (
             "Output · live",
@@ -625,7 +624,7 @@ fn render_output(frame: &mut Frame, area: Rect, wb: &Workbench) {
         (
             "Output",
             Span::styled(
-                "(type to preview · Enter commits · deterministic)",
+                "(type for det preview · Ctrl-L streams LLM · Enter commits det)",
                 Style::default().fg(Color::DarkGray),
             ),
         )
