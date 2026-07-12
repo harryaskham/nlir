@@ -215,6 +215,12 @@ resolve**. Status across the three surfaces:
   Output pane). Always det + no realiser, so llm ops stay gated behind Run; in
   llm/on-device mode the line carries a "det preview · Run for llm" tag. The
   browser command-VM is sandboxed, so even `_`-echo previews safely offline.
+- **incremental LLM core** — cross-evaluation cache **landed** (**bd-970e05**
+  slice 5): native/browser hosts can retain `EvaluationCache` across debounced
+  evaluate or async step/streaming calls. Unchanged semantic
+  call keys reuse completed realisations; an edited operand changes the key, so
+  only that subtree and its dependants re-run. Retention is bounded to 1024
+  completed calls, and `_cache=false` still overrides it.
 
 ### The shared partial-display contract
 
@@ -230,10 +236,12 @@ All three surfaces follow the same rules, so the UX is consistent:
    / a "live" marker) and never persists context writes; only an explicit
    submit/Enter commits.
 4. **The llm tier is gated + cached** — live-previewing an `~`/`@`/`>` chain
-   means paid model calls, so it is opt-in and rides **msm-0's incremental
-   cache** (subexpr-identity memoization + AST-diff invalidation): a small edit
-   only re-fires the edited node, reusing cached realisations for the rest. That
-   is what makes iterating on an llm chain of thought affordable.
+   means paid model calls, so it remains opt-in and rides the landed shared
+   `EvaluationCache`. The semantic call key already contains op/mode/model/
+   grouping/operands/seed: a small edit changes the edited node's key and every
+   dependent parent's inputs, while unchanged siblings hit. No separate AST-diff
+   pass is needed. Cache lookup never holds a mutex across `await`, and
+   `_cache=false` remains the per-context kill switch.
 5. **Crash-safe over all parseable input** — eval-as-you-type runs on whatever
    you've typed so far, so a mid-edit pathological expression must never crash
    the surface (a crash would abort the whole widget, e.g. the wasm workspace

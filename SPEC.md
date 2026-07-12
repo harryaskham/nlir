@@ -377,8 +377,16 @@ After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
   automatic detection can't infer — but the marked subtree stays parallel with its
   siblings. In `` a+`(a+b) `` the outer operands `a` and `` `(a+b) `` run in
   parallel, while `a` then `b` inside the backtick run serially.
-- **Caching:** identical subcalls `(op, mode, model, operand-texts)` and coercions
-  are deduped/cached when `_cache` is true (default); `_cache=false` disables it.
+- **Caching:** identical subcalls `(op, mode, model, grouping, operand-texts, seed)`
+  are deduped when `_cache` is true (default); `_cache=false` disables it. A normal
+  evaluation owns a run-local cache. Incremental/speculative hosts may retain an
+  `EvaluationCache` across edits via `evaluate_with_cache`,
+  `evaluate_async_with_cache`, or the cached async step/streaming variants:
+  unchanged call keys hit, while an edited operand
+  changes its key and naturally invalidates that node and every dependent parent.
+  Cache locks are never held across an async realiser await; retention is bounded
+  to 1024 completed calls, and hosts clear the cache when config/model policy
+  changes incompatibly.
 
 ---
 

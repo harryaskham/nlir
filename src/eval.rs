@@ -112,6 +112,62 @@ impl From<RealiseError> for EvalError {
     }
 }
 
+/// Maximum retained completed realisations in one incremental editing session.
+/// A bounded cache prevents a long-lived editor from growing with every draft.
+const MAX_EVALUATION_CACHE_ENTRIES: usize = 1024;
+
+/// Reusable operator-realisation cache for incremental/speculative evaluation.
+///
+/// One [`Evaluator`] already dedupes identical subcalls within a run. Keeping
+/// this cloneable cache across successive runs extends that contract to editor
+/// previews: unchanged `(op, mode, model, grouping, operands, seed)` calls hit,
+/// while an edited operand naturally changes the key and re-realises only that
+/// node and its dependants. Scope one cache to a stable config/context editing
+/// session; call [`Self::clear`] when either changes incompatibly.
+#[derive(Clone, Default)]
+pub struct EvaluationCache {
+    values: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>,
+}
+
+impl EvaluationCache {
+    /// Number of completed realisations retained for reuse.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.values.lock().expect("evaluation cache mutex").len()
+    }
+
+    /// Whether the cache contains no completed realisations.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Drop every retained realisation, e.g. after changing config/model policy.
+    pub fn clear(&self) {
+        self.values.lock().expect("evaluation cache mutex").clear();
+    }
+
+    fn get(&self, key: &str) -> Option<Value> {
+        self.values
+            .lock()
+            .expect("evaluation cache mutex")
+            .get(key)
+            .cloned()
+    }
+
+    fn insert(&self, key: String, value: Value) {
+        let mut values = self.values.lock().expect("evaluation cache mutex");
+        if !values.contains_key(&key) && values.len() >= MAX_EVALUATION_CACHE_ENTRIES {
+            // No recency bookkeeping on the hot path: evict one completed entry.
+            // Semantic keys make any eviction safe; a future access simply re-runs.
+            if let Some(evicted) = values.keys().next().cloned() {
+                values.remove(&evicted);
+            }
+        }
+        values.insert(key, value);
+    }
+}
+
 /// Render a two-line source pointer for a positional diagnostic: the input
 /// `expr` on one line and a `^` caret under `position` (a char index) on the
 /// next, so lex diagnostics show *where* they failed (bd-1027d5).
@@ -131,13 +187,29 @@ pub fn evaluate(
     context: &mut Context,
     mode: Mode,
 ) -> Result<Value, EvalError> {
+    evaluate_with_cache(expr, config, context, mode, &EvaluationCache::default())
+}
+
+/// Evaluate like [`evaluate`], reusing completed operator realisations from a
+/// caller-owned cache across runs. This is the core primitive for debounced LLM
+/// previews: edits that preserve an operator's realised inputs spend no new call.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any evaluation error.
+pub fn evaluate_with_cache(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    cache: &EvaluationCache,
+) -> Result<Value, EvalError> {
     let sigils = crate::config::operator_sigils(config);
     let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
         EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
     })?;
     let program = parser::parse_program(&tokens, &config.operators)
         .map_err(|error| EvalError::Parse(error.to_string()))?;
-    Evaluator::new(config, context, mode).run(&program)
+    Evaluator::new_with_cache(config, context, mode, cache.clone()).run(&program)
 }
 
 /// Parse `expr` and return its small-step reduction trace as rendered strings:
@@ -358,11 +430,10 @@ pub struct Evaluator<'a> {
     /// Bounded DAG concurrency for independent operand subtrees (config
     /// `defaults.parallelism`, default 8) — SPEC §Execution graph (bd-780dbf).
     parallelism: usize,
-    /// Per-run memoisation of operator realisations keyed by
-    /// `(op, mode, model, grouping, operand-texts)` — SPEC §parallelism dedupes
-    /// identical subcalls when `_cache` is on (bd-1d078c). Behind a `Mutex` so
-    /// concurrently-evaluated operand subtrees share one cache (bd-780dbf).
-    realise_cache: std::sync::Mutex<std::collections::HashMap<String, Value>>,
+    /// Operator realisations keyed by `(op, mode, model, grouping, operands,
+    /// seed)`. The default is run-scoped; speculative callers can inject a
+    /// shared [`EvaluationCache`] across edits (bd-970e05).
+    realise_cache: EvaluationCache,
     /// Positional argument frames for form application (`%`, bd-5dd86f). Applying
     /// a form pushes its evaluated args as a frame; inside the body a
     /// non-negative `$N` resolves to `args[N]`, shadowing the run stack
@@ -460,6 +531,18 @@ impl<'a> Evaluator<'a> {
     /// empty stack.
     #[must_use]
     pub fn new(config: &'a Config, context: &'a mut Context, mode: Mode) -> Self {
+        Self::new_with_cache(config, context, mode, EvaluationCache::default())
+    }
+
+    /// Build an evaluator sharing completed operator realisations with later
+    /// runs in the same incremental/speculative editing session.
+    #[must_use]
+    pub fn new_with_cache(
+        config: &'a Config,
+        context: &'a mut Context,
+        mode: Mode,
+        realise_cache: EvaluationCache,
+    ) -> Self {
         // $_stdin-on-stack (bd-9a3e7c, Harry's "$_stdin first on the stack when
         // piped"): seed the premise stack at position 0 with the reserved
         // `_stdin` transient, so an operator with a missing operand can pull the
@@ -475,7 +558,7 @@ impl<'a> Evaluator<'a> {
             context,
             mode,
             stack,
-            realise_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
+            realise_cache,
             arg_frames: Vec::new(),
             eval_depth: std::rc::Rc::new(std::cell::Cell::new(0)),
         }
@@ -1883,7 +1966,7 @@ impl<'a> Evaluator<'a> {
                     .await?,
                 );
             }
-            realise_async(
+            realise_cached_async(
                 op,
                 &op_cfg,
                 &coerced,
@@ -1892,6 +1975,8 @@ impl<'a> Evaluator<'a> {
                 self.mode,
                 self.config,
                 seed,
+                self.context.cache(),
+                &self.realise_cache,
                 realiser,
             )
             .await
@@ -2229,13 +2314,38 @@ pub async fn evaluate_async<R: crate::realiser::Realiser>(
     mode: Mode,
     realiser: &R,
 ) -> Result<Value, EvalError> {
+    evaluate_async_with_cache(
+        expr,
+        config,
+        context,
+        mode,
+        realiser,
+        &EvaluationCache::default(),
+    )
+    .await
+}
+
+/// Async evaluation with a caller-owned cache shared across speculative runs.
+/// Completed LLM/operator realisations are reused by semantic call key; no lock
+/// is held while awaiting the injected realiser.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any evaluation error.
+pub async fn evaluate_async_with_cache<R: crate::realiser::Realiser>(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    realiser: &R,
+    cache: &EvaluationCache,
+) -> Result<Value, EvalError> {
     let sigils = crate::config::operator_sigils(config);
     let tokens = lexer::tokenize(expr, &sigils).map_err(|error| {
         EvalError::Lex(format!("{error}\n{}", source_pointer(expr, error.position)))
     })?;
     let program = parser::parse_program(&tokens, &config.operators)
         .map_err(|error| EvalError::Parse(error.to_string()))?;
-    let mut evaluator = Evaluator::new(config, context, mode);
+    let mut evaluator = Evaluator::new_with_cache(config, context, mode, cache.clone());
     let mut last = None;
     for statement in &program.statements {
         let value = evaluator.eval_async(statement, realiser).await?;
@@ -2261,10 +2371,40 @@ pub async fn step_async<R: crate::realiser::Realiser>(
     mode: Mode,
     realiser: &R,
 ) -> Result<Vec<String>, EvalError> {
+    step_async_with_cache(
+        expr,
+        config,
+        context,
+        mode,
+        realiser,
+        &EvaluationCache::default(),
+    )
+    .await
+}
+
+/// Collect an async small-step trace while reusing completed realisations from
+/// a caller-owned incremental cache.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub async fn step_async_with_cache<R: crate::realiser::Realiser>(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    realiser: &R,
+    cache: &EvaluationCache,
+) -> Result<Vec<String>, EvalError> {
     let mut steps = Vec::new();
-    step_trace_streaming_async(expr, config, context, mode, realiser, |rendered| {
-        steps.push(rendered.to_owned());
-    })
+    step_trace_streaming_async_with_cache(
+        expr,
+        config,
+        context,
+        mode,
+        realiser,
+        cache,
+        |rendered| steps.push(rendered.to_owned()),
+    )
     .await?;
     Ok(steps)
 }
@@ -2285,6 +2425,33 @@ pub async fn step_trace_streaming_async<R: crate::realiser::Realiser>(
     context: &mut Context,
     mode: Mode,
     realiser: &R,
+    on_step: impl FnMut(&str),
+) -> Result<(), EvalError> {
+    step_trace_streaming_async_with_cache(
+        expr,
+        config,
+        context,
+        mode,
+        realiser,
+        &EvaluationCache::default(),
+        on_step,
+    )
+    .await
+}
+
+/// Streaming async trace with a cache retained across edited expressions. This
+/// combines partial-result delivery with targeted semantic-call reuse—the core
+/// contract needed by opt-in LLM live-preview surfaces.
+///
+/// # Errors
+/// Returns [`EvalError`] on a lex/parse failure or any error while reducing.
+pub async fn step_trace_streaming_async_with_cache<R: crate::realiser::Realiser>(
+    expr: &str,
+    config: &Config,
+    context: &mut Context,
+    mode: Mode,
+    realiser: &R,
+    cache: &EvaluationCache,
     mut on_step: impl FnMut(&str),
 ) -> Result<(), EvalError> {
     let sigils = crate::config::operator_sigils(config);
@@ -2293,7 +2460,7 @@ pub async fn step_trace_streaming_async<R: crate::realiser::Realiser>(
     })?;
     let program = parser::parse_program(&tokens, &config.operators)
         .map_err(|error| EvalError::Parse(error.to_string()))?;
-    let mut evaluator = Evaluator::new(config, context, mode);
+    let mut evaluator = Evaluator::new_with_cache(config, context, mode, cache.clone());
     for statement in &program.statements {
         let mut current = statement.clone();
         on_step(&current.render_step());
@@ -2308,10 +2475,10 @@ pub async fn step_trace_streaming_async<R: crate::realiser::Realiser>(
     Ok(())
 }
 
-/// [`realise`] with per-run memoisation (bd-1d078c) shared across
-/// concurrently-evaluated operand subtrees via a `Mutex`-guarded cache. When
-/// `cache_on` (`_cache`, default true), identical realisations — same
-/// `(op, mode, model, grouping, operand-texts)` — are computed once and reused,
+/// [`realise`] with memoisation (bd-1d078c / bd-970e05), shared across
+/// concurrent operand subtrees and—when the caller supplies an
+/// [`EvaluationCache`]—successive speculative runs. When `_cache` is true
+/// (default), identical semantic call keys are computed once and reused,
 /// deduping repeated LLM/command subcalls (SPEC §Execution graph: caching).
 ///
 /// Two truly-simultaneous identical subcalls on different threads may both miss
@@ -2328,7 +2495,7 @@ fn realise_cached(
     config: &Config,
     seed: Option<i64>,
     cache_on: bool,
-    cache: &std::sync::Mutex<std::collections::HashMap<String, Value>>,
+    cache: &EvaluationCache,
 ) -> Result<Value, EvalError> {
     if !cache_on {
         return realise(op, op_cfg, operands, grouped, sep, mode, config, seed);
@@ -2343,19 +2510,51 @@ fn realise_cached(
         seed,
     );
     // Serve a hit without holding the lock across the realisation.
-    if let Some(cached) = cache
-        .lock()
-        .expect("realise cache mutex")
-        .get(&key)
-        .cloned()
-    {
+    if let Some(cached) = cache.get(&key) {
         return Ok(cached);
     }
     let result = realise(op, op_cfg, operands, grouped, sep, mode, config, seed)?;
-    cache
-        .lock()
-        .expect("realise cache mutex")
-        .insert(key, result.clone());
+    cache.insert(key, result.clone());
+    Ok(result)
+}
+
+/// Async cached realisation for incremental previews. Cache lookup/insertion is
+/// synchronous and tiny; critically, no mutex guard is held across `await`.
+#[allow(clippy::too_many_arguments)]
+async fn realise_cached_async<R: crate::realiser::Realiser>(
+    op: &str,
+    op_cfg: &OperatorConfig,
+    operands: &[Value],
+    grouped: &[bool],
+    sep: &str,
+    mode: Mode,
+    config: &Config,
+    seed: Option<i64>,
+    cache_on: bool,
+    cache: &EvaluationCache,
+    realiser: &R,
+) -> Result<Value, EvalError> {
+    let key = realise_cache_key(
+        op,
+        mode,
+        op_cfg.model.as_deref(),
+        operands,
+        grouped,
+        sep,
+        seed,
+    );
+    if cache_on {
+        if let Some(cached) = cache.get(&key) {
+            return Ok(cached);
+        }
+    }
+    let result = realise_async(
+        op, op_cfg, operands, grouped, sep, mode, config, seed, realiser,
+    )
+    .await?;
+    if cache_on {
+        cache.insert(key, result.clone());
+    }
     Ok(result)
 }
 
@@ -2443,7 +2642,7 @@ fn is_parallel_safe(expr: &Expr, config: &Config, mode: Mode) -> bool {
 }
 
 /// Read-only evaluation of a parallel-safe subtree (see [`is_parallel_safe`]),
-/// sharing only `&Config`, `&Context`, and the `Mutex`-guarded cache, so it runs
+/// sharing only `&Config`, `&Context`, and the thread-safe cache, so it runs
 /// on a scoped thread (bd-780dbf). It mirrors [`Evaluator::eval`] for the pure
 /// subset (no stack, no context writes); excluded node kinds are defensively
 /// errored. A nested `Apply`'s operands evaluate sequentially here —
@@ -2455,7 +2654,7 @@ fn eval_parallel_safe(
     context: &Context,
     mode: Mode,
     cache_on: bool,
-    cache: &std::sync::Mutex<std::collections::HashMap<String, Value>>,
+    cache: &EvaluationCache,
 ) -> Result<Value, EvalError> {
     match expr {
         Expr::Bare(text) => Ok(Value::string(text.clone())),
@@ -2599,7 +2798,7 @@ fn eval_operands_parallel(
     context: &Context,
     mode: Mode,
     cache_on: bool,
-    cache: &std::sync::Mutex<std::collections::HashMap<String, Value>>,
+    cache: &EvaluationCache,
     parallelism: usize,
 ) -> Result<Vec<Value>, EvalError> {
     let mut results = Vec::with_capacity(operand_exprs.len());
@@ -2643,7 +2842,7 @@ fn eval_operands_parallel(
     context: &Context,
     mode: Mode,
     cache_on: bool,
-    cache: &std::sync::Mutex<std::collections::HashMap<String, Value>>,
+    cache: &EvaluationCache,
     parallelism: usize,
 ) -> Result<Vec<Value>, EvalError> {
     let _ = parallelism;
@@ -3503,6 +3702,22 @@ operators:
     }
 
     #[test]
+    fn shared_sync_cache_reuses_a_completed_realisation_across_runs() {
+        let mut cfg = config();
+        cfg.defaults.parallelism = 1;
+        let cache = EvaluationCache::default();
+        let run = || {
+            let mut ctx = Context::empty(&cfg.context);
+            evaluate_with_cache("~x", &cfg, &mut ctx, Mode::Det, &cache)
+                .expect("shared sync cache eval")
+                .render(&ctx.sep())
+        };
+        let first = run();
+        assert_eq!(run(), first, "the second run must reuse the first result");
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
     fn cache_disabled_reruns_each_subcall() {
         // bd-1d078c: with `_cache=false` (and sequential eval), identical
         // subcalls are NOT deduped, so two random commands differ. Retry to
@@ -4352,6 +4567,98 @@ operators:
         let out = evaluate("!foo", &cfg, &mut ctx, Mode::Llm).expect("llm realisation");
         // aur-2's substitute_operands wraps the single operand in a <text> tag.
         assert_eq!(out.render(&ctx.sep()), "negate: <text>foo</text>");
+    }
+
+    #[derive(Default)]
+    struct CountingRealiser {
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CountingRealiser {
+        fn calls(&self) -> usize {
+            self.calls.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl crate::realiser::Realiser for CountingRealiser {
+        fn llm<'a>(&'a self, call: &'a crate::llm::LlmCall) -> crate::realiser::RealiseFuture<'a> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let operand = call.operands.join("|");
+            Box::pin(async move { Ok(format!("seen:{operand}")) })
+        }
+
+        fn command<'a>(
+            &'a self,
+            _command: &'a str,
+            _operands: &'a [String],
+        ) -> crate::realiser::RealiseFuture<'a> {
+            Box::pin(async move { Ok(String::new()) })
+        }
+    }
+
+    #[test]
+    fn shared_async_cache_reuses_unchanged_subtrees_across_edits() {
+        // bd-970e05 incremental core: keep one cache across debounced preview
+        // runs. An unchanged alpha subtree hits; editing beta -> gamma re-runs
+        // only gamma. This is content-key invalidation without a separate AST
+        // diff pass, and no lock is held across the realiser await.
+        let yaml = r##"
+models:
+  any: { type: command, format: text, command: "true" }
+operators:
+  summary: { op: "~", arity: 1, fixity: prefix, model: any, prompt: "summary: %" }
+"##;
+        let cfg = config::parse_str(yaml, Path::new("cache-preview.yaml")).unwrap();
+        let cache = EvaluationCache::default();
+        let realiser = CountingRealiser::default();
+        use crate::realiser::block_on_ready;
+
+        let run = |expr: &str| {
+            let mut ctx = Context::empty(&cfg.context);
+            block_on_ready(evaluate_async_with_cache(
+                expr,
+                &cfg,
+                &mut ctx,
+                Mode::Llm,
+                &realiser,
+                &cache,
+            ))
+            .expect(expr)
+            .render(&ctx.sep())
+        };
+
+        assert_eq!(run("[~'alpha',~'beta']"), "seen:alpha\nseen:beta");
+        assert_eq!(realiser.calls(), 2);
+        assert_eq!(run("[~'alpha',~'gamma']"), "seen:alpha\nseen:gamma");
+        assert_eq!(realiser.calls(), 3, "only the edited subtree re-realises");
+        assert_eq!(run("[~'alpha',~'beta']"), "seen:alpha\nseen:beta");
+        assert_eq!(realiser.calls(), 3, "prior subtree results remain reusable");
+        assert_eq!(cache.len(), 3);
+
+        // The existing context-level safety switch still wins across runs.
+        assert_eq!(run("_cache=false;~'alpha'"), "seen:alpha");
+        assert_eq!(run("_cache=false;~'alpha'"), "seen:alpha");
+        assert_eq!(realiser.calls(), 5);
+
+        let mut ctx = Context::empty(&cfg.context);
+        let steps = block_on_ready(step_async_with_cache(
+            "~'alpha'",
+            &cfg,
+            &mut ctx,
+            Mode::Llm,
+            &realiser,
+            &cache,
+        ))
+        .expect("cached streaming trace");
+        assert!(steps.last().is_some_and(|step| step.contains("seen:alpha")));
+        assert_eq!(realiser.calls(), 5, "streaming trace shares the same cache");
+
+        cache.clear();
+        assert!(cache.is_empty());
+        for i in 0..(MAX_EVALUATION_CACHE_ENTRIES + 10) {
+            cache.insert(format!("key-{i}"), Value::string(i.to_string()));
+        }
+        assert_eq!(cache.len(), MAX_EVALUATION_CACHE_ENTRIES);
     }
 
     /// A browser-style mock realiser that echoes a fixed string (ignoring the
