@@ -48,6 +48,20 @@ struct Cli {
     )]
     expr: Option<String>,
 
+    /// Run a program file (repeatable). Files are joined, in order, as `;`-separated
+    /// statements before any `-e` expression, so a library file can define named
+    /// forms that a later file or `-e` uses. Lines whose first non-blank characters
+    /// are `--` are comments.
+    #[arg(short = 'f', long = "file", value_name = "PATH")]
+    files: Vec<PathBuf>,
+
+    /// Bind a JSON or YAML data file as a native value: `--bind NAME=PATH`
+    /// (repeatable). Objects become dicts and arrays become lists, so `$NAME.key.0`,
+    /// `$keys%$NAME` and `↦` navigate it. Bindings are transient: never written to a
+    /// context file.
+    #[arg(long = "bind", global = true, value_name = "NAME=PATH")]
+    binds: Vec<String>,
+
     /// Path to the nlir config file (default: ~/.config/nlir/config.yaml).
     #[arg(long, global = true, value_name = "PATH")]
     config: Option<PathBuf>,
@@ -305,6 +319,10 @@ fn run(cli: Cli) -> Result<(), i32> {
                 run_eval(&cli, &expr)
             }
         }
+        None if !cli.files.is_empty() => {
+            let program = program_text(&cli)?;
+            run_eval(&cli, &program)
+        }
         None => match cli.expr {
             Some(ref expr) => run_eval(&cli, expr),
             None => {
@@ -315,6 +333,84 @@ fn run(cli: Cli) -> Result<(), i32> {
             }
         },
     }
+}
+
+/// Strip `--` comment lines from a program file (a line whose first non-blank
+/// characters are `--`). Comment lines become blank so line numbers survive.
+fn strip_program_comments(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("--") {
+                ""
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The program for `-f FILE… [-e EXPR]`: each file (comments stripped, trailing
+/// `;` trimmed) then the `-e` expression, joined as `;`-separated statements.
+fn program_text(cli: &Cli) -> Result<String, i32> {
+    let mut parts = Vec::new();
+    for path in &cli.files {
+        let source = std::fs::read_to_string(path).map_err(|error| {
+            eprintln!("nlir: cannot read program file {}: {error}", path.display());
+            2
+        })?;
+        let body = strip_program_comments(&source);
+        let body = body.trim().trim_end_matches(';').trim_end();
+        if !body.is_empty() {
+            parts.push(body.to_owned());
+        }
+    }
+    if let Some(expr) = &cli.expr {
+        parts.push(expr.clone());
+    }
+    if parts.is_empty() {
+        eprintln!("nlir: the program files are empty");
+        return Err(2);
+    }
+    Ok(parts.join(";\n"))
+}
+
+/// Load each `--bind NAME=PATH` data file (JSON, or YAML by `.yaml`/`.yml`
+/// extension) into the context as a transient native value, returning the bound
+/// names. Loud on a malformed spec, unreadable file or parse error.
+fn apply_binds(cli: &Cli, ctx: &mut nlir::context::Context) -> Result<Vec<String>, i32> {
+    let mut names = Vec::new();
+    for spec in &cli.binds {
+        let Some((name, path)) = spec.split_once('=') else {
+            eprintln!("nlir: --bind expects NAME=PATH, got `{spec}`");
+            return Err(2);
+        };
+        let name = name.trim();
+        if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            eprintln!("nlir: --bind name must be an identifier, got `{name}`");
+            return Err(2);
+        }
+        let text = std::fs::read_to_string(path).map_err(|error| {
+            eprintln!("nlir: --bind {name}: cannot read {path}: {error}");
+            2
+        })?;
+        let is_yaml = path.ends_with(".yaml") || path.ends_with(".yml");
+        let value: serde_json::Value = if is_yaml {
+            serde_yaml::from_str(&text).map_err(|error| {
+                eprintln!("nlir: --bind {name}: {path} is not valid YAML: {error}");
+                2
+            })?
+        } else {
+            serde_json::from_str(&text).map_err(|error| {
+                eprintln!("nlir: --bind {name}: {path} is not valid JSON: {error}");
+                2
+            })?
+        };
+        ctx.set_transient(name, value);
+        names.push(name.to_owned());
+    }
+    Ok(names)
 }
 
 /// Load the nlir config (SPEC §CLI: `--config PATH` else the default path),
@@ -804,6 +900,7 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
         return run_dry_run(cli, &cfg, expr, settings.mode);
     }
     let mut ctx = open_eval_context(cli)?;
+    let bound = apply_binds(cli, &mut ctx)?;
     // Smart-pipe: expose piped stdin as the reserved `$_stdin` context key so
     // `cat foo.rs | nlir -e '<expr>'` works (Harry's agentic-coding direction).
     let piped_stdin = read_stdin_into_context(&mut ctx);
@@ -820,6 +917,9 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
             if piped_stdin {
                 ctx.remove("_stdin");
             }
+            for name in &bound {
+                ctx.remove(name);
+            }
             // Persist context writes from this run (SPEC: writes are
             // write-through; a transient store saves as a no-op).
             if let Err(error) = ctx.save() {
@@ -829,7 +929,15 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
             // Pretty expansion trace -> stderr, default on; suppressed by --quiet
             // (bd-1d63dc). Mode is selected by --mode / defaults.mode (bd-28dbd4).
             if !cli.quiet {
-                eprintln!("nlir [{}]: {expr} -> {rendered}", settings.mode.as_str());
+                // A program file is echoed by name, not dumped whole.
+                let shown = if cli.files.is_empty() {
+                    expr.to_owned()
+                } else {
+                    let names: Vec<String> =
+                        cli.files.iter().map(|p| p.display().to_string()).collect();
+                    format!("-f {}", names.join(" -f "))
+                };
+                eprintln!("nlir [{}]: {shown} -> {rendered}", settings.mode.as_str());
             }
             // Result -> stdout.
             println!("{rendered}");

@@ -223,6 +223,32 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
                 tokens.push(tok);
                 i = next;
             }
+            // A snake_case assignment target (`first_name=…`, `{row_id=1}`): an
+            // identifier run containing `_` lexes as ONE key when an assignment
+            // `=` (not `==`/`=>`) follows, so every `$name` that can be read can
+            // also be written. Elsewhere `x_2` still splits for the `_` echo op.
+            c @ ('a'..='z' | 'A'..='Z' | '_')
+                if (c != '_' || !prev_is_value) && snake_assign_target(&chars, i).is_some() =>
+            {
+                let end = snake_assign_target(&chars, i).expect("guard");
+                tokens.push(Token::Bare(chars[i..end].iter().collect()));
+                i = end;
+            }
+            // A field key right after the `.` accessor (`$row.first_name`,
+            // `$spec.nodes.text_policy_exact`): snake_case keys are ubiquitous in
+            // loaded data, so here `_` continues the key instead of splitting off
+            // the `_` echo operator. Only directly after `.`, so `x_2` still echoes.
+            'a'..='z' | 'A'..='Z' | '_' if matches!(tokens.last(), Some(Token::Operator(op)) if op == ".") =>
+            {
+                let mut j = i;
+                let mut key = String::new();
+                while j < chars.len() && (chars[j].is_ascii_alphanumeric() || chars[j] == '_') {
+                    key.push(chars[j]);
+                    j += 1;
+                }
+                tokens.push(Token::Bare(key));
+                i = j;
+            }
             // A `_`-prefixed system key (`_sep`, `_cache`, …) in operand
             // position. A `_` that follows a value is instead the configured
             // `_` operator sigil, handled below via `match_operator` (bd-ebf385).
@@ -426,6 +452,25 @@ fn read_signed_number(chars: &[char], start: usize) -> Result<(f64, usize), LexE
         message: format!("invalid number {s:?}"),
     })?;
     Ok((n, j))
+}
+
+/// If `chars[start..]` is an identifier run containing `_` (`[A-Za-z][A-Za-z0-9_]*`)
+/// followed (after optional spaces) by an assignment `=` that is not `==`/`=>`,
+/// return the index just past the identifier.
+fn snake_assign_target(chars: &[char], start: usize) -> Option<usize> {
+    let mut end = start;
+    while end < chars.len() && (chars[end].is_ascii_alphanumeric() || chars[end] == '_') {
+        end += 1;
+    }
+    if !chars[start..end].contains(&'_') || chars[end - 1] == '_' {
+        return None;
+    }
+    let mut j = end;
+    while j < chars.len() && chars[j] == ' ' {
+        j += 1;
+    }
+    let is_assign = chars.get(j) == Some(&'=') && !matches!(chars.get(j + 1), Some('=' | '>'));
+    is_assign.then_some(end)
 }
 
 /// Match the LONGEST configured operator sigil that is a prefix of `chars[i..]`
@@ -643,6 +688,28 @@ mod tests {
 
     fn ops(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn snake_case_keys_after_access_and_before_assignment() {
+        let o = ops(&[".", "_", "=", "==", "=>"]);
+        let toks = |input: &str| -> Vec<String> {
+            tokenize(input, &o)
+                .expect("tokenises")
+                .into_iter()
+                .map(|t| t.render())
+                .collect()
+        };
+        // After `.`, `_` continues the key.
+        assert_eq!(
+            toks("$n.rule_policy_exact"),
+            vec!["$n", ".", "rule_policy_exact"]
+        );
+        // An identifier with `_` before an assignment `=` is one key.
+        assert_eq!(toks("first_name=ada"), vec!["first_name", "=", "ada"]);
+        // ...but not before `==` / `=>`, and `x_2` still splits for echo.
+        assert_eq!(toks("x_2"), vec!["x", "_", "2"]);
+        assert_eq!(toks("a_b==c")[..3], ["a", "_", "b"]);
     }
 
     fn bares(input: &str) -> Vec<String> {

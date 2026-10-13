@@ -233,10 +233,57 @@ transformations differ by mode.
   prefer deterministic math (fold/map over explicit lists) over ordinal semantic access; reserve
   `..` for the "describe the math, the model supplies the sequence" demo, where the supply may
   vary or err. (Measured 2026-07-08, sonnet CLI; see bd-429d87.)
+- **Precedence**: `.` (priority 19) binds tighter than `%` application (18), so a
+  form stored in a dict applies like a method — `lib={dbl={$0*2}};$lib.dbl%21` → `42` —
+  and `$f%$row.k` applies `$f` to `$row.k`.
+- **snake_case keys**: directly after `.`, a key run includes `_`
+  (`$node.rule_policy_exact`), and an identifier containing `_` that is followed by an
+  assignment `=` is one key (`first_name=ada`, `{row_id=1}`). Elsewhere `x_2` still
+  splits for the `_` echo operator.
 - **Limitation (v1)**: chained *numeric* access `list.1.0` lexes `1.0` as a float
   (numeric-literal lexing runs before operator matching — which is exactly what keeps
   `3.14` a number), so it is a clear "index must be an integer" error; use `(list.1).0`.
   Dict/string chaining (`.k.k2`, `.1.k`) is unaffected.
+
+### Data trees: loading and navigating structured data
+
+Context values keep their JSON structure: objects are insertion-ordered **dicts**,
+arrays are **lists**, all the way down (a context file, `NLIR_CONTEXT`, the wasm
+`contextJson`, and assigned dicts round-tripping through context). Load a whole file
+as a native value with **`--bind NAME=PATH`** (JSON, or YAML by `.yaml`/`.yml`
+extension; repeatable; transient — never written to a context file):
+
+```
+nlir --bind spec=spec.json -f lib.nlir -e '$join%({$0.id}↦$spec.items, ", ")'
+```
+
+**`-f PATH`** runs a program file (repeatable; files then any `-e` are joined as
+`;`-separated statements, so a library file can define named forms used later).
+In program files, lines whose first non-blank characters are `--` are comments.
+
+Deterministic data builtins (all loud on bad input; a context key of the same name
+shadows them):
+
+| builtin | result |
+|---|---|
+| `$keys%d` / `$values%d` | a dict's keys / values (a list's indices / items) |
+| `$entries%d` | `[{key=k, value=v}, …]` — map a dict like a list of records |
+| `$get%(c, k)` / `$get%(c, k, default)` | dynamic `.`: dict key or list/string index (`$get%($nodes, $id)` for keys with spaces); missing → default, else loud |
+| `$has%(c, k)` | Bool: is `k` a key / valid index |
+| `$join%(list, sep)` | items rendered and joined with `sep` |
+| `$flat%list` | flatten one level — the concat recursive tree walks need |
+| `$slice%(c, start[, end])` | sub-list / substring, end-exclusive, negatives from the end, clamped |
+| `$json%v` / `$json%(v, indent)` | the value as JSON text (dicts stay ordered) |
+| `$type%v` | `string` · `number` · `bool` · `list` · `dict` · `form` |
+| `$trim%s` · `$lower%s` · `$upper%s` · `$lines%s` | text plumbing (`$lines` splits on newlines) |
+| `$replace%(s, from, to)` | literal replace-all |
+| `$match%(s, re)` | first regex match — the whole match, its one group, or a list of groups; `''` if none |
+| `$matches%(s, re)` | every match (same shape per match) |
+| `$sub%(s, re, repl)` | regex replace-all (`$1`, `${name}` refer to groups) |
+
+Write regexes in single quotes (`'\d+'`): double-quoted strings process `\` escapes.
+A recursive named form walks a tree:
+`ids={$flat%[[$0.id], $flat%({$ids%$0}↦$0.children)]}; $ids%$tree`.
 
 ### Higher-order list builtins (`$map` / `$fold` / `$scan` / `$filter`)
 
@@ -248,7 +295,7 @@ are builtin-only. These aliases are ordinary `config.yaml` operators using `buil
 the engine does not hardcode their spellings.
 
 - **`$map%(f, list)`** — apply `f` to each element: `$map%({$0*$0},[1,2,3])` → `[1,4,9]`. Aliases `<$>` and `↦`: `{$0*$0}<$>[1,2,3]`.
-- **`$fold%(f, list)`** — reduce `list` with the binary form `f` (`$0` = accumulator, `$1` = element), seeded by the first element: `$fold%({$0+$1},[1,2,3,4])` → `10`. Alias `⊘`. Pairs with the numeric range for exact aggregates: `$fold%({$0+$1},1..100)` → `5050` (Gauss).
+- **`$fold%(f, list)`** / **`$fold%(f, list, seed)`** — reduce `list` with the binary form `f` (`$0` = accumulator, `$1` = element), seeded by the first element, or by `seed` when given (so the accumulator may differ in type from the items and an empty list folds to `seed`; `$scan` takes the same optional seed): `$fold%({$0+$1},[1,2,3,4])` → `10`. Alias `⊘`. Pairs with the numeric range for exact aggregates: `$fold%({$0+$1},1..100)` → `5050` (Gauss).
 - **`$scan%(f, list)`** — like `$fold` but returns every intermediate accumulator (the running reduction): `$scan%({$0+$1},[1,2,3,4])` → `[1,3,6,10]` (running sums); `$scan%({$0*$1},1..5)` → running factorials `[1,2,6,24,120]`.
 - **`$filter%(f, list)`** — keep the elements for which `f` is truthy: `$filter%({$0>=5},[3,7,2,9])` → `[7,9]`; with a predicate builtin, `$filter%({$gt%($0,$m)},1..10)` selects those above a bound `$m`. Composes the whole trio: `$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3,0,4])))` → `30`.
 
@@ -421,13 +468,14 @@ semantics, mirrored by `nlir help` and the
 | `&` | and | mixfix · >0 | Joins operands into one "X and Y" statement (a plan, not boolean ∧); nullary `&` folds the premise stack. |
 | `\|` | or | mixfix · >0 | Joins operands into one "X or Y" choice, kept as genuine alternatives. |
 | `_` | echo | infix · 2 | Repeats the text N times, space-joined (`x_2` = "x x"). The one shell-`command`-realised op. |
-| `.` | access | infix · 2 | Polymorphic structural accessor (deterministic): `[a,b,c].1`→`b` (0-based, negative from end), `{k=v}.k`→`v`, `"the".2`→`e`. Loud on out-of-range / missing key. |
+| `.` | access | infix · 2 | Polymorphic structural accessor (deterministic): `[a,b,c].1`→`b` (0-based, negative from end), `{k=v}.k`→`v`, `"the".2`→`e`. Loud on out-of-range / missing key. Binds tighter than `%` (`$lib.f%x` = `($lib.f)%x`); snake_case keys stay whole (`$row.first_name`). |
 | `..` | access-semantic | infix · 2 | The LLM twin of `.`: reads element N from the sequence *described* by the text (`"planets from the sun"..3`→"earth"), generalizing to descriptors. det-stub keeps det-total. **Numeric `a..b`** (both integer operands) short-circuits to a deterministic inclusive range list: `1..5`→`[1,2,3,4,5]`, `5..1`→`[5,4,3,2,1]` (descending), repurposing the useless numeric-index case. |
 | `++` | concat | mixfix · >0 | Concatenate the string operands (deterministic): `"foo"++"bar"` → "foobar". |
 | `//` | split | infix · 2 | Split a string by a separator into a list (deterministic): `"a,b,c"//","` → `[a,b,c]`. |
 | `Δ` | diff | infix · 2 | Directional diff — what changed from the first text to the second (added / removed / shifted). Non-commutative (`aΔb ≠ bΔa`); powers before/after, drift, changelog. |
 | `~>` | implication-check | infix · 2 | Does the LHS imply the RHS? Integrates over `&`. |
 | `~>?` | implication-infer | mixfix · >0 | Infers the implication (the consequent) of its arguments. Integrates over `&`. |
+| `≈` | similarity | infix · 2 | Semantic similarity in [0,1]: how closely the second text reproduces the *meaning* of the first (reference). det = word-set Jaccard; llm = judged equivalence of claims, conditions and criteria (`$gen ≈ $gold >= 0.8`). |
 
 **Numeric operators** (`operands: number`, `result: number`, `reduce:`):
 
@@ -550,6 +598,8 @@ Assume the last assistant message (`^-1`) is about *a rust-rewrite*.
 
 ```
 nlir -e 'EXPR' [--quiet] [--mode det|llm] [--model haiku] [--parallelism 8] [--dry-run]
+nlir -f lib.nlir [-f prog.nlir] [-e 'EXPR']   # program files (`--` comment lines)
+nlir … --bind NAME=PATH           # JSON/YAML file → native dict/list value `$NAME` (transient)
 
 # context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
 # (default file loads for the REPL / set / get; a one-shot `-e` skips it — bd-85c49d)

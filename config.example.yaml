@@ -317,6 +317,30 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Return the primary implication of the pieces of information contained inside <text> tags, preserving style and no extraneous information.
 
       %
+  # Semantic similarity (data-trees slice): how closely the SECOND text
+  # reproduces the meaning of the FIRST, as a Number in [0,1]. det mode = word-set
+  # Jaccard (a real, offline lexical score); llm mode = a calibrated judgement of
+  # meaning (same claims/conditions/criteria, none contradicted). The scorer for
+  # "does generated text match the reference" loops: `$gen ≈ $gold >= 0.8`.
+  similarity:
+    op: "≈"
+    det: "{$len%($inter%($matches%($lower%$0,'\\w+'),$matches%($lower%$1,'\\w+'))) / $len%($union%($matches%($lower%$0,'\\w+'),$matches%($lower%$1,'\\w+')))}"
+    description: |
+      Semantic similarity in [0,1]: how closely the second text reproduces the MEANING of the first (reference) text. det = word-set Jaccard; llm = judged equivalence of claims, conditions and criteria. Non-commutative in llm mode (reference first).
+    arity: 2
+    fixity: infix
+    priority: 5
+    result: number
+    model: medium
+    prompt: |
+      The first <text> is a REFERENCE; the second <text> is a CANDIDATE. Rate how fully the candidate reproduces the reference's MEANING on a scale from 0 to 1:
+      1.0 = every claim, condition, exclusion and criterion in the reference is present and nothing contradicts it (wording, order and formatting may differ);
+      0.7 = the main substance matches but some specific conditions or qualifications are missing or softened;
+      0.4 = partially overlapping, with important criteria missing or changed;
+      0.0 = unrelated or contradictory.
+      Penalise contradictions more than omissions; ignore extra harmless detail. Return only the number with two decimals.
+
+      %
   echo:
     op: "_"
     arity: 2
@@ -480,7 +504,9 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Polymorphic accessor: `container.key` — `[a,b,c].1` (0-based list index, negative from end), `{k=v}.k` (dict field), `"the".2` (char at index). Out-of-range / missing key = loud error, never silent. Deterministic; `..` is the LLM/semantic twin.
     arity: 2
     fixity: infix
-    priority: 16
+    # 19: above `%` application (18) so `$lib.f%x` = `($lib.f)%x` and
+    # `$f%$x.k` = `$f%($x.k)` — field access binds like a member lookup.
+    priority: 19
     operands: string
     result: string
     builtin: access
@@ -785,6 +811,13 @@ tests:
   # Configured map/fold aliases + the operator-form hero (bd-44c294 + bd-2f4d5e + bd-80e76f).
   # `<$>` is typable; ↦ is visual. Both dispatch the same configured builtin: map.
   # Existing train tests above prove this infix alias does not perturb train parsing.
+  similarity-det-jaccard: { mode: det, expr: "'the cat sat' ≈ 'The cat ran'", expected: "0.5" }
+  data-dict-roundtrip:    { mode: det, expr: "row={first_name=ada, langs=[en,fr]};$row.langs.1", expected: "fr" }
+  data-keys-json:         { mode: det, expr: "$json%($keys%{a=1, b_c=2})", expected: '["a","b_c"]' }
+  data-fold-seed:         { mode: det, expr: "$fold%({$0+$len%$1}, [ab, cde], 0)", expected: "5" }
+  data-flat-walk:         { mode: det, expr: "t={id=r, kids=[{id=a, kids=[]},{id=b, kids=[]}]};ids={$flat%[[$0.id], $flat%({$ids%$0}↦$0.kids)]};$join%($ids%$t, ',')", expected: "r,a,b" }
+  data-match-groups:      { mode: det, expr: "$join%($match%('## R 2.1 — Wash hands', '^#+ (\\S+ [\\d.]+) — (.*)$'), '|')", expected: "R 2.1|Wash hands" }
+  data-member-apply:      { mode: det, expr: "lib={dbl={$0*2}};$lib.dbl%21", expected: "42" }
   map-ascii:            { mode: det, expr: "{$0*$0}<$>[1,2,3]", expected: "1\n4\n9" }
   map-glyph:            { mode: det, expr: "{$0*$0}↦[1,2,3]", expected: "1\n4\n9" }
   fold-glyph:           { mode: det, expr: "{$0+$1}⊘[1,2,3,4]", expected: "10" }

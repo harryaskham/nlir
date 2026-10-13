@@ -141,6 +141,10 @@ pub struct Context {
     sep_default: String,
     /// `_cache` default when the key is absent (config `defaults._cache`).
     cache_default: bool,
+    /// Keys inserted with [`Context::set_transient`] (piped `_stdin`, `--bind`
+    /// data trees). Visible to evaluation but excluded from every write-through,
+    /// so an ordinary assignment later in the run cannot persist them.
+    transient: std::collections::BTreeSet<String>,
 }
 
 impl Context {
@@ -155,6 +159,7 @@ impl Context {
             content_field: cfg.messages.content_field.clone(),
             sep_default: cfg.defaults.sep.clone(),
             cache_default: cfg.defaults.cache,
+            transient: std::collections::BTreeSet::new(),
         }
     }
 
@@ -350,7 +355,10 @@ impl Context {
     /// happen immediately"). A transient store (no active file) mutates in
     /// memory only.
     pub fn set(&mut self, key: impl Into<String>, value: Value) -> Result<(), ContextError> {
-        self.data.insert(key.into(), value);
+        let key = key.into();
+        // Reassigning a transient key makes it an ordinary (persisted) binding.
+        self.transient.remove(&key);
+        self.data.insert(key, value);
         self.save()
     }
 
@@ -358,13 +366,16 @@ impl Context {
     /// keys (e.g. piped `_stdin`) that must be visible to evaluation but never
     /// persisted to the store. Pair with [`Context::remove`] before any `save`.
     pub fn set_transient(&mut self, key: impl Into<String>, value: Value) {
-        self.data.insert(key.into(), value);
+        let key = key.into();
+        self.transient.insert(key.clone());
+        self.data.insert(key, value);
     }
 
     /// Remove `key` in memory, returning its previous value if present. Used to
     /// drop a transient key (e.g. `_stdin`) before write-through so it is never
     /// persisted to the store.
     pub fn remove(&mut self, key: &str) -> Option<Value> {
+        self.transient.remove(key);
         self.data.remove(key)
     }
 
@@ -413,11 +424,23 @@ impl Context {
                 })?;
             }
         }
-        let text =
-            serde_json::to_string_pretty(&self.data).map_err(|source| ContextError::Parse {
-                path: Some(path.clone()),
-                source,
-            })?;
+        // Transient keys are evaluation-only: never written through.
+        let persisted;
+        let data = if self.transient.is_empty() {
+            &self.data
+        } else {
+            persisted = self
+                .data
+                .iter()
+                .filter(|(key, _)| !self.transient.contains(*key))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Map<String, Value>>();
+            &persisted
+        };
+        let text = serde_json::to_string_pretty(data).map_err(|source| ContextError::Parse {
+            path: Some(path.clone()),
+            source,
+        })?;
         fs::write(path, text).map_err(|source| ContextError::Write {
             path: path.clone(),
             source,
@@ -630,6 +653,39 @@ mod tests {
         );
         c.file_default = None;
         assert_eq!(default_context_path(&c, Some(OsStr::new("/home/t"))), None);
+    }
+
+    // -- transient keys ----------------------------------------------------
+
+    #[test]
+    fn transient_keys_never_write_through() {
+        let ctx_file = temp_path("transient");
+        fs::write(&ctx_file, r#"{"kept":"yes"}"#).unwrap();
+        let mut store = Context::load(
+            LoadSources {
+                context_file: Some(&ctx_file),
+                ..LoadSources::default()
+            },
+            &cfg(),
+        )
+        .expect("load");
+        store.set_transient("_stdin", Value::String("piped".into()));
+        store.set_transient("spec", serde_json::json!({"big": [1, 2, 3]}));
+        // An ordinary assignment writes through — but must not persist transients.
+        store.set("k", Value::String("v".into())).expect("set");
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&ctx_file).unwrap()).unwrap();
+        assert_eq!(saved.get("k").and_then(Value::as_str), Some("v"));
+        assert!(saved.get("_stdin").is_none(), "piped stdin leaked: {saved}");
+        assert!(saved.get("spec").is_none(), "--bind data leaked: {saved}");
+        // Still visible to evaluation in memory.
+        assert!(store.get("spec").is_some());
+        // Reassigning a transient key makes it an ordinary persisted binding.
+        store
+            .set("spec", Value::String("small".into()))
+            .expect("set");
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&ctx_file).unwrap()).unwrap();
+        assert_eq!(saved.get("spec").and_then(Value::as_str), Some("small"));
+        let _ = fs::remove_file(&ctx_file);
     }
 
     // -- load precedence ---------------------------------------------------

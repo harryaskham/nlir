@@ -900,6 +900,13 @@ impl<'a> Evaluator<'a> {
             {
                 return self.eval_value_builtin(name, args);
             }
+            if DATA_BUILTINS.contains(&name.as_str()) && self.context.get(name).is_none() {
+                let mut values = Vec::with_capacity(args.len());
+                for arg in args {
+                    values.push(self.eval(arg)?);
+                }
+                return data_builtin(name, values, &self.sep());
+            }
         }
         let body = match self.eval(form)? {
             Value::Form(inner) => *inner,
@@ -1503,9 +1510,15 @@ impl<'a> Evaluator<'a> {
         name: &str,
         args: &[Expr],
     ) -> Result<(Expr, Vec<Value>), EvalError> {
-        if args.len() != 2 {
+        let seeded = args.len() == 3 && matches!(name, "fold" | "scan");
+        if args.len() != 2 && !seeded {
             return Err(EvalError::Unsupported(format!(
-                "`${name}` takes (form, list); got {} argument(s)",
+                "`${name}` takes (form, list){}; got {} argument(s)",
+                if matches!(name, "fold" | "scan") {
+                    " or (form, list, seed)"
+                } else {
+                    ""
+                },
                 args.len()
             )));
         }
@@ -1517,10 +1530,16 @@ impl<'a> Evaluator<'a> {
                 )));
             }
         };
-        let items = match self.eval(&args[1])? {
+        let mut items = match self.eval(&args[1])? {
             Value::List(items) => items,
             other => vec![other],
         };
+        // Seeded fold/scan: `$fold%(f, list, seed)` reduces `[seed] ++ list`, so the
+        // accumulator may have a different type from the items (a dict built up
+        // from a list, a count over records) and an empty list folds to the seed.
+        if seeded {
+            items.insert(0, self.eval(&args[2])?);
+        }
         Ok((body, items))
     }
 
@@ -1775,9 +1794,16 @@ impl<'a> Evaluator<'a> {
                         if matches!(name.as_str(), "map" | "fold" | "scan" | "filter")
                             && self.context.get(name).is_none()
                         {
-                            if args.len() != 2 {
+                            let seeded =
+                                args.len() == 3 && matches!(name.as_str(), "fold" | "scan");
+                            if args.len() != 2 && !seeded {
                                 return Err(EvalError::Unsupported(format!(
-                                    "`${name}` takes (form, list); got {} argument(s)",
+                                    "`${name}` takes (form, list){}; got {} argument(s)",
+                                    if matches!(name.as_str(), "fold" | "scan") {
+                                        " or (form, list, seed)"
+                                    } else {
+                                        ""
+                                    },
                                     args.len()
                                 )));
                             }
@@ -1789,10 +1815,13 @@ impl<'a> Evaluator<'a> {
                                     )));
                                 }
                             };
-                            let items = match self.eval_async(&args[1], realiser).await? {
+                            let mut items = match self.eval_async(&args[1], realiser).await? {
                                 Value::List(items) => items,
                                 other => vec![other],
                             };
+                            if seeded {
+                                items.insert(0, self.eval_async(&args[2], realiser).await?);
+                            }
                             return self
                                 .run_higher_order_async(name.clone(), hbody, items, realiser)
                                 .await;
@@ -1819,6 +1848,15 @@ impl<'a> Evaluator<'a> {
                         {
                             return self.eval_value_builtin_async(name, args, realiser).await;
                         }
+                        if DATA_BUILTINS.contains(&name.as_str())
+                            && self.context.get(name).is_none()
+                        {
+                            let mut values = Vec::with_capacity(args.len());
+                            for arg in args {
+                                values.push(self.eval_async(arg, realiser).await?);
+                            }
+                            return data_builtin(name, values, &self.sep());
+                        }
                     }
                     // Form application (bd-5dd86f), async: eval the form + args
                     // (may await), push the argument frame, eval the body, pop.
@@ -1835,7 +1873,9 @@ impl<'a> Evaluator<'a> {
                     for arg in args {
                         frame.push(self.eval_async(arg, realiser).await?);
                     }
-                    self.arg_frames.push(frame);
+                    // Same recursion bound as the sync path (bd-14402e): a cyclic
+                    // form must fail cleanly in llm/wasm mode too, not overflow.
+                    self.enter_arg_frame(frame)?;
                     let result = self.eval_async(&body, realiser).await;
                     self.arg_frames.pop();
                     result
@@ -2878,14 +2918,36 @@ fn spread_lists(operands: Vec<Value>, grouped: Vec<bool>) -> (Vec<Value>, Vec<bo
 }
 
 /// Convert a stored context JSON value to a typed nlir [`Value`].
-fn json_to_value(json: &Json) -> Value {
+///
+/// Structure is preserved all the way down: arrays become lists and objects
+/// become insertion-ordered dicts (bd-27739b's write side already persisted
+/// dicts as JSON objects; this is the matching read side), so a loaded data
+/// tree — `--bind spec=spec.json`, a context file, the wasm `contextJson` —
+/// is navigable with `.`/`$keys`/`$map` rather than arriving as one opaque
+/// JSON string. With a config, tagged persisted forms are reparsed at any
+/// depth (a dict of named forms is a library).
+fn json_to_value_with(json: &Json, config: Option<&Config>) -> Value {
+    if let (Some(config), Some(source)) = (config, form_tag_source(json)) {
+        if let Some(expr) = parse_stored_form(source, config) {
+            return Value::form(expr);
+        }
+    }
     match json {
         Json::String(text) => Value::string(text.clone()),
         Json::Number(number) => Value::number(number.as_f64().unwrap_or(f64::NAN)),
         Json::Bool(flag) => Value::bool(*flag),
-        Json::Array(items) => Value::list(items.iter().map(json_to_value).collect()),
+        Json::Array(items) => Value::list(
+            items
+                .iter()
+                .map(|item| json_to_value_with(item, config))
+                .collect(),
+        ),
         Json::Null => Value::string(String::new()),
-        Json::Object(_) => Value::string(json.to_string()),
+        Json::Object(map) => Value::Dict(
+            map.iter()
+                .map(|(key, val)| (key.clone(), json_to_value_with(val, config)))
+                .collect(),
+        ),
     }
 }
 
@@ -2940,12 +3002,7 @@ fn form_tag_source(json: &Json) -> Option<&str> {
 /// [`json_to_value`]. This is what lets a named form round-trip
 /// (`f={form};$f%args`).
 fn json_to_value_forms(json: &Json, config: &Config) -> Value {
-    if let Some(source) = form_tag_source(json) {
-        if let Some(expr) = parse_stored_form(source, config) {
-            return Value::form(expr);
-        }
-    }
-    json_to_value(json)
+    json_to_value_with(json, Some(config))
 }
 
 /// Reparse a persisted form's body source into its [`Expr`] using the config's
@@ -3149,6 +3206,308 @@ fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usi
         )));
     }
     Ok(resolved as usize)
+}
+
+/// Deterministic data builtins (data-trees slice): structural access and text
+/// plumbing over already-evaluated values, so a loaded JSON/YAML tree (a spec,
+/// a config, a dataset) can be walked and projected entirely in nlir, with the
+/// fuzzy ops reserved for the genuinely semantic steps. All are pure + total
+/// (loud on bad input), dispatched only in `%`-application position and only
+/// when the context does not shadow the name — like `$len`/`$sort`.
+pub(crate) const DATA_BUILTINS: &[&str] = &[
+    "keys", "values", "get", "join", "json", "type", "trim", "replace", "match", "matches", "sub",
+    "lines", "slice", "has", "flat", "entries", "lower", "upper",
+];
+
+/// The single operand of a unary data builtin: one arg is itself, a spread list
+/// literal (`$json%[a,b]` arrives as several args) is re-wrapped as a list.
+fn unary_operand(mut args: Vec<Value>) -> Value {
+    if args.len() == 1 {
+        args.remove(0)
+    } else {
+        Value::list(args)
+    }
+}
+
+/// A regex for `$match`/`$matches`/`$sub`, with a loud error on a bad pattern.
+fn data_regex(name: &str, pattern: &Value, sep: &str) -> Result<regex::Regex, EvalError> {
+    regex::Regex::new(&pattern.render(sep)).map_err(|error| {
+        EvalError::Unsupported(format!("`${name}` pattern is not a valid regex: {error}"))
+    })
+}
+
+/// The structural value a regex match yields: the whole match when the pattern
+/// has no capture groups, the sole group when it has one, else the list of groups
+/// (an unmatched optional group is the empty string).
+fn capture_value(caps: &regex::Captures<'_>) -> Value {
+    let group = |i: usize| Value::string(caps.get(i).map_or("", |m| m.as_str()).to_owned());
+    match caps.len() {
+        1 => group(0),
+        2 => group(1),
+        n => Value::list((1..n).map(group).collect()),
+    }
+}
+
+/// `$type` names (the type-system's own vocabulary).
+fn type_name(v: &Value) -> &'static str {
+    match v {
+        Value::String(_) => "string",
+        Value::Number(_) => "number",
+        Value::Bool(_) => "bool",
+        Value::List(_) => "list",
+        Value::Dict(_) => "dict",
+        Value::Form(_) => "form",
+    }
+}
+
+/// Evaluate one of [`DATA_BUILTINS`] over its evaluated arguments.
+///
+/// - `$keys%d` → the dict's keys (a list's indices); `$values%d` → its values.
+/// - `$get%(coll, key)` / `$get%(coll, key, default)` → dynamic `.`: a dict key,
+///   a list/string index (negative from the end); missing → `default`, else loud.
+/// - `$has%(coll, key)` → is `key` a dict key / valid list index (Bool).
+/// - `$join%(list, sep)` → items rendered and joined with `sep`.
+/// - `$json%v` / `$json%(v, indent)` → the value as JSON text (dicts stay ordered).
+/// - `$type%v` → `string`/`number`/`bool`/`list`/`dict`/`form`.
+/// - `$trim%s`, `$lines%s` (split on newlines), `$replace%(s, from, to)` (literal).
+/// - `$slice%(coll, start, end?)` → sub-list/substring, end-exclusive, negatives
+///   from the end, clamped (slicing is the one forgiving accessor).
+/// - `$match%(s, re)` → first match (or its capture group(s)), `''` when none;
+///   `$matches%(s, re)` → every match; `$sub%(s, re, repl)` → regex replace-all
+///   (`$1` / `${name}` refer to groups).
+fn data_builtin(name: &str, mut args: Vec<Value>, sep: &str) -> Result<Value, EvalError> {
+    let want = |n: usize, shape: &str, args: &Vec<Value>| -> Result<(), EvalError> {
+        if args.len() == n {
+            Ok(())
+        } else {
+            Err(builtin_arity_err(name, shape, args.len()))
+        }
+    };
+    match name {
+        "keys" => Ok(match unary_operand(args) {
+            Value::Dict(pairs) => {
+                Value::list(pairs.into_iter().map(|(k, _)| Value::string(k)).collect())
+            }
+            Value::List(items) => {
+                Value::list((0..items.len()).map(|i| Value::number(i as f64)).collect())
+            }
+            other => {
+                return Err(EvalError::Unsupported(format!(
+                    "`$keys` needs a dict or list, got a {}",
+                    type_name(&other)
+                )));
+            }
+        }),
+        "values" => Ok(match unary_operand(args) {
+            Value::Dict(pairs) => Value::list(pairs.into_iter().map(|(_, v)| v).collect()),
+            Value::List(items) => Value::list(items),
+            other => Value::list(vec![other]),
+        }),
+        "get" | "has" => {
+            if !(args.len() == 2 || (name == "get" && args.len() == 3)) {
+                return Err(builtin_arity_err(
+                    name,
+                    "(collection, key[, default])",
+                    args.len(),
+                ));
+            }
+            let default = if args.len() == 3 { args.pop() } else { None };
+            let key = args.pop().expect("two args");
+            let coll = args.pop().expect("two args");
+            let found = match &coll {
+                Value::Dict(pairs) => {
+                    let k = key.render(sep);
+                    pairs
+                        .iter()
+                        .find(|(pk, _)| *pk == k.trim())
+                        .map(|(_, v)| v.clone())
+                }
+                Value::List(items) => resolve_index(&key, items.len(), sep, "list")
+                    .ok()
+                    .map(|i| items[i].clone()),
+                other => {
+                    let chars: Vec<char> = other.render(sep).chars().collect();
+                    resolve_index(&key, chars.len(), sep, "string")
+                        .ok()
+                        .map(|i| Value::string(chars[i].to_string()))
+                }
+            };
+            if name == "has" {
+                return Ok(Value::bool(found.is_some()));
+            }
+            match (found, default) {
+                (Some(v), _) => Ok(v),
+                (None, Some(d)) => Ok(d),
+                (None, None) => Err(EvalError::Unsupported(format!(
+                    "`$get`: no `{}` in the {} (pass a default as a third argument)",
+                    key.render(sep).trim(),
+                    type_name(&coll)
+                ))),
+            }
+        }
+        "join" => {
+            want(2, "(list, separator)", &args)?;
+            let joiner = args.pop().expect("two args").render(sep);
+            let items = as_items(args.pop().expect("two args"));
+            Ok(Value::string(
+                items
+                    .iter()
+                    .map(|v| v.render(sep))
+                    .collect::<Vec<_>>()
+                    .join(&joiner),
+            ))
+        }
+        "json" => {
+            let indent = if args.len() == 2 {
+                let raw = args.pop().expect("two args").render(sep);
+                Some(raw.trim().parse::<usize>().map_err(|_| {
+                    EvalError::Unsupported(format!(
+                        "`$json` indent must be a whole number, got `{raw}`"
+                    ))
+                })?)
+            } else {
+                None
+            };
+            let json = value_to_json(&unary_operand(args));
+            let text = match indent {
+                Some(n) if n > 0 => {
+                    let pad = " ".repeat(n);
+                    let mut buf = Vec::new();
+                    let fmt = serde_json::ser::PrettyFormatter::with_indent(pad.as_bytes());
+                    let mut ser = serde_json::Serializer::with_formatter(&mut buf, fmt);
+                    serde::Serialize::serialize(&json, &mut ser)
+                        .map_err(|e| EvalError::Unsupported(format!("`$json`: {e}")))?;
+                    String::from_utf8(buf).unwrap_or_default()
+                }
+                _ => json.to_string(),
+            };
+            Ok(Value::string(text))
+        }
+        // `$flat%list` flattens one level (`[[a],[b,c],d]` → `[a,b,c,d]`): the
+        // concat that recursive tree walks (`{…}↦$0.children`) need.
+        "flat" => Ok(Value::list(
+            as_items(unary_operand(args))
+                .into_iter()
+                .flat_map(as_items)
+                .collect(),
+        )),
+        // `$entries%d` → `[{key=k, value=v}, …]`, so a dict maps like a list of records.
+        "entries" => match unary_operand(args) {
+            Value::Dict(pairs) => Ok(Value::list(
+                pairs
+                    .into_iter()
+                    .map(|(k, v)| {
+                        Value::Dict(vec![
+                            ("key".to_owned(), Value::string(k)),
+                            ("value".to_owned(), v),
+                        ])
+                    })
+                    .collect(),
+            )),
+            other => Err(EvalError::Unsupported(format!(
+                "`$entries` needs a dict, got a {}",
+                type_name(&other)
+            ))),
+        },
+        "type" => Ok(Value::string(type_name(&unary_operand(args)).to_owned())),
+        "trim" => Ok(Value::string(
+            unary_operand(args).render(sep).trim().to_owned(),
+        )),
+        "lower" => Ok(Value::string(
+            unary_operand(args).render(sep).to_lowercase(),
+        )),
+        "upper" => Ok(Value::string(
+            unary_operand(args).render(sep).to_uppercase(),
+        )),
+        "lines" => Ok(Value::list(
+            unary_operand(args)
+                .render(sep)
+                .lines()
+                .map(|line| Value::string(line.to_owned()))
+                .collect(),
+        )),
+        "replace" => {
+            want(3, "(text, from, to)", &args)?;
+            let to = args.pop().expect("3").render(sep);
+            let from = args.pop().expect("3").render(sep);
+            let text = args.pop().expect("3").render(sep);
+            Ok(Value::string(text.replace(&from, &to)))
+        }
+        "slice" => {
+            if !(args.len() == 2 || args.len() == 3) {
+                return Err(builtin_arity_err(
+                    name,
+                    "(collection, start[, end])",
+                    args.len(),
+                ));
+            }
+            let end = if args.len() == 3 {
+                Some(args.pop().expect("3"))
+            } else {
+                None
+            };
+            let start = args.pop().expect("2");
+            let coll = args.pop().expect("2");
+            let bound = |v: &Value, len: usize| -> Result<usize, EvalError> {
+                let raw = v.render(sep);
+                let i = raw.trim().parse::<i64>().map_err(|_| {
+                    EvalError::Unsupported(format!(
+                        "`$slice` bound must be an integer, got `{}`",
+                        raw.trim()
+                    ))
+                })?;
+                let len = len as i64;
+                Ok((if i < 0 { len + i } else { i }).clamp(0, len) as usize)
+            };
+            match coll {
+                Value::List(items) => {
+                    let s = bound(&start, items.len())?;
+                    let e = match &end {
+                        Some(v) => bound(v, items.len())?,
+                        None => items.len(),
+                    };
+                    Ok(Value::list(
+                        items.get(s..e.max(s)).unwrap_or_default().to_vec(),
+                    ))
+                }
+                other => {
+                    let chars: Vec<char> = other.render(sep).chars().collect();
+                    let s = bound(&start, chars.len())?;
+                    let e = match &end {
+                        Some(v) => bound(v, chars.len())?,
+                        None => chars.len(),
+                    };
+                    Ok(Value::string(chars[s..e.max(s)].iter().collect::<String>()))
+                }
+            }
+        }
+        "match" => {
+            want(2, "(text, regex)", &args)?;
+            let re = data_regex(name, &args[1], sep)?;
+            let text = args[0].render(sep);
+            Ok(re
+                .captures(&text)
+                .map_or_else(|| Value::string(String::new()), |c| capture_value(&c)))
+        }
+        "matches" => {
+            want(2, "(text, regex)", &args)?;
+            let re = data_regex(name, &args[1], sep)?;
+            let text = args[0].render(sep);
+            Ok(Value::list(
+                re.captures_iter(&text).map(|c| capture_value(&c)).collect(),
+            ))
+        }
+        "sub" => {
+            want(3, "(text, regex, replacement)", &args)?;
+            let re = data_regex(name, &args[1], sep)?;
+            let text = args[0].render(sep);
+            let repl = args[2].render(sep);
+            Ok(Value::string(
+                re.replace_all(&text, repl.as_str()).into_owned(),
+            ))
+        }
+        _ => unreachable!("unknown data builtin: {name}"),
+    }
 }
 
 /// Extract the `(form-body, items)` for a `builtin:` map/fold glyph operator from
