@@ -19,7 +19,7 @@ on:
       - SPEC.md
       - scripts/build-docs.sh
       - showcase/**
-      - site/workspace/**
+      - site/**
       - .github/workflows/pages.yml
       # P7 (bd-c69da6): rebuild the site when the wasm sources change so the
       # co-built in-page evaluator stays in lockstep with the shipped core.

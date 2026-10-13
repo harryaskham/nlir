@@ -1,66 +1,79 @@
 <section class="hero">
-  <div class="wordmark">nlir<span class="dot">·</span><span class="sub">natural-language IR</span></div>
-  <p class="tag">Terse sigil shorthand in, fluent English out — a compressed language of thought for your prompt window.</p>
-  <div class="hero-live">
-    <div class="hero-run">
-      <input id="hx" value="?%({$0+$1}⊘({$contains%($0,'ERROR')}↦['ok','ERROR: oom','ok','ERROR: disk full'])>=2,'page on-call','all clear')" spellcheck="false" autocomplete="off" aria-label="nlir expression">
-      <button id="hgo" type="button">Run &#9656;</button>
-      <button id="hstep" type="button">Step</button>
+  <div>
+    <h1>Shorthand in.<br><em>Prose</em> out.</h1>
+    <p class="lede">A small language for the prompt window. Exact data operations and model-backed text operators share one evaluator, so a program can be part code and part judgement.</p>
+    <div class="actions">
+      <a class="btn primary" href="workspace/">Open the workspace</a>
+      <a class="btn" href="spec-lab/">Spec lab</a>
+      <a class="btn" href="spec.html">Read the spec</a>
     </div>
-    <div class="hero-out" id="hout"><span class="ph">loading the evaluator&#8230;</span></div>
-    <p class="hero-note">That&#8217;s a real <em>ops gate</em> in one line, in nlir&#8217;s own glyphs &#8212; <code>&#8614;</code> <strong>maps</strong> a &#8220;does this line <code>$contains</code> ERROR&#8221; check across the log, <code>&#8856;</code> <strong>folds</strong> the hits into a count, and <code>?</code> is <strong>if</strong>: two or more, page the on-call, else all clear (press <strong>Step</strong> to watch it reduce). The whole taxonomy in one breath &#8212; map and fold, a comparison, a branch. The real nlir evaluator, running live in your browser &#8212; no install, no key (det mode). <a href="workspace/">Open the workspace &#8594;</a> to add an LLM key and swap the literal <code>$contains</code> for a fuzzy judgment like <code>{$0~&gt;'a real failure'}</code> &#8212; same program, real reasoning.</p>
   </div>
-  <div class="cta">
-    <a class="primary" href="workspace/">Try it live &#8594;</a>
-    <a class="ghost" href="showcase.html">Explore the showcase</a>
-    <a class="ghost" href="spec.html">Read the SPEC</a>
-    <a class="ghost" href="https://github.com/harryaskham/nlir">GitHub</a>
+  <div>
+    <div class="console live">
+      <div class="row">
+        <input id="hx" spellcheck="false" autocomplete="off" aria-label="nlir expression">
+        <button id="hstep" type="button" title="Show each reduction">Step</button>
+        <button id="hgo" class="go" type="button" title="Evaluate (Enter)">Run ▸</button>
+      </div>
+      <div class="out" id="hout" aria-live="polite"><span class="ph">Loading the evaluator…</span></div>
+      <div class="tabs" role="tablist" id="htabs"></div>
+    </div>
+    <div class="live-meta"><span id="hmeta">wasm · det mode · in your browser</span></div>
   </div>
 </section>
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 <script type="module">
   const $ = id => document.getElementById(id);
-  const out = $('hout'), hx = $('hx');
+  const out = $('hout'), hx = $('hx'), meta = $('hmeta');
   const norm = v => (v instanceof Map ? Object.fromEntries(v) : v);
-  let evaluate, stepFn, cfgJson = '{}', ready = false;
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const EXAMPLES = [
+    { tab: 'ops gate', expr: "?%({$0+$1}⊘({$contains%($0,'ERROR')}↦['ok','ERROR: oom','ok','ERROR: disk full'])>=2,'page on-call','all clear')" },
+    { tab: 'data', expr: "orders=[{who=ada, total=12.5},{who=bo, total=40},{who=cy, total=7}]; $join%({$0.who}↦($filter%({$0.total>=10}, $orders)), ', ')" },
+    { tab: 'spec → prose', expr: "rule={id='R 1.1', force='must not', act='approve a change without evidence of tests'}; 'Rule ' ++ $rule.id ++ ': reviewers ' ++ $rule.force ++ ' ' ++ $rule.act ++ '.'" },
+    { tab: 'arithmetic', expr: "$fold%({$0+$1}, 1..100)" },
+    { tab: 'formal', expr: "@'lmk if any Qs'", captured: 'Please let me know if you have any questions.', model: 'model · captured' },
+  ];
+  let evaluate, stepFn, cfgJson = '{}', ready = false, current = EXAMPLES[0];
+  const tabs = $('htabs');
+  EXAMPLES.forEach((ex, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.role = 'tab'; b.textContent = ex.tab;
+    b.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+    b.onclick = () => { [...tabs.children].forEach(t => t.setAttribute('aria-selected', 'false')); b.setAttribute('aria-selected', 'true'); current = ex; hx.value = ex.expr; run(); };
+    tabs.appendChild(b);
+  });
+  hx.value = current.expr;
   try {
     const m = await import('./workspace/pkg/nlir_wasm.js');
     if (m.default) await m.default();
-    evaluate = m.evaluate; stepFn = m.step;
-    ready = true;
-    // Best-effort: load the real config so richer det ops (arithmetic) work. On any
-    // failure (offline/CDN/js-yaml), fall back to a config-free keystone so the hero
-    // stays live rather than showing an error on the homepage.
+    evaluate = m.evaluate; stepFn = m.step; ready = true;
     try {
       const y = m.defaultConfigYaml ? m.defaultConfigYaml() : await (await fetch('workspace/config.example.yaml')).text();
       cfgJson = JSON.stringify(window.jsyaml.load(y));
-    } catch (_) { hx.value = "'draft'; 'revise'; 'final'"; }
+    } catch (_) { /* config-free evaluator still runs the keystone examples */ }
+    try { const v = norm(m.version()); if (v && v.version) meta.textContent = `wasm ${v.version} · det mode · in your browser`; } catch (_) {}
   } catch (e) {
-    out.innerHTML = '<span class="hero-err">evaluator unavailable &#8212; <a href="workspace/">open the workspace</a></span>';
+    out.innerHTML = '<span class="err">The evaluator did not load. <a href="workspace/">Open the workspace</a></span>';
   }
-  async function runHero(){
+  const prose = (txt, tag) => `<div class="prose-out"><span class="arrow">→</span><span>${esc(txt).replace(/\n/g, '<br>')}</span></div>` + (tag ? `<div class="live-meta">${tag}</div>` : '');
+  async function run() {
+    if (current.captured && hx.value === current.expr) { out.innerHTML = prose(current.captured, current.model); return; }
     if (!ready) return;
-    out.innerHTML = '<span class="ph">running&#8230;</span>';
     try {
       const r = norm(await evaluate(hx.value, cfgJson, '{}', 'det', {}));
-      out.innerHTML = r.ok
-        ? '<span class="hero-arrow">&#8594;</span> <span class="hero-result">' + String(r.result).replace(/</g,'&lt;') + '</span>'
-        : '<span class="hero-err">' + r.error + '</span>';
-    } catch (e) { out.innerHTML = '<span class="hero-err">' + e + '</span>'; }
+      out.innerHTML = r.ok ? prose(r.result) : `<span class="err">${esc(r.error)}</span>`;
+    } catch (e) { out.innerHTML = `<span class="err">${esc(e)}</span>`; }
   }
-  async function stepHero(){
+  async function step() {
     if (!ready) return;
-    out.innerHTML = '<span class="ph">stepping&#8230;</span>';
     try {
       const r = norm(await stepFn(hx.value, cfgJson, '{}', 'det', {}));
       const steps = (r.steps || []).map(norm);
-      out.innerHTML = r.ok
-        ? steps.map(s => '<div class="hero-step">' + String(s.expr).replace(/</g,'&lt;') + '</div>').join('')
-        : '<span class="hero-err">' + r.error + '</span>';
-    } catch (e) { out.innerHTML = '<span class="hero-err">' + e + '</span>'; }
+      out.innerHTML = r.ok ? steps.map(s => `<div class="step">${esc(s.expr)}</div>`).join('') : `<span class="err">${esc(r.error)}</span>`;
+    } catch (e) { out.innerHTML = `<span class="err">${esc(e)}</span>`; }
   }
-  $('hgo').onclick = runHero;
-  $('hstep').onclick = stepHero;
-  hx.addEventListener('keydown', e => { if (e.key === 'Enter') runHero(); });
-  if (ready) runHero();
+  $('hgo').onclick = run; $('hstep').onclick = step;
+  hx.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+  run();
 </script>

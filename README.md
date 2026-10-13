@@ -335,6 +335,27 @@ layer map/fold over forms builds on.
 catalogue of multi-layer programs — named functions, composition, nesting, and
 do-N chains — every deterministic output verified end-to-end.
 
+## Data trees — specs, configs and datasets as native values
+
+Load a JSON or YAML file as a native value and navigate it with the same operators:
+objects are dicts, arrays are lists, all the way down. Program files (`-f`) hold
+libraries of named forms; `--` lines are comments.
+
+```sh
+cd site/spec-lab
+nlir --bind spec=toy-spec.json -e '$len%($keys%$spec.nodes)'                      # → 10
+nlir --bind spec=toy-spec.json -f spec.nlir -f profile.nlir -e '$packet%"CR V 2.2"'   # one rule, resolved
+nlir --mode det -e 'orders=[{who=ada, total=12.5},{who=bo, total=40}];
+                    $join%({$0.who}↦($filter%({$0.total>=10}, $orders)), ", ")'   # → ada, bo
+```
+
+`$keys` `$get` `$join` `$flat` `$zip` `$json` `$match` `$sub` and friends do the exact
+structural work; `=>`, `~`, `≈` and the other model operators do the semantic work; a
+nested form reads its enclosing form's arguments as `$$0`. The
+[spec lab](https://harryaskham.github.io/nlir/spec-lab/) runs this in the browser: a
+spec tree projected into prose and parsed back exactly, with edits to the prose
+turned into the spec changes they imply.
+
 ## The composable core — adverbs, trains, basics
 
 Forms unlock a small **composable core**: a handful of primitives that compose

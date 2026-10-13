@@ -925,41 +925,35 @@ def highlight(expr: str) -> str:
 
 
 CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=block');
 * { margin:0; padding:0; box-sizing:border-box; font-variant-ligatures:none; font-feature-settings:"liga" 0, "calt" 0; }
 body {
-  font-family:'Fira Sans','DejaVu Sans',sans-serif;
-  background:
-    radial-gradient(900px 520px at 14% 6%, rgba(168,85,247,.30), transparent 60%),
-    radial-gradient(760px 520px at 96% 104%, rgba(34,211,238,.16), transparent 55%),
-    linear-gradient(140deg,#160e2e 0%,#1d1140 46%,#241056 100%);
-  color:#efeaff; overflow:hidden; padding:56px 66px; display:flex; flex-direction:column;
+  font-family:'Inter',system-ui,sans-serif; background:#f6f5f1; color:#16181d;
+  overflow:hidden; padding:52px 64px; display:flex; flex-direction:column;
 }
-.head { display:flex; align-items:baseline; justify-content:space-between; }
-.brand { font-family:'Fira Code',monospace; font-weight:700; font-size:32px; color:#fff; }
-.brand .dot { color:#c084fc; }
-.brand .sub { font-family:'Fira Sans',sans-serif; font-weight:400; font-size:18px; color:#b9a8e6; margin-left:13px; }
-.pill { font-family:'Fira Code',monospace; font-size:15px; color:#a7f3d0;
-  border:1px solid rgba(52,211,153,.4); background:rgba(16,185,129,.10);
-  padding:7px 15px; border-radius:999px; white-space:nowrap; }
-.expr { font-family:'Fira Code',monospace; font-weight:500; color:#efeaff; background:#100a24;
-  border:1px solid rgba(168,85,247,.32); border-radius:16px; box-shadow:0 16px 46px rgba(0,0,0,.40);
-  word-break:break-word; }
-.expr .o { color:#e879f9; } .expr .s { color:#7dd3fc; } .expr .n { color:#fca5a5; }
-.src { font-size:19px; color:#b9a8e6; font-style:italic; }
-.src b { color:#8778ad; font-style:normal; font-family:'Fira Code',monospace; font-size:14px; }
-.foot { display:flex; align-items:center; justify-content:space-between; margin-top:8px; }
-.cap { font-size:17px; color:#c3b6ea; max-width:900px; }
-.gh { font-family:'Fira Code',monospace; font-size:15px; color:#8778ad; }
+.head { display:flex; align-items:baseline; justify-content:space-between; padding-bottom:18px; border-bottom:1px solid #dad7cd; }
+.brand { font-family:'JetBrains Mono',monospace; font-weight:600; font-size:26px; color:#16181d; letter-spacing:-.5px; }
+.brand .dot { color:#0e7563; }
+.brand .sub { font-family:'Inter',sans-serif; font-weight:400; font-size:16px; color:#6a6f7c; margin-left:12px; letter-spacing:0; }
+.pill { font-family:'JetBrains Mono',monospace; font-size:14px; color:#0a5a4c; border:1px solid #9cc9bb; padding:6px 13px; border-radius:999px; white-space:nowrap; }
+.expr { font-family:'JetBrains Mono',monospace; font-weight:500; color:#e6e8ed; background:#121418;
+  border:1px solid #282c35; border-radius:10px; word-break:break-word; }
+.expr .o { color:#5cc6a8; } .expr .s { color:#b9d4ea; } .expr .n { color:#e9b9a5; }
+.src { font-family:'Newsreader',serif; font-size:21px; color:#3a3e47; font-style:italic; }
+.src b { color:#6a6f7c; font-style:normal; font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:500; }
+.foot { display:flex; align-items:center; justify-content:space-between; margin-top:8px; padding-top:16px; border-top:1px solid #dad7cd; }
+.cap { font-size:16px; color:#3a3e47; max-width:900px; }
+.gh { font-family:'JetBrains Mono',monospace; font-size:14px; color:#6a6f7c; }
 """
 
 SIMPLE_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
 html,body {{ width:1200px; height:630px; }} {css}
-.body {{ flex:1; display:flex; flex-direction:column; justify-content:center; gap:20px; }}
-.expr {{ font-size:{esz}px; padding:24px 32px; line-height:1.3; }}
-.arrow {{ display:flex; align-items:center; gap:16px; color:#8b7bbf; font-size:16px;
-  font-family:'Fira Code',monospace; letter-spacing:3px; text-transform:uppercase; }}
-.arrow .line {{ height:1px; background:linear-gradient(90deg,#a855f7,transparent); flex:1; }}
-.out {{ font-size:{osz}px; line-height:1.32; color:#fff; border-left:4px solid #c084fc; padding:2px 0 2px 24px; }}
+.body {{ flex:1; display:flex; flex-direction:column; justify-content:center; gap:22px; }}
+.expr {{ font-size:{esz}px; padding:22px 30px; line-height:1.3; }}
+.arrow {{ display:flex; align-items:center; gap:14px; color:#0e7563; font-size:14px;
+  font-family:'JetBrains Mono',monospace; letter-spacing:2px; text-transform:uppercase; }}
+.arrow .line {{ height:1px; background:#dad7cd; flex:1; }}
+.out {{ font-family:'Newsreader',serif; font-size:{osz}px; line-height:1.3; color:#16181d; border-left:3px solid #0e7563; padding:2px 0 2px 24px; }}
 </style></head><body>
   <div class="head"><div class="brand">nlir<span class="dot">·</span><span class="sub">natural-language IR</span></div><div class="pill">{pill}</div></div>
   <div class="body">
@@ -973,13 +967,13 @@ html,body {{ width:1200px; height:630px; }} {css}
 
 GRID_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
 html,body {{ width:1200px; height:{h}px; }} {css}
-.claim {{ font-size:21px; color:#e9e2ff; margin:2px 0 2px 0; }}
-.claim b {{ color:#8778ad; font-style:normal; font-family:'Fira Code',monospace; font-size:14px; font-weight:500; }}
-.expr {{ font-size:34px; padding:16px 26px; line-height:1.25; margin:14px 0 20px 0; display:inline-block; }}
-.grid {{ display:grid; grid-template-columns:repeat({cols},1fr); gap:16px; flex:1; }}
-.cell {{ background:rgba(255,255,255,.035); border:1px solid rgba(168,85,247,.20); border-radius:14px; padding:16px 20px; }}
-.cell .lbl {{ font-family:'Fira Code',monospace; font-size:16px; color:#e879f9; margin-bottom:7px; }}
-.cell .txt {{ font-size:{tsz}px; line-height:1.34; color:#f3efff; }}
+.claim {{ font-family:'Newsreader',serif; font-size:23px; color:#16181d; margin:18px 0 2px 0; }}
+.claim b {{ color:#6a6f7c; font-style:normal; font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:500; }}
+.expr {{ font-size:32px; padding:14px 24px; line-height:1.25; margin:14px 0 20px 0; display:inline-block; }}
+.grid {{ display:grid; grid-template-columns:repeat({cols},1fr); gap:0 28px; flex:1; align-content:start; }}
+.cell {{ border-top:1px solid #dad7cd; padding:14px 0 16px; }}
+.cell .lbl {{ font-family:'JetBrains Mono',monospace; font-size:14px; color:#0e7563; margin-bottom:6px; }}
+.cell .txt {{ font-family:'Newsreader',serif; font-size:{tsz}px; line-height:1.34; color:#16181d; }}
 </style></head><body>
   <div class="head"><div class="brand">nlir<span class="dot">·</span><span class="sub">natural-language IR</span></div><div class="pill">{pill}</div></div>
   <div class="claim"><b>one claim ·</b> &ldquo;{claim}&rdquo;</div>
@@ -991,17 +985,16 @@ html,body {{ width:1200px; height:{h}px; }} {css}
 
 STEPS_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
 html,body {{ width:1200px; height:{h}px; }} {css}
-.o {{ color:#e879f9; }} .s {{ color:#7dd3fc; }} .n {{ color:#fca5a5; }}
-.title {{ font-size:23px; color:#e9e2ff; margin:4px 0 6px 0; }}
-.title code {{ font-family:'Fira Code',monospace; color:#e879f9; font-size:21px; }}
+.o {{ color:#5cc6a8; }} .s {{ color:#b9d4ea; }} .n {{ color:#e9b9a5; }}
+.title {{ font-family:'Newsreader',serif; font-size:24px; color:#16181d; margin:18px 0 6px 0; }}
+.title code {{ font-family:'JetBrains Mono',monospace; color:#0a5a4c; font-size:20px; }}
 .body {{ flex:1; display:flex; flex-direction:column; justify-content:center; gap:22px; }}
-.track .tlabel {{ font-family:'Fira Code',monospace; font-size:15px; color:#a7f3d0; margin-bottom:10px; }}
-.seq {{ font-family:'Fira Code',monospace; font-size:20px; line-height:1.5; background:#100a24;
-  border:1px solid rgba(168,85,247,.28); border-radius:14px; padding:14px 24px;
-  box-shadow:0 12px 34px rgba(0,0,0,.34); }}
-.seq .ln {{ white-space:pre-wrap; color:#efeaff; }}
-.seq .ar {{ color:#8b7bbf; }}
-.seq .red {{ color:#7be0c0; }}
+.track .tlabel {{ font-family:'JetBrains Mono',monospace; font-size:14px; color:#0e7563; margin-bottom:10px; }}
+.seq {{ font-family:'JetBrains Mono',monospace; font-size:19px; line-height:1.55; background:#121418;
+  border:1px solid #282c35; border-radius:10px; padding:14px 24px; }}
+.seq .ln {{ white-space:pre-wrap; color:#e6e8ed; }}
+.seq .ar {{ color:#8b92a1; }}
+.seq .red {{ color:#f0d18a; }}
 </style></head><body>
   <div class="head"><div class="brand">nlir<span class="dot">·</span><span class="sub">natural-language IR</span></div><div class="pill">{pill}</div></div>
   <div class="title">{title}</div>
@@ -1024,6 +1017,11 @@ def chromium():
     for c in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
         if shutil.which(c):
             return shutil.which(c)
+    # Playwright's bundled Chromium (macOS / Linux caches).
+    for cache in (Path.home() / "Library/Caches/ms-playwright", Path.home() / ".cache/ms-playwright"):
+        for app in sorted(cache.glob("chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium"), reverse=True) + \
+                   sorted(cache.glob("chromium-*/chrome-linux*/chrome"), reverse=True):
+            return str(app)
     sys.exit("no chromium found")
 
 
@@ -1042,7 +1040,7 @@ def shot(chrome, htmlp, pngp, w, h):
     png.unlink(missing_ok=True)
     cmd = [chrome, "--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
            f"--force-device-scale-factor={SCALE}", f"--window-size={w},{h}",
-           f"--screenshot={png}", url]
+           "--virtual-time-budget=6000", f"--screenshot={png}", url]
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             start_new_session=True)
     deadline = time.monotonic() + 60
@@ -1059,14 +1057,14 @@ def shot(chrome, htmlp, pngp, w, h):
     if proc.poll() is None:
         try:
             os.killpg(proc.pid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):  # group already gone (macOS)
             pass
         try:
             proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):  # group already gone (macOS)
                 pass
             proc.wait(timeout=3)
 
@@ -1162,20 +1160,19 @@ def main():
 
 
 SHEET_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=block');
 * {{ margin:0; padding:0; box-sizing:border-box; }}
 html,body {{ width:2280px; }}
-body {{ font-family:'Fira Sans',sans-serif; padding:56px 60px 64px;
-  background:radial-gradient(1100px 700px at 12% 4%, rgba(168,85,247,.28), transparent 60%),
-    linear-gradient(140deg,#120a26 0%,#1b0f3c 50%,#210e50 100%); color:#efeaff; }}
-.h {{ display:flex; align-items:baseline; gap:16px; margin-bottom:8px; }}
-.h .b {{ font-family:'Fira Code',monospace; font-weight:700; font-size:46px; color:#fff; }}
-.h .b .d {{ color:#c084fc; }}
-.h .t {{ font-size:24px; color:#b9a8e6; }}
-.sub {{ font-size:22px; color:#c3b6ea; margin-bottom:26px; }}
-.g {{ display:grid; grid-template-columns:repeat(3,1fr); gap:26px; }}
-.g img {{ width:100%; border-radius:14px; border:1px solid rgba(168,85,247,.22); box-shadow:0 14px 40px rgba(0,0,0,.4); display:block; }}
+body {{ font-family:'Inter',sans-serif; padding:60px 60px 64px; background:#f6f5f1; color:#16181d; }}
+.h {{ display:flex; align-items:baseline; gap:18px; margin-bottom:6px; }}
+.h .b {{ font-family:'JetBrains Mono',monospace; font-weight:600; font-size:44px; color:#16181d; }}
+.h .b .d {{ color:#0e7563; }}
+.h .t {{ font-family:'Newsreader',serif; font-size:30px; color:#16181d; }}
+.sub {{ font-size:20px; color:#6a6f7c; margin-bottom:30px; }}
+.g {{ display:grid; grid-template-columns:repeat(3,1fr); gap:28px; }}
+.g img {{ width:100%; border-radius:10px; border:1px solid #dad7cd; display:block; }}
 </style></head><body>
-  <div class="h"><div class="b">nlir<span class="d">·</span></div><div class="t">natural-language IR — terse shorthand becomes fluent English</div></div>
+  <div class="h"><div class="b">nlir<span class="d">·</span></div><div class="t">Shorthand in. Prose out.</div></div>
   <div class="sub">github.com/harryaskham/nlir — a config-defined operator language for your prompt window</div>
   <div class="g">{imgs}</div>
 </body></html>"""

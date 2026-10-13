@@ -112,7 +112,7 @@ function knownOut(expr){ const m = EXAMPLES.find(x => x.expr === expr); return m
 
 // A small preview graph (mock path, no pkg/): real dataflow graphs render on the
 // site via graph()/graphFrames(). data-id groups let the highlight logic be tested.
-const PLACEHOLDER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 210"><rect x="1" y="1" width="338" height="208" rx="16" fill="#100a24" stroke="rgba(168,85,247,.28)"/><line x1="100" y1="132" x2="165" y2="70" stroke="rgba(168,85,247,.5)" stroke-width="1.6"/><line x1="240" y1="132" x2="175" y2="70" stroke="rgba(168,85,247,.5)" stroke-width="1.6"/><g data-id="0"><rect x="130" y="28" width="80" height="40" rx="10" fill="#241a45" stroke="#a855f7"/><text x="170" y="48" fill="#e879f9" text-anchor="middle" dominant-baseline="central" font-family="Fira Code,monospace" font-size="13">op</text></g><g data-id="0.0"><rect x="60" y="132" width="80" height="40" rx="10" fill="#170f2c" stroke="#4a3a6a"/><text x="100" y="152" fill="#cbb9f5" text-anchor="middle" dominant-baseline="central" font-family="Fira Code,monospace" font-size="13">a</text></g><g data-id="0.1"><rect x="200" y="132" width="80" height="40" rx="10" fill="#170f2c" stroke="#4a3a6a"/><text x="240" y="152" fill="#cbb9f5" text-anchor="middle" dominant-baseline="central" font-family="Fira Code,monospace" font-size="13">b</text></g></svg>';
+const PLACEHOLDER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 210"><rect x="1" y="1" width="338" height="208" rx="14" fill="#111318" stroke="#262a33"/><line x1="100" y1="132" x2="165" y2="70" stroke="rgba(160,170,190,.42)" stroke-width="1.4"/><line x1="240" y1="132" x2="175" y2="70" stroke="rgba(160,170,190,.42)" stroke-width="1.4"/><g data-id="0"><rect x="130" y="28" width="80" height="40" rx="8" fill="#14231f" stroke="#3fa58c"/><text x="170" y="48" fill="#9be3c8" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono,monospace" font-size="13">op</text></g><g data-id="0.0"><rect x="60" y="132" width="80" height="40" rx="8" fill="#18191f" stroke="#3a3f4b"/><text x="100" y="152" fill="#c9ced8" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono,monospace" font-size="13">a</text></g><g data-id="0.1"><rect x="200" y="132" width="80" height="40" rx="8" fill="#18191f" stroke="#3a3f4b"/><text x="240" y="152" fill="#c9ced8" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono,monospace" font-size="13">b</text></g></svg>';
 
 const MOCK = {
   async evaluate(expr){
@@ -337,7 +337,14 @@ function configJson(){
 }
 function contextJson(){
   const o = { _messages: state.messages.map(m => ({ role:m.role, content:m.text })) };
-  state.kv.forEach(p => { if (p.k) o[p.k] = p.v; });
+  // A value that parses as a JSON object/array binds as native data ($k.field, ↦);
+  // anything else binds as text.
+  state.kv.forEach(p => {
+    if (!p.k) return;
+    let v = p.v;
+    if (/^\s*[\[{]/.test(v)) { try { v = JSON.parse(v); } catch (_) { /* keep text */ } }
+    o[p.k] = v;
+  });
   return JSON.stringify(o);
 }
 // P3: build the llm realiser from the Settings panel (BYO base-url + key). det passes {} (unused).
@@ -353,7 +360,12 @@ function realisers(){
         const res = await fetch(base + '/chat/completions', {
           method:'POST',
           headers: Object.assign({ 'Content-Type':'application/json' }, key ? { Authorization:'Bearer '+key } : {}),
-          body: JSON.stringify({ model: (state.settings.model || '').trim() || (model && model.model), messages:[{ role:'user', content: vars && vars.NLIR_PROMPT }] }),
+          // Send the operator's system frame (prompts.system, or its own `system:` such as
+          // => 's generative frame) as well as the filled prompt.
+          body: JSON.stringify({ model: (state.settings.model || '').trim() || (model && model.model), messages: [
+            ...(vars && vars.NLIR_SYSTEM_PROMPT ? [{ role:'system', content: vars.NLIR_SYSTEM_PROMPT }] : []),
+            { role:'user', content: vars && vars.NLIR_PROMPT },
+          ] }),
         });
         if (!res.ok){ let d=''; try { d = (await res.text()).slice(0,300).replace(/\s+/g,' ').trim(); } catch (_) {} throw new Error('llm endpoint ' + res.status + (d ? ': ' + d : '')); }
         const j = await res.json();
@@ -541,7 +553,7 @@ function setMode(m){
   state.settings.mode = m; save();
   document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode===m));
   $('modeBadge').textContent = m==='det' ? 'det · key-free' : m==='ondevice' ? 'on-device · private' : 'llm · needs a realiser';
-  $('modeBadge').className = 'badge' + (m==='llm' ? ' warn' : '');
+  $('modeBadge').className = 'badge' + (m==='llm' ? ' warn' : ' live');
   $('llmPanel').hidden = m!=='llm';
   $('odPanel').hidden = m!=='ondevice';
   if (m==='ondevice') checkOnDevice();

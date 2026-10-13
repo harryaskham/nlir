@@ -3,49 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>nlir · workspace</title>
-<!-- CodeMirror 5 (CDN) — powers the fullwidth multiline expression editor + optional vim mode (bd-98c6cc). Degrades to a raw <textarea> if unavailable. Loaded BEFORE workspace.css so our theme overrides CM defaults (e.g. its 300px default height). -->
+<!-- CodeMirror 5 (CDN) powers the multiline expression editor + optional vim mode (bd-98c6cc); degrades to the raw <textarea>. Loaded before our CSS so the theme overrides its defaults. -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.css">
+<link rel="stylesheet" href="../theme.css">
 <link rel="stylesheet" href="workspace.css">
 </head>
 <body>
-<nav>
-  <span class="brand">nlir<span class="dot">·</span><span class="sub">workspace</span></span>
-  <span id="modeBadge" class="badge">det · key-free</span>
-  <span id="verBadge" class="badge" title="co-build stamp">wasm: (mock)</span>
-  <a href="../index.html">← site</a>
-  <a href="https://github.com/harryaskham/nlir">GitHub ↗</a>
-</nav>
+<header class="bar">
+  <a class="mark" href="../index.html">nlir<i>·</i><small>workspace</small></a>
+  <span id="modeBadge" class="badge live">det · key-free</span>
+  <span id="verBadge" class="badge hide-sm" title="co-build stamp">wasm</span>
+  <a class="nav hide-sm" href="../index.html">Guide</a>
+  <a class="nav hide-sm" href="../spec.html">Spec</a>
+  <a class="nav" href="./" aria-current="page">Workspace</a>
+  <a class="nav" href="../spec-lab/">Spec lab</a>
+  <a class="nav hide-sm" href="https://github.com/harryaskham/nlir">GitHub ↗</a>
+</header>
 
-<div class="wrap">
-  <!-- LEFT: run + step -->
-  <div class="col">
-    <section class="panel">
-      <h2>Expression <span class="hint">— type nlir shorthand, run or step it</span></h2>
+<div class="ws">
+  <main class="main">
+    <section class="editor">
       <div class="expreditor">
-        <textarea id="expr" spellcheck="false" autocomplete="off" placeholder="e.g.  2**3**2   ·   @'lmk if any Qs'   ·   'a';'b';&amp;;~$          (⌘/Ctrl+Enter to run)"></textarea>
+        <textarea id="expr" spellcheck="false" autocomplete="off" placeholder="2**3**2   ·   @'lmk if any Qs'   ·   'a';'b';&amp;"></textarea>
       </div>
-      <!-- Live det preview (bd-970e05): a debounced, speculative result-so-far as you
-           type. Det-only + non-persisting (the safe-free-default of the shared
-           partial-display contract); llm realisation stays gated behind Run. -->
+      <!-- Live det preview (bd-970e05): debounced, speculative, non-persisting; llm realisation stays behind Run. -->
       <div class="livepreview" id="livePreview" hidden></div>
       <div class="exprctl">
-        <div class="seg" id="modeSeg">
+        <div class="seg" id="modeSeg" role="group" aria-label="Evaluation mode">
           <button data-mode="det" class="on">det</button>
           <button data-mode="llm">llm</button>
           <button data-mode="ondevice">on-device</button>
         </div>
-        <button class="run" id="runBtn">Run ▸</button>
-        <button class="step" id="stepBtn">Step ↓</button>
-        <button class="graph" id="graphBtn">Graph ◇</button>
-        <button class="graph" id="animBtn">Animate ▸</button>
-        <button class="ghost vimtoggle" id="vimToggle" type="button" title="Toggle vim keybindings in the expression editor" aria-pressed="false">vim: off</button>
+        <button class="run primary" id="runBtn" title="Run (⌘/Ctrl+Enter)">Run ▸</button>
+        <button class="step" id="stepBtn">Step</button>
+        <button class="graph" id="graphBtn">Graph</button>
+        <button class="graph" id="animBtn">Animate</button>
+        <span class="spacer"></span>
+        <button class="ghost vimtoggle" id="vimToggle" type="button" title="Toggle vim keybindings" aria-pressed="false">vim: off</button>
       </div>
-      <div class="chips" id="examples"></div>
-      <div class="output" id="output">
-        <span class="placeholder">Output appears here. Deterministic expressions (numbers, templates, joins, echo) run fully in-browser, key-free.</span>
-      </div>
+    </section>
+
+    <section class="result-pane">
+      <div class="output" id="output"><span class="placeholder">Run an expression, or pick one below.</span></div>
       <div class="steps" id="steps"></div>
       <div class="graphview" id="graphview" hidden>
         <div class="graphsvg" id="graphsvg"></div>
@@ -53,68 +55,67 @@
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Operators <span class="hint">— the live grammar (from your config)</span></h2>
+    <section>
+      <h2>Examples</h2>
+      <div class="chips" id="examples"></div>
+    </section>
+
+    <section>
+      <h2>Operators</h2>
       <div class="ops" id="ops"></div>
     </section>
 
-    <section class="panel">
-      <h2>Grammar <span class="hint">— special forms (the full language surface)</span></h2>
+    <section>
+      <h2>Grammar</h2>
       <div class="ops" id="forms"></div>
     </section>
-  </div>
+  </main>
 
-  <!-- RIGHT: config + context + settings -->
-  <div class="col">
-    <section class="panel">
-      <h2>Config <span class="hint">— YAML, seeds the operators</span></h2>
-      <textarea id="config" spellcheck="false"></textarea>
-      <div class="row" style="margin-top:.6rem">
-        <button class="ghost" id="applyCfg">Apply</button>
-        <button class="ghost" id="resetCfg">Reset to default</button>
-      </div>
+  <aside class="inspector">
+    <section>
+      <h2>Config <span class="aside-actions"><button class="ghost" id="applyCfg">Apply</button><button class="ghost" id="resetCfg">Reset</button></span></h2>
+      <textarea id="config" spellcheck="false" aria-label="config YAML"></textarea>
       <small class="note" id="cfgNote"></small>
     </section>
 
-    <section class="panel">
-      <h2>Context <span class="hint">— messages feed ^ / ^_ / ^*</span></h2>
+    <section>
+      <h2>Messages <span class="hint">^ ^_ ^*</span></h2>
       <div id="messages"></div>
       <div class="row">
-        <select class="role" id="newRole"><option>user</option><option>assistant</option><option>system</option></select>
-        <input class="txt" id="newMsg" placeholder="message text" spellcheck="false">
-        <button class="ghost" id="addMsg">+ add</button>
+        <select class="role" id="newRole" aria-label="role"><option>user</option><option>assistant</option><option>system</option></select>
+        <input class="txt" id="newMsg" placeholder="message" spellcheck="false">
+        <button class="ghost" id="addMsg" aria-label="Add message">+</button>
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Values <span class="hint">— $name bindings</span></h2>
+    <section>
+      <h2>Bindings <span class="hint">$name</span></h2>
       <div id="kvs"></div>
       <div class="row">
         <input class="k" id="newKey" placeholder="name" spellcheck="false">
-        <input class="v" id="newVal" placeholder="value" spellcheck="false">
-        <button class="ghost" id="addKv">+ set</button>
+        <input class="v" id="newVal" placeholder="value or JSON" spellcheck="false">
+        <button class="ghost" id="addKv" aria-label="Add binding">+</button>
       </div>
     </section>
 
-    <section class="panel" id="odPanel" hidden>
-      <h2>On-device <span class="hint">— zero-key, zero-egress</span></h2>
+    <section id="odPanel" hidden>
+      <h2>On-device</h2>
       <div class="od-status" id="odStatus">checking availability…</div>
-      <p class="hint">Runs llm-mode idioms on Gemini Nano inside your browser — no key, no network egress. Slower + lower-quality than a hosted model; the first run may download the model. Needs Chrome with built-in AI (the Prompt API).</p>
+      <small class="note">Gemini Nano in Chrome: no key, no network egress. The first run may download the model.</small>
     </section>
 
-    <section class="panel" id="llmPanel" hidden>
-      <h2>LLM <span class="hint">— llm-mode realiser (P3)</span></h2>
+    <section id="llmPanel" hidden>
+      <h2>Model endpoint</h2>
       <div class="row"><input class="v" id="baseUrl" placeholder="base URL (OpenAI-compatible)" spellcheck="false"></div>
       <div class="row"><input class="v" id="apiKey" placeholder="API key" type="password"></div>
-      <div class="row"><input class="v" id="model" placeholder="model id (optional — overrides config default, e.g. gpt-4o-mini)" spellcheck="false"></div>
-      <small class="note">Stored only in your browser (localStorage); sent only to your endpoint. On-device (window.ai / Gemma) lands in P5.</small>
+      <div class="row"><input class="v" id="model" placeholder="model id (optional)" spellcheck="false"></div>
+      <small class="note">Kept in this browser's localStorage and sent only to your endpoint.</small>
     </section>
-  </div>
+  </aside>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
-<!-- CodeMirror core + addons + vim keymap (bd-98c6cc). Order matters: core, then
-     addons vim depends on (dialog/searchcursor), then the vim keymap itself. -->
+<!-- CodeMirror core + addons + vim keymap (bd-98c6cc). Order matters. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
