@@ -1,0 +1,37 @@
+name: Pages
+
+# Build the site with the flake's .#site shell (wasm evaluator from this commit + docs)
+# and deploy it with the shared publish workflow on the self-hosted nix runners.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - SPEC.md
+      - config.example.yaml
+      - showcase/**
+      - site/**
+      - src/**
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - flake.nix
+      - flake.lock
+      - scripts/build-docs.sh
+      - scripts/build-site.sh
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  pages:
+    uses: harryaskham/harryaskham.github.io/.github/workflows/publish-pages.yml@main
+    with:
+      path: _site
+      build: |
+        nix develop .#site --command bash scripts/build-site.sh _site

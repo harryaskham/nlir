@@ -12,18 +12,18 @@
     # Ecosystem crates pulled in directly from github:harryaskham/* — NOT
     # vendored. `nix flake update` moves them in lockstep. We consume the sources
     # (flake = false) and wire them into the cargo build so the build is fully
-    # offline/reproducible in the nix sandbox. Fetched over SSH (git+ssh://) using
-    # the host's git/SSH key at flake-eval time.
+    # offline/reproducible in the nix sandbox. The repos are public, so they are
+    # fetched as GitHub tarballs — no SSH key needed (CI runners have none).
     mcp-cli = {
-      url = "git+ssh://git@github.com/harryaskham/mcp-cli?ref=main";
+      url = "github:harryaskham/mcp-cli/main";
       flake = false;
     };
     updatable-cli = {
-      url = "git+ssh://git@github.com/harryaskham/updatable-cli?ref=main";
+      url = "github:harryaskham/updatable-cli/main";
       flake = false;
     };
     feedback-cli = {
-      url = "git+ssh://git@github.com/harryaskham/feedback-cli?ref=main&shallow=1";
+      url = "github:harryaskham/feedback-cli/main";
       flake = false;
     };
   };
@@ -172,8 +172,27 @@
               pkg-config
               git
               openssh
+              python3
             ]
             ++ darwinLibs;
+        };
+
+        # The site: the wasm evaluator built with nixpkgs' rustc (which ships the
+        # wasm32-unknown-unknown std) + the matching wasm-bindgen CLI, and the docs
+        # rendered by pandoc. `nix develop .#site --command bash scripts/build-site.sh
+        # _site` is what the Pages workflow runs on the self-hosted nix runners.
+        devShells.site = pkgs.mkShell {
+          packages = with pkgs; [
+            cargo
+            rustc
+            lld
+            wasm-bindgen-cli
+            binaryen
+            pandoc
+            python3
+            git
+            gnused
+          ];
         };
 
         formatter = pkgs.nixfmt-rfc-style;

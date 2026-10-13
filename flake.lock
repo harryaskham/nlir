@@ -5,17 +5,16 @@
       "locked": {
         "lastModified": 1783002780,
         "narHash": "sha256-Jy1IE1Kz9IGwW+FJP3ozKp5IaYr07AJOz/ErhRVuu18=",
-        "ref": "main",
+        "owner": "harryaskham",
+        "repo": "feedback-cli",
         "rev": "4991906eedade43006c92d14b8f746c4f40f5452",
-        "shallow": true,
-        "type": "git",
-        "url": "ssh://git@github.com/harryaskham/feedback-cli"
+        "type": "github"
       },
       "original": {
+        "owner": "harryaskham",
         "ref": "main",
-        "shallow": true,
-        "type": "git",
-        "url": "ssh://git@github.com/harryaskham/feedback-cli"
+        "repo": "feedback-cli",
+        "type": "github"
       }
     },
     "flake-utils": {
@@ -42,16 +41,16 @@
       "locked": {
         "lastModified": 1782762432,
         "narHash": "sha256-xhzRIfhtbmQ7ZIcmD2bGFH0IaVnD4wMRpa8VzDjmlWU=",
-        "ref": "main",
+        "owner": "harryaskham",
+        "repo": "mcp-cli",
         "rev": "2e4efc172ed61cd861c228e99195c055ea7ff693",
-        "revCount": 25,
-        "type": "git",
-        "url": "ssh://git@github.com/harryaskham/mcp-cli"
+        "type": "github"
       },
       "original": {
+        "owner": "harryaskham",
         "ref": "main",
-        "type": "git",
-        "url": "ssh://git@github.com/harryaskham/mcp-cli"
+        "repo": "mcp-cli",
+        "type": "github"
       }
     },
     "nixpkgs": {
@@ -97,16 +96,16 @@
       "locked": {
         "lastModified": 1782677866,
         "narHash": "sha256-eRCOkQ2n+9O8MUEUpnOoBGykMCpnjvf5Ro/lzSav8aY=",
-        "ref": "main",
+        "owner": "harryaskham",
+        "repo": "updatable-cli",
         "rev": "2ec70010437567d78d0a52ab7ec995d90b3ff9a3",
-        "revCount": 23,
-        "type": "git",
-        "url": "ssh://git@github.com/harryaskham/updatable-cli"
+        "type": "github"
       },
       "original": {
+        "owner": "harryaskham",
         "ref": "main",
-        "type": "git",
-        "url": "ssh://git@github.com/harryaskham/updatable-cli"
+        "repo": "updatable-cli",
+        "type": "github"
       }
     }
   },

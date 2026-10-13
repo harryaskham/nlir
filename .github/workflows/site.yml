@@ -1,0 +1,27 @@
+name: site
+
+# Pull requests: build and check the whole site (wasm evaluator + docs) exactly as the
+# Pages deploy does, without publishing. Pushes to main deploy via pages.yml.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  site:
+    name: build + check the site
+    runs-on: [self-hosted, nix, x86_64-linux]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build
+        run: nix develop .#site --command bash scripts/build-site.sh _site
