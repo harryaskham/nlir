@@ -123,3 +123,5 @@ small.note { color: var(--muted); font-size: .76rem; display: block; margin-top:
 .od-status { font: .8rem/1.4 var(--mono); padding: .5rem .6rem; border-radius: var(--r-sm); border: 1px solid var(--rule-strong); color: var(--muted); }
 .od-status.ok { color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .od-status.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+.output:empty { display: none; }
+.output:empty + .steps { margin-top: 0; }

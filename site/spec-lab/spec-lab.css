@@ -72,7 +72,7 @@ del { color: var(--amber); text-decoration-color: color-mix(in srgb, var(--amber
 
 /* ---- whole policy + loop --------------------------------------------------- */
 .doc-pane { max-width: 52rem; }
-.policy h2 { font: 500 1.9rem/1.2 var(--serif); color: var(--ink); margin: 0 0 .5rem; }
+.doc-pane .policy h2 { display: block; font: 500 1.9rem/1.2 var(--serif); color: var(--ink); margin: 0 0 .5rem; text-transform: none; letter-spacing: -.01em; min-height: 0; }
 .policy h3 { font: 500 1.4rem/1.25 var(--serif); color: var(--ink); margin: 2.2rem 0 .5rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
 .policy h4 { font: 600 1rem/1.35 var(--sans); color: var(--ink); margin: 1.6rem 0 .4rem; }
 .policy h5 { font: 600 .9rem/1.35 var(--sans); color: var(--ink-2); margin: 1.2rem 0 .3rem; }
@@ -85,6 +85,9 @@ del { color: var(--amber); text-decoration-color: color-mix(in srgb, var(--amber
 .stat span { font-size: .8rem; color: var(--muted); }
 .spark { width: 100%; max-width: 40rem; height: auto; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .spark .thr { stroke: var(--amber); stroke-dasharray: 4 4; }
+.spark .ceil { stroke: var(--muted); stroke-dasharray: 2 4; }
+.spark .phase { stroke: var(--rule-strong); }
+.spark .phase-l { fill: var(--muted); font: 10px var(--mono); }
 .spark .best { fill: none; stroke: var(--accent); stroke-width: 2; }
 .spark circle { cursor: pointer; }
 .spark .kept { fill: var(--accent); } .spark .rej { fill: var(--rule-strong); }

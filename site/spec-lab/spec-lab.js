@@ -145,8 +145,9 @@ async function showLoop() {
   box.innerHTML = `
     <div class="loop-head">
       <div class="stat"><b>${best.seed.mean.toFixed(2)} → ${best.best.mean.toFixed(2)}</b><span>held-out similarity, seed → learned</span></div>
-      <div class="stat"><b>${(best.best.pass_rate * 100).toFixed(0)}%</b><span>held-out rules ≥ ${trace.threshold}</span></div>
-      <div class="stat"><b>${rows.length - 1}</b><span>proposals · ${esc(trace.models.generation)} generates · ${esc(trace.models.judge)} judges</span></div>
+      ${trace.ceiling ? `<div class="stat"><b>${trace.ceiling.mean.toFixed(2)}</b><span>ceiling: a faithful paraphrase of the reference</span></div>` : ''}
+      <div class="stat"><b>${best.best.min.toFixed(2)}</b><span>worst held-out sample</span></div>
+      <div class="stat"><b>${rows.length - 1}</b><span>proposals · ${esc(trace.models.generation)} writes · ${esc(trace.models.judge)} judges · ${esc(String(trace.models.proposer).split('/').pop())} edits the program</span></div>
     </div>
     <svg class="spark" viewBox="0 0 600 120" id="spark"></svg>
     <div class="stepper"><button id="lprev" aria-label="Previous round">◀</button><span id="lcap"></span><button id="lnext" aria-label="Next round">▶</button></div>
@@ -154,11 +155,13 @@ async function showLoop() {
   const W = 600, H = 120, P = 14, xs = i => P + i * (W - 2 * P) / Math.max(rows.length - 1, 1), ys = s => H - P - s * (H - 2 * P);
   let run = 0;
   const bestPath = rows.map((r, i) => { if (r.accepted) run = Math.max(run, r.score); return `${i ? 'L' : 'M'}${xs(i).toFixed(1)},${ys(run).toFixed(1)}`; }).join(' ');
-  $('spark').innerHTML = `<line x1="${P}" x2="${W - P}" y1="${ys(trace.threshold)}" y2="${ys(trace.threshold)}" class="thr"/><path d="${bestPath}" class="best"/>` +
+  const phaseLines = rows.map((r, i) => (i && r.phase !== rows[i - 1].phase) ? `<line x1="${xs(i - .5)}" x2="${xs(i - .5)}" y1="${P}" y2="${H - P}" class="phase"/><text x="${xs(i - .5) + 4}" y="${P + 9}" class="phase-l">phase ${r.phase}</text>` : '').join('');
+  const ceil = trace.ceiling ? `<line x1="${P}" x2="${W - P}" y1="${ys(trace.ceiling.mean)}" y2="${ys(trace.ceiling.mean)}" class="ceil"/>` : '';
+  $('spark').innerHTML = `${ceil}${phaseLines}<path d="${bestPath}" class="best"/>` +
     rows.map((r, i) => `<circle cx="${xs(i)}" cy="${ys(r.score)}" r="4.5" class="${r.accepted ? 'kept' : 'rej'}" data-i="${i}"><title>r${i} ${r.score.toFixed(3)}</title></circle>`).join('');
   const show = () => {
     const r = rows[k];
-    $('lcap').innerHTML = `<b>r${String(r.round).padStart(2, '0')}</b> · train ${r.score.toFixed(3)} · ${r.accepted ? 'kept' : 'rejected'}<br><span>${esc(r.note)}</span>`;
+    $('lcap').innerHTML = `<b>r${String(r.round).padStart(2, '0')}</b> · train ${r.score.toFixed(3)} · ${r.accepted ? 'kept' : 'rejected'}${r.phase > 1 ? ' · phase ' + r.phase : ''}<br><span>${esc(r.note)}</span>`;
     $('lsrc').innerHTML = highlight(r.program);
     $('lgraph').innerHTML = r.graph || '';
     $('spark').querySelectorAll('circle').forEach(c => c.classList.toggle('cur', +c.dataset.i === k));
