@@ -818,6 +818,8 @@ tests:
   data-flat-walk:         { mode: det, expr: "t={id=r, kids=[{id=a, kids=[]},{id=b, kids=[]}]};ids={$flat%[[$0.id], $flat%({$ids%$0}↦$0.kids)]};$join%($ids%$t, ',')", expected: "r,a,b" }
   data-match-groups:      { mode: det, expr: "$join%($match%('## R 2.1 — Wash hands', '^#+ (\\S+ [\\d.]+) — (.*)$'), '|')", expected: "R 2.1|Wash hands" }
   data-member-apply:      { mode: det, expr: "lib={dbl={$0*2}};$lib.dbl%21", expected: "42" }
+  json-integral-number:   { mode: det, expr: "$json%{a=1+1, b=1/2}", expected: '{"a":2,"b":0.5}' }
+  map-parallel-det:       { mode: det, expr: "_sep=\",\";{$0*$0}↦[1,2,3,4]", expected: "1,4,9,16" }
   call-then-access:       { mode: det, expr: "$get%({a={t=ok}}, a).t", expected: "ok" }
   outer-arg-closure:      { mode: det, expr: "_sep=\",\";{$filter%({$gt%($0,$$0)}, [1,5,9])}%4", expected: "5,9" }
   outer-arg-two-levels:   { mode: det, expr: "_sep=\",\";{{{$0 ++ $$0 ++ $$$0}↦[x]}%(B)}%(A)", expected: "xBA" }

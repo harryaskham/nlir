@@ -739,21 +739,24 @@ impl<'a> Evaluator<'a> {
             // are preserved at the string-realisation boundary, not in the value).
             Expr::Group(inner) => self.eval(inner),
             Expr::FormApply { form, args } => self.eval_form_apply(form, args),
+            // List / dict literals fan out like operator operands: independent
+            // parallel-safe items evaluate concurrently (`[~a, ~b, ~c]` makes its
+            // three model calls side by side), else in order.
             Expr::List(items) => {
-                let values = items
-                    .iter()
-                    .map(|item| self.eval(item))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let values = self.eval_siblings(items)?;
                 Ok(Value::list(values))
             }
             // A dict literal `{k=v, …}` (bd-27739b): evaluate each value eagerly
             // (a `{form}` value evaluates to a Value::Form, so form-literals stay
             // quoted), preserving insertion order.
             Expr::Dict(pairs) => {
-                let mut entries = Vec::with_capacity(pairs.len());
-                for (key, value) in pairs {
-                    entries.push((key.clone(), self.eval(value)?));
-                }
+                let exprs: Vec<Expr> = pairs.iter().map(|(_, value)| value.clone()).collect();
+                let values = self.eval_siblings(&exprs)?;
+                let entries = pairs
+                    .iter()
+                    .map(|(key, _)| key.clone())
+                    .zip(values)
+                    .collect();
                 Ok(Value::dict(entries))
             }
             // A serial marker only constrains scheduling; sequential evaluation
@@ -847,6 +850,29 @@ impl<'a> Evaluator<'a> {
     /// a form application, a non-negative `$N` binds to the current argument
     /// frame's arg `N`, shadowing the run stack; otherwise — a negative index, no
     /// active frame, or an out-of-range frame index — it peeks the run stack.
+    /// Evaluate sibling expressions (list items, dict values) in order, or
+    /// concurrently when there are several and all are parallel-safe.
+    fn eval_siblings(&mut self, exprs: &[Expr]) -> Result<Vec<Value>, EvalError> {
+        if exprs.len() > 1
+            && self.parallelism > 1
+            && exprs
+                .iter()
+                .all(|e| is_parallel_safe(e, self.config, self.mode))
+        {
+            let cache_on = self.context.cache();
+            return eval_operands_parallel(
+                exprs,
+                self.config,
+                self.context,
+                self.mode,
+                cache_on,
+                &self.realise_cache,
+                self.parallelism,
+            );
+        }
+        exprs.iter().map(|e| self.eval(e)).collect()
+    }
+
     /// `$$N` (bd closures-lite): positional argument `index` of the argument frame
     /// `depth` levels below the innermost, so an inner form (a `$filter`
     /// predicate, a `↦` body) can read its enclosing form's arguments. Loud when
@@ -1294,6 +1320,33 @@ impl<'a> Evaluator<'a> {
         items: Vec<Value>,
     ) -> Result<Value, EvalError> {
         if name == "map" {
+            // Fan-out (SPEC §Execution graph): bind each item into the body
+            // (`$0` → the item); if every bound body is parallel-safe (no context
+            // writes, no stack, no form application), evaluate them concurrently
+            // under the `parallelism` bound — an llm form mapped over a list makes
+            // its calls side by side rather than one after another.
+            if items.len() > 1 && self.parallelism > 1 {
+                let bound: Vec<Expr> = items
+                    .iter()
+                    .map(|item| bind_args(body, std::slice::from_ref(item)))
+                    .collect();
+                if bound
+                    .iter()
+                    .all(|e| is_parallel_safe(e, self.config, self.mode))
+                {
+                    let cache_on = self.context.cache();
+                    return eval_operands_parallel(
+                        &bound,
+                        self.config,
+                        self.context,
+                        self.mode,
+                        cache_on,
+                        &self.realise_cache,
+                        self.parallelism,
+                    )
+                    .map(Value::list);
+                }
+            }
             let mut out = Vec::with_capacity(items.len());
             for item in items {
                 self.arg_frames.push(vec![item]);
@@ -2710,6 +2763,57 @@ fn is_parallel_safe(expr: &Expr, config: &Config, mode: Mode) -> bool {
     }
 }
 
+/// Bind a form body's own positional arguments (`$0 $1 …` at the body's top
+/// scope) to `frame` values, so the body can be evaluated without an argument
+/// frame (on the parallel fan-out path). Nested quotes are left untouched: they
+/// open their own scope, and a form value is inert until applied. A `$N` beyond
+/// the frame still reads the stack, so it stays unbound (and not parallel-safe).
+fn bind_args(expr: &Expr, frame: &[Value]) -> Expr {
+    let bind = |e: &Expr| bind_args(e, frame);
+    let bind_box = |e: &Expr| Box::new(bind_args(e, frame));
+    match expr {
+        Expr::StackIndex(n) if *n >= 0 && (*n as usize) < frame.len() => {
+            Expr::Value(frame[*n as usize].clone())
+        }
+        Expr::Message { role, index } => Expr::Message {
+            role: *role,
+            index: bind_box(index),
+        },
+        Expr::MessageRange { role, start, end } => Expr::MessageRange {
+            role: *role,
+            start: bind_box(start),
+            end: bind_box(end),
+        },
+        Expr::Group(inner) => Expr::Group(bind_box(inner)),
+        Expr::Serial(inner) => Expr::Serial(bind_box(inner)),
+        Expr::FormApply { form, args } => Expr::FormApply {
+            form: bind_box(form),
+            args: args.iter().map(bind).collect(),
+        },
+        Expr::List(items) => Expr::List(items.iter().map(bind).collect()),
+        Expr::Assign { key, value } => Expr::Assign {
+            key: key.clone(),
+            value: bind_box(value),
+        },
+        Expr::Dict(pairs) => Expr::Dict(
+            pairs
+                .iter()
+                .map(|(key, value)| (key.clone(), bind(value)))
+                .collect(),
+        ),
+        Expr::Apply {
+            op,
+            fixity,
+            operands,
+        } => Expr::Apply {
+            op: op.clone(),
+            fixity: *fixity,
+            operands: operands.iter().map(bind).collect(),
+        },
+        other => other.clone(),
+    }
+}
+
 /// Read-only evaluation of a parallel-safe subtree (see [`is_parallel_safe`]),
 /// sharing only `&Config`, `&Context`, and the thread-safe cache, so it runs
 /// on a scoped thread (bd-780dbf). It mirrors [`Evaluator::eval`] for the pure
@@ -2987,6 +3091,11 @@ fn json_to_value_with(json: &Json, config: Option<&Config>) -> Value {
 fn value_to_json(value: &Value) -> Json {
     match value {
         Value::String(text) => Json::String(text.clone()),
+        // Integral numbers persist as JSON integers (`2`, not `2.0`), matching
+        // how they render; others as floats; NaN/inf have no JSON form → null.
+        Value::Number(number) if number.fract() == 0.0 && number.abs() < 9.0e15 => {
+            Json::Number(serde_json::Number::from(*number as i64))
+        }
         Value::Number(number) => {
             serde_json::Number::from_f64(*number).map_or(Json::Null, Json::Number)
         }

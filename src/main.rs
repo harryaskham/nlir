@@ -55,10 +55,10 @@ struct Cli {
     #[arg(short = 'f', long = "file", value_name = "PATH")]
     files: Vec<PathBuf>,
 
-    /// Bind a JSON or YAML data file as a native value: `--bind NAME=PATH`
-    /// (repeatable). Objects become dicts and arrays become lists, so `$NAME.key.0`,
-    /// `$keys%$NAME` and `↦` navigate it. Bindings are transient: never written to a
-    /// context file.
+    /// Bind a file as a native value: `--bind NAME=PATH` (repeatable). `.json` and
+    /// `.yaml`/`.yml` load as data (objects → dicts, arrays → lists, so `$NAME.key.0`,
+    /// `$keys%$NAME` and `↦` navigate it); any other file binds as one string.
+    /// Bindings are transient: never written to a context file.
     #[arg(long = "bind", global = true, value_name = "NAME=PATH")]
     binds: Vec<String>,
 
@@ -395,17 +395,20 @@ fn apply_binds(cli: &Cli, ctx: &mut nlir::context::Context) -> Result<Vec<String
             eprintln!("nlir: --bind {name}: cannot read {path}: {error}");
             2
         })?;
-        let is_yaml = path.ends_with(".yaml") || path.ends_with(".yml");
-        let value: serde_json::Value = if is_yaml {
+        let lower = path.to_ascii_lowercase();
+        let value: serde_json::Value = if lower.ends_with(".yaml") || lower.ends_with(".yml") {
             serde_yaml::from_str(&text).map_err(|error| {
                 eprintln!("nlir: --bind {name}: {path} is not valid YAML: {error}");
                 2
             })?
-        } else {
+        } else if lower.ends_with(".json") {
             serde_json::from_str(&text).map_err(|error| {
                 eprintln!("nlir: --bind {name}: {path} is not valid JSON: {error}");
                 2
             })?
+        } else {
+            // Any other file (Markdown, text, source) binds as one string.
+            serde_json::Value::String(text)
         };
         ctx.set_transient(name, value);
         names.push(name.to_owned());

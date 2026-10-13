@@ -258,8 +258,9 @@ transformations differ by mode.
 Context values keep their JSON structure: objects are insertion-ordered **dicts**,
 arrays are **lists**, all the way down (a context file, `NLIR_CONTEXT`, the wasm
 `contextJson`, and assigned dicts round-tripping through context). Load a whole file
-as a native value with **`--bind NAME=PATH`** (JSON, or YAML by `.yaml`/`.yml`
-extension; repeatable; transient — never written to a context file):
+as a native value with **`--bind NAME=PATH`** (`.json` and `.yaml`/`.yml` load as
+data; any other file — Markdown, text — binds as one string; repeatable; transient —
+never written to a context file):
 
 ```
 nlir --bind spec=spec.json -f lib.nlir -e '$join%({$0.id}↦$spec.items, ", ")'
@@ -424,7 +425,11 @@ After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
 ## Execution graph & parallelism
 
 - The program is a **DAG**; independent LLM calls / `command:` subprocesses run
-  **concurrently**, bounded by `--parallelism` (default `8`).
+  **concurrently**, bounded by `--parallelism` (default `8`). Fan-out points: an
+  operator's operands, the items of a list literal (`[~a, ~b, ~c]`), the values of a
+  dict literal, and `$map`/`↦` over a list — each item is bound into the form body
+  (`$0` → the item) and the bound bodies run side by side when parallel-safe. A body
+  that writes context, reads the stack or applies a named form runs item by item.
 - **Safety:** greedy interpolation + context writes make blind parallelism unsafe.
   Any subtree that **writes context** (`=`) is serialised against readers; when in
   doubt the scheduler forces serial.
@@ -607,7 +612,7 @@ Assume the last assistant message (`^-1`) is about *a rust-rewrite*.
 ```
 nlir -e 'EXPR' [--quiet] [--mode det|llm] [--model haiku] [--parallelism 8] [--dry-run]
 nlir -f lib.nlir [-f prog.nlir] [-e 'EXPR']   # program files (`--` comment lines)
-nlir … --bind NAME=PATH           # JSON/YAML file → native dict/list value `$NAME` (transient)
+nlir … --bind NAME=PATH           # JSON/YAML → native dict/list `$NAME`; other files → string (transient)
 
 # context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
 # (default file loads for the REPL / set / get; a one-shot `-e` skips it — bd-85c49d)
