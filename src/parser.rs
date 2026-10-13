@@ -376,9 +376,21 @@ pub fn parse_program(
             Some(Token::Semicolon) => parser.pos += 1,
             None => break,
             Some(other) => {
+                // A prefix-only operator straight after a bare name is almost always
+                // an attempted binding (`notes=>(…)`, `x=~y`): say how to write it.
+                let hint = match (other, statements.last()) {
+                    (Token::Operator(op), Some(Expr::Bare(name)))
+                        if table.get(op).is_some_and(|i| i.fixity == Fixity::Prefix) =>
+                    {
+                        format!(
+                            " — to bind the result write `{name} = {op}(…)` (or `{name}={op}…`)"
+                        )
+                    }
+                    _ => String::new(),
+                };
                 return Err(ParseError {
                     position: parser.pos,
-                    message: format!("unexpected token {other:?} after statement"),
+                    message: format!("unexpected token {other:?} after statement{hint}"),
                 });
             }
         }
