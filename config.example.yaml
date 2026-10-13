@@ -300,6 +300,7 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Does the LHS imply the RHS? Integrates over &
     arity: 2
     fixity: infix
+    result: bool  # llm replies are typed to a real Bool, like the det: realisation
     model: medium
     prompt: |
       Return 'true' if the content of the first <text> implies the content of the second <text>, otherwise return 'false'.
@@ -821,6 +822,7 @@ tests:
   json-integral-number:   { mode: det, expr: "$json%{a=1+1, b=1/2}", expected: '{"a":2,"b":0.5}' }
   map-parallel-det:       { mode: det, expr: "_sep=\",\";{$0*$0}↦[1,2,3,4]", expected: "1,4,9,16" }
   map-parallel-closure:   { mode: det, expr: "_sep=\",\";{$0 ++ $join%({$0 ++ $$0}↦[1,2], '')}↦[a,b]", expected: "a1a2a,b1b2b" }
+  data-zip:               { mode: det, expr: "_sep=\",\";{$0.0 ++ $0.1}↦($zip%([a,b,c], [1,2]))", expected: "a1,b2" }
   call-then-access:       { mode: det, expr: "$get%({a={t=ok}}, a).t", expected: "ok" }
   outer-arg-closure:      { mode: det, expr: "_sep=\",\";{$filter%({$gt%($0,$$0)}, [1,5,9])}%4", expected: "5,9" }
   outer-arg-two-levels:   { mode: det, expr: "_sep=\",\";{{{$0 ++ $$0 ++ $$$0}↦[x]}%(B)}%(A)", expected: "xBA" }

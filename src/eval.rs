@@ -1472,20 +1472,27 @@ impl<'a> Evaluator<'a> {
     /// deterministic; the LLM twin is `..` (semantic access). Numbers/bools have
     /// no `.` reading, so indexing into them is an error.
     fn apply_access(&self, operands: &[Value]) -> Result<Value, EvalError> {
+        access_value(operands, &self.sep())
+    }
+}
+
+/// `.` over already-evaluated operands (see [`Evaluator::apply_access`]); a free
+/// fn so the parallel path can apply it too.
+fn access_value(operands: &[Value], sep: &str) -> Result<Value, EvalError> {
+    {
         let [container, key] = operands else {
             return Err(EvalError::Unsupported(format!(
                 "`.` takes (container, key); got {} operand(s)",
                 operands.len()
             )));
         };
-        let sep = self.sep();
         match container {
             Value::List(items) => {
-                let idx = resolve_index(key, items.len(), &sep, "list")?;
+                let idx = resolve_index(key, items.len(), sep, "list")?;
                 Ok(items[idx].clone())
             }
             Value::Dict(_) => {
-                let rendered = key.render(&sep);
+                let rendered = key.render(sep);
                 let k = rendered.trim();
                 container
                     .dict_get(k)
@@ -1494,7 +1501,7 @@ impl<'a> Evaluator<'a> {
             }
             Value::String(text) => {
                 let chars: Vec<char> = text.chars().collect();
-                let idx = resolve_index(key, chars.len(), &sep, "string")?;
+                let idx = resolve_index(key, chars.len(), sep, "string")?;
                 Ok(Value::string(chars[idx].to_string()))
             }
             other => Err(EvalError::Unsupported(format!(
@@ -1503,7 +1510,46 @@ impl<'a> Evaluator<'a> {
             ))),
         }
     }
+}
 
+/// `builtin:` realisations that are pure functions of their operand values (no
+/// form application, no argument frame): safe to evaluate on the parallel path.
+const PURE_BUILTIN_OPS: &[&str] = &[
+    "access", "union", "inter", "diff", "elem", "and", "or", "not", "sqrt",
+];
+
+/// The realisations every evaluation path must apply BEFORE generic operand
+/// coercion + realisation: pure `builtin:` ops and the numeric `a..b` range.
+/// `None` means "realise normally". Shared by the parallel path so a fanned-out
+/// `[1..3, $d.k]` gives the same answer as sequential evaluation.
+fn pre_realise(
+    op: &str,
+    op_cfg: &OperatorConfig,
+    operands: &[Value],
+    sep: &str,
+) -> Option<Result<Value, EvalError>> {
+    if let Some(builtin) = op_cfg.builtin.as_deref() {
+        return match builtin {
+            "access" => Some(access_value(operands, sep)),
+            "union" | "inter" | "diff" | "elem" => Some(apply_set_op(builtin, operands, sep)),
+            "and" | "or" => Some(apply_bool_op(builtin, operands)),
+            "not" => Some(apply_bool_not(operands)),
+            "sqrt" => Some(sqrt_builtin(operands, sep)),
+            _ => None,
+        };
+    }
+    if op == ".." {
+        if let (Some(a), Some(b)) = (
+            operands.first().and_then(as_integer),
+            operands.get(1).and_then(as_integer),
+        ) {
+            return Some(Ok(numeric_range(a, b)));
+        }
+    }
+    None
+}
+
+impl<'a> Evaluator<'a> {
     /// Parse a `form:` operator's source into its body expression, unwrapping the
     /// outer `{…}` quote if present (bd-44c294).
     fn parse_op_form(&self, form_src: &str) -> Result<Expr, EvalError> {
@@ -2296,9 +2342,42 @@ fn realise(
                 seed,
                 |name| std::env::var(name).ok(),
             )
-            .map(Value::string)
+            .map(|text| typed_llm_result(text, op_cfg.result))
             .map_err(|error| EvalError::Llm(error.to_string()))
         }
+    }
+}
+
+/// Apply an operator's declared `result:` type to a model's text reply, so an
+/// llm `result: number` op (`≈`) yields a real Number and `result: bool` a Bool,
+/// like their det realisations. Numbers take the first numeric literal in the
+/// reply (models wrap them: "Score: 0.85"); bools read a leading true/false.
+/// An unparseable reply stays text — the op still answers, untyped.
+fn typed_llm_result(text: String, result: TypeName) -> Value {
+    let trimmed = text.trim();
+    match result {
+        TypeName::Number => {
+            static NUM: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+            let re = NUM.get_or_init(|| {
+                regex::Regex::new(r"-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?").expect("number regex")
+            });
+            re.find(trimmed)
+                .and_then(|m| m.as_str().parse::<f64>().ok())
+                .map_or_else(|| Value::string(text.clone()), Value::number)
+        }
+        TypeName::Bool => {
+            let lower = trimmed
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_ascii_lowercase();
+            if lower.starts_with("true") || lower == "yes" {
+                Value::bool(true)
+            } else if lower.starts_with("false") || lower == "no" {
+                Value::bool(false)
+            } else {
+                Value::string(text)
+            }
+        }
+        _ => Value::string(text),
     }
 }
 
@@ -2369,7 +2448,7 @@ async fn realise_async<R: crate::realiser::Realiser>(
                 // Strip any `<text>…</text>` wrapper the model echoed, at the shared
                 // realiser seam so EVERY backend (incl. the browser JsRealiser, which
                 // returns raw fetched text) is guarded, not just native run_llm (bd-cb761e).
-                .map(|s| Value::string(crate::llm::strip_text_tags(&s)))
+                .map(|s| typed_llm_result(crate::llm::strip_text_tags(&s), op_cfg.result))
                 .map_err(|error| EvalError::Llm(error.to_string()))
         }
     }
@@ -2749,10 +2828,16 @@ fn is_parallel_safe(expr: &Expr, config: &Config, mode: Mode) -> bool {
                 return false;
             }
             if let Some(cfg) = config.operators.values().find(|c| c.op == *op) {
-                if cfg.form.is_some()
-                    || cfg.builtin.is_some()
-                    || (mode == Mode::Det && cfg.det.is_some())
+                let impure_builtin = cfg
+                    .builtin
+                    .as_deref()
+                    .is_some_and(|b| !PURE_BUILTIN_OPS.contains(&b));
+                if cfg.form.is_some() || impure_builtin || (mode == Mode::Det && cfg.det.is_some())
                 {
+                    return false;
+                }
+                // `{form}_N` composition needs the evaluator; keep it sequential.
+                if op == "_" && matches!(operands.first(), Some(Expr::Quote(_))) {
                     return false;
                 }
             }
@@ -2944,6 +3029,9 @@ fn eval_parallel_safe(
                 values.push(eval_parallel_safe(
                     operand, config, context, mode, cache_on, cache,
                 )?);
+            }
+            if let Some(result) = pre_realise(op, op_cfg, &values, &context.sep()) {
+                return result;
             }
             let (values, grouped) = if op_cfg.arity == Arity::Variadic {
                 spread_lists(values, grouped)
@@ -3365,7 +3453,7 @@ fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usi
 /// when the context does not shadow the name — like `$len`/`$sort`.
 pub(crate) const DATA_BUILTINS: &[&str] = &[
     "keys", "values", "get", "join", "json", "type", "trim", "replace", "match", "matches", "sub",
-    "lines", "slice", "has", "flat", "entries", "lower", "upper",
+    "lines", "slice", "has", "flat", "entries", "lower", "upper", "zip",
 ];
 
 /// The single operand of a unary data builtin: one arg is itself, a spread list
@@ -3540,6 +3628,20 @@ fn data_builtin(name: &str, mut args: Vec<Value>, sep: &str) -> Result<Value, Ev
                 .flat_map(as_items)
                 .collect(),
         )),
+        // `$zip%(a, b, …)` → `[[a0, b0, …], [a1, b1, …], …]`, truncated to the
+        // shortest list: pair parallel results back up with their inputs.
+        "zip" => {
+            if args.len() < 2 {
+                return Err(builtin_arity_err(name, "(list, list, …)", args.len()));
+            }
+            let lists: Vec<Vec<Value>> = args.into_iter().map(as_items).collect();
+            let n = lists.iter().map(Vec::len).min().unwrap_or(0);
+            Ok(Value::list(
+                (0..n)
+                    .map(|i| Value::list(lists.iter().map(|l| l[i].clone()).collect()))
+                    .collect(),
+            ))
+        }
         // `$entries%d` → `[{key=k, value=v}, …]`, so a dict maps like a list of records.
         "entries" => match unary_operand(args) {
             Value::Dict(pairs) => Ok(Value::list(

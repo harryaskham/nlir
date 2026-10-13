@@ -280,7 +280,8 @@ shadows them):
 | `$get%(c, k)` / `$get%(c, k, default)` | dynamic `.`: dict key or list/string index (`$get%($nodes, $id)` for keys with spaces); missing → default, else loud |
 | `$has%(c, k)` | Bool: is `k` a key / valid index |
 | `$join%(list, sep)` | items rendered and joined with `sep` |
-| `$flat%list` | flatten one level — the concat recursive tree walks need |
+| `$flat%list` | flatten one level — the concat recursive tree walks need (and list append: `$flat%[$xs, [x]]`) |
+| `$zip%(a, b, …)` | `[[a0, b0], [a1, b1], …]`, truncated to the shortest — pair parallel results with their inputs |
 | `$slice%(c, start[, end])` | sub-list / substring, end-exclusive, negatives from the end, clamped |
 | `$json%v` / `$json%(v, indent)` | the value as JSON text (dicts stay ordered) |
 | `$type%v` | `string` · `number` · `bool` · `list` · `dict` · `form` |
