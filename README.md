@@ -352,7 +352,7 @@ nlir --mode det -e 'orders=[{who=ada, total=12.5},{who=bo, total=40}];
 `$keys` `$get` `$join` `$flat` `$zip` `$json` `$match` `$sub` and friends do the exact
 structural work; `=>`, `~`, `≈` and the other model operators do the semantic work; a
 nested form reads its enclosing form's arguments as `$$0`. The
-[spec lab](https://harryaskham.github.io/nlir/spec-lab/) runs this in the browser: a
+[spec lab](https://a.skh.am/nlir/spec-lab/) runs this in the browser: a
 spec tree projected into prose and parsed back exactly, with edits to the prose
 turned into the spec changes they imply.
 

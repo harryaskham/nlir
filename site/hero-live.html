@@ -52,7 +52,7 @@
       const y = m.defaultConfigYaml ? m.defaultConfigYaml() : await (await fetch('workspace/config.example.yaml')).text();
       cfgJson = JSON.stringify(window.jsyaml.load(y));
     } catch (_) { /* config-free evaluator still runs the keystone examples */ }
-    try { const v = norm(m.version()); if (v && v.version) meta.textContent = `wasm ${v.version} · det mode · in your browser`; } catch (_) {}
+    try { const v = norm(m.version()); const ver = v && (v.crate || v.version); if (ver) meta.textContent = `nlir ${ver} · wasm · det mode · in your browser`; } catch (_) {}
   } catch (e) {
     out.innerHTML = '<span class="err">The evaluator did not load. <a href="workspace/">Open the workspace</a></span>';
   }
