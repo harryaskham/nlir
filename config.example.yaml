@@ -826,6 +826,7 @@ tests:
   map-parallel-det:       { mode: det, expr: "_sep=\",\";{$0*$0}↦[1,2,3,4]", expected: "1,4,9,16" }
   map-parallel-closure:   { mode: det, expr: "_sep=\",\";{$0 ++ $join%({$0 ++ $$0}↦[1,2], '')}↦[a,b]", expected: "a1a2a,b1b2b" }
   data-zip:               { mode: det, expr: "_sep=\",\";{$0.0 ++ $0.1}↦($zip%([a,b,c], [1,2]))", expected: "a1,b2" }
+  assign-generated:       { mode: det, expr: "brief==>'a note';$brief", expected: "response: a note" }
   call-then-access:       { mode: det, expr: "$get%({a={t=ok}}, a).t", expected: "ok" }
   outer-arg-closure:      { mode: det, expr: "_sep=\",\";{$filter%({$gt%($0,$$0)}, [1,5,9])}%4", expected: "5,9" }
   outer-arg-two-levels:   { mode: det, expr: "_sep=\",\";{{{$0 ++ $$0 ++ $$$0}↦[x]}%(B)}%(A)", expected: "xBA" }

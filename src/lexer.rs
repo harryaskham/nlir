@@ -321,8 +321,16 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
                 // through match_operator otherwise; the `op.len() > 1` guard keeps
                 // a lone `=` as assignment so it is never shadowed. `!=`/`<=`/`>=`
                 // are unaffected (they extend `!`/`<`/`>`, already longest-matched).
+                // `name==>…` is an assignment of a generated value (`name = =>…`),
+                // not `name == >…` (a comparison against an expansion, which is
+                // never what's meant): when `=>` is configured, `==>` after a value
+                // lexes as `=` then `=>`, so the binding actually happens.
+                let assign_then_respond = prev_is_value
+                    && chars.get(i + 1) == Some(&'=')
+                    && chars.get(i + 2) == Some(&'>')
+                    && op_sigils.iter().any(|s| s == "=>");
                 match match_operator(&chars, i, op_sigils) {
-                    Some((op, next)) if op.len() > 1 => {
+                    Some((op, next)) if op.len() > 1 && !assign_then_respond => {
                         tokens.push(Token::Operator(op));
                         i = next;
                     }
@@ -729,6 +737,21 @@ mod tests {
         // ...but not before `==` / `=>`, and `x_2` still splits for echo.
         assert_eq!(toks("x_2"), vec!["x", "_", "2"]);
         assert_eq!(toks("a_b==c")[..3], ["a", "_", "b"]);
+    }
+
+    #[test]
+    fn assign_then_respond_is_not_a_comparison() {
+        let o = ops(&["==", "=>", ">"]);
+        let toks = |input: &str| -> Vec<String> {
+            tokenize(input, &o)
+                .expect("tokenises")
+                .into_iter()
+                .map(|t| t.render())
+                .collect()
+        };
+        assert_eq!(toks("brief==>x"), vec!["brief", "=", "=>", "x"]);
+        // A plain comparison is untouched.
+        assert_eq!(toks("a==b"), vec!["a", "==", "b"]);
     }
 
     fn bares(input: &str) -> Vec<String> {
