@@ -626,6 +626,7 @@ impl<'a> Evaluator<'a> {
             Expr::ContextRead(_)
             | Expr::StackPeek
             | Expr::StackIndex(_)
+            | Expr::OuterArg { .. }
             | Expr::Message { .. }
             | Expr::MessageRange { .. }
             | Expr::Quoted {
@@ -731,6 +732,7 @@ impl<'a> Evaluator<'a> {
                 .cloned()
                 .ok_or_else(|| EvalError::Stack("`$` peek of an empty stack".to_owned())),
             Expr::StackIndex(index) => self.read_positional(*index),
+            Expr::OuterArg { depth, index } => self.read_outer_arg(*depth, *index),
             Expr::Message { role, index } => self.eval_message(*role, index),
             Expr::MessageRange { role, start, end } => self.eval_message_range(*role, start, end),
             // Grouping overrides precedence; its value is the inner value (parens
@@ -845,6 +847,29 @@ impl<'a> Evaluator<'a> {
     /// a form application, a non-negative `$N` binds to the current argument
     /// frame's arg `N`, shadowing the run stack; otherwise — a negative index, no
     /// active frame, or an out-of-range frame index — it peeks the run stack.
+    /// `$$N` (bd closures-lite): positional argument `index` of the argument frame
+    /// `depth` levels below the innermost, so an inner form (a `$filter`
+    /// predicate, a `↦` body) can read its enclosing form's arguments. Loud when
+    /// there is no such enclosing frame or argument.
+    fn read_outer_arg(&self, depth: u32, index: u32) -> Result<Value, EvalError> {
+        let depth = depth as usize;
+        let frames = self.arg_frames.len();
+        let render = format!("{}{index}", "$".repeat(depth + 1));
+        if frames <= depth {
+            return Err(EvalError::Unsupported(format!(
+                "`{render}` reads an enclosing form's argument, but only {frames} form frame(s) are active"
+            )));
+        }
+        self.arg_frames[frames - 1 - depth]
+            .get(index as usize)
+            .cloned()
+            .ok_or_else(|| {
+                EvalError::Unsupported(format!(
+                    "`{render}`: the enclosing form has no argument {index}"
+                ))
+            })
+    }
+
     fn read_positional(&self, index: i64) -> Result<Value, EvalError> {
         if index >= 0 {
             if let Some(value) = self
@@ -1757,6 +1782,7 @@ impl<'a> Evaluator<'a> {
                 | Expr::ContextRead(_)
                 | Expr::StackPeek
                 | Expr::StackIndex(_)
+                | Expr::OuterArg { .. }
                 | Expr::Message { .. }
                 | Expr::MessageRange { .. }
                 | Expr::Value(_)
@@ -2053,6 +2079,7 @@ impl<'a> Evaluator<'a> {
                 Expr::ContextRead(_)
                 | Expr::StackPeek
                 | Expr::StackIndex(_)
+                | Expr::OuterArg { .. }
                 | Expr::Message { .. }
                 | Expr::MessageRange { .. }
                 | Expr::Quoted {
@@ -2639,7 +2666,9 @@ fn realise_command(command: &str, operands: &[Value], sep: &str) -> Result<Value
 fn is_parallel_safe(expr: &Expr, config: &Config, mode: Mode) -> bool {
     match expr {
         Expr::Bare(_) | Expr::Quoted { .. } | Expr::Number(_) | Expr::ContextRead(_) => true,
-        Expr::StackPeek | Expr::StackIndex(_) | Expr::Assign { .. } => false,
+        Expr::StackPeek | Expr::StackIndex(_) | Expr::OuterArg { .. } | Expr::Assign { .. } => {
+            false
+        }
         Expr::Message { index, .. } => is_parallel_safe(index, config, mode),
         Expr::MessageRange { start, end, .. } => {
             is_parallel_safe(start, config, mode) && is_parallel_safe(end, config, mode)
@@ -2821,9 +2850,11 @@ fn eval_parallel_safe(
         // A value spliced in by step-through evaluation is already reduced.
         Expr::Value(value) => Ok(value.clone()),
         // is_parallel_safe excludes these; defensive.
-        Expr::Assign { .. } | Expr::StackPeek | Expr::StackIndex(_) => Err(EvalError::Unsupported(
-            "non-parallel-safe node reached the parallel eval path".to_owned(),
-        )),
+        Expr::Assign { .. } | Expr::StackPeek | Expr::StackIndex(_) | Expr::OuterArg { .. } => {
+            Err(EvalError::Unsupported(
+                "non-parallel-safe node reached the parallel eval path".to_owned(),
+            ))
+        }
     }
 }
 

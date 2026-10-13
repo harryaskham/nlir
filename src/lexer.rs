@@ -101,6 +101,9 @@ pub enum Token {
     StackPeek,
     /// `$N` / `$-N` — peek the stack by (possibly negative) index.
     StackIndex(i64),
+    /// `$$N` / `$$$N` … — an ENCLOSING form's positional argument: each extra `$`
+    /// steps one argument frame out (`$$0` = the enclosing form's `$0`).
+    OuterArg { depth: u32, index: u32 },
     /// `^` / `^_` / `^*` / `^/` — a role-filtered message index; the index
     /// expression follows as subsequent tokens.
     Message(MessageRole),
@@ -128,6 +131,9 @@ impl Token {
             Token::ContextRead(name) => format!("${name}"),
             Token::StackPeek => "$".to_owned(),
             Token::StackIndex(n) => format!("${n}"),
+            Token::OuterArg { depth, index } => {
+                format!("{}{index}", "$".repeat(*depth as usize + 1))
+            }
             Token::Message(role) => format!("^{}", role.suffix()),
         }
     }
@@ -376,6 +382,7 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
                     | Token::ContextRead(_)
                     | Token::StackPeek
                     | Token::StackIndex(_)
+                    | Token::OuterArg { .. }
             )
         );
     }
@@ -385,6 +392,18 @@ pub fn tokenize(input: &str, op_sigils: &[String]) -> Result<Vec<Token>, LexErro
 /// Lex a `$` sub-form (SPEC §Context, §Builtins): `$name` context read (name may
 /// be a `_`-prefixed system key), `$N` / `$-N` stack index, else bare `$` peek.
 fn lex_dollar(chars: &[char], start: usize) -> Result<(Token, usize), LexError> {
+    // `$$N` / `$$$N` …: an enclosing form's argument (one frame out per extra `$`).
+    let dollars = chars[start..].iter().take_while(|c| **c == '$').count();
+    if dollars > 1 && chars.get(start + dollars).is_some_and(char::is_ascii_digit) {
+        let (n, next) = read_signed_int(chars, start + dollars)?;
+        return Ok((
+            Token::OuterArg {
+                depth: (dollars - 1) as u32,
+                index: n as u32,
+            },
+            next,
+        ));
+    }
     match chars.get(start + 1).copied() {
         // $name / $_system_key
         Some(c) if c.is_ascii_alphabetic() || c == '_' => {

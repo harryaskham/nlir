@@ -65,6 +65,8 @@ pub enum Expr {
     StackPeek,
     /// `$N` / `$-N` — peek the stack by index.
     StackIndex(i64),
+    /// `$$N` … — the positional argument `N` of the form `depth` frames out.
+    OuterArg { depth: u32, index: u32 },
     /// `^`/`^_`/`^*`/`^/` message index over the given index expression.
     Message { role: MessageRole, index: Box<Expr> },
     /// `M^N` message-range: the messages of `role` from index `start` to `end`,
@@ -161,6 +163,9 @@ impl Expr {
             Expr::ContextRead(name) => format!("${name}"),
             Expr::StackPeek => "$".to_owned(),
             Expr::StackIndex(n) => format!("${n}"),
+            Expr::OuterArg { depth, index } => {
+                format!("{}{index}", "$".repeat(*depth as usize + 1))
+            }
             Expr::Message { role, index } => format!("^{}{}", role.suffix(), index.render()),
             Expr::MessageRange { role, start, end } => {
                 format!("{}^{}{}", start.render(), role.suffix(), end.render())
@@ -451,6 +456,7 @@ impl Parser<'_> {
                 | Token::ContextRead(_)
                 | Token::StackPeek
                 | Token::StackIndex(_)
+                | Token::OuterArg { .. }
                 | Token::Message(_)
                 | Token::LParen
                 | Token::LBracket
@@ -568,7 +574,15 @@ impl Parser<'_> {
                     break;
                 }
                 self.pos += 1;
-                let rhs = self.expr(l_bp)?;
+                // A parenthesised argument list closes the call (`f%(a,b).k` =
+                // `(f%(a,b)).k`, like `f(a,b).k`), so postfix `.`/led operators that
+                // follow apply to the RESULT. A bare RHS keeps the right-assoc
+                // compose reading (`f%g%x` = `f%(g%x)`, `$f%$x.k` = `$f%($x.k)`).
+                let rhs = if matches!(self.peek(), Some(Token::LParen)) {
+                    self.nud()?
+                } else {
+                    self.expr(l_bp)?
+                };
                 let args = match rhs {
                     Expr::List(items) => items,
                     other => vec![other],
@@ -678,6 +692,7 @@ impl Parser<'_> {
                 | Token::ContextRead(_)
                 | Token::StackPeek
                 | Token::StackIndex(_)
+                | Token::OuterArg { .. }
                 | Token::Message(_),
             ) => true,
             Some(Token::Operator(op)) => matches!(
@@ -771,6 +786,7 @@ impl Parser<'_> {
             Token::ContextRead(s) => Ok(Expr::ContextRead(s)),
             Token::StackPeek => Ok(Expr::StackPeek),
             Token::StackIndex(n) => Ok(Expr::StackIndex(n)),
+            Token::OuterArg { depth, index } => Ok(Expr::OuterArg { depth, index }),
             Token::Message(role) => {
                 // A bare view with no index = the whole channel: `^*` ≡ `0^*-1`,
                 // `^_` ≡ `0^_-1`, `^` ≡ `0^-1`, `^/` ≡ all system. An index parses
@@ -1030,6 +1046,7 @@ pub fn max_positional(expr: &Expr) -> Option<usize> {
         // A nested quote opens its own argument scope — skip it.
         Expr::Quote(_)
         | Expr::StackIndex(_)
+        | Expr::OuterArg { .. }
         | Expr::StackPeek
         | Expr::Bare(_)
         | Expr::Number(_)

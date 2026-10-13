@@ -338,6 +338,11 @@ impl Builder {
             }
             Expr::StackPeek => self.push(path, NodeKind::StackPeek, "$".to_owned()),
             Expr::StackIndex(n) => self.push(path, NodeKind::StackIndex(*n), format!("${n}")),
+            Expr::OuterArg { depth, index } => self.push(
+                path,
+                NodeKind::StackIndex(i64::from(*index)),
+                format!("{}{index}", "$".repeat(*depth as usize + 1)),
+            ),
             Expr::Bare(text) => {
                 self.push(
                     path,

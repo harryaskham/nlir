@@ -182,6 +182,13 @@ transformations differ by mode.
   written; only bare `%`-chaining is affected.
 - **Argument holes `$0 $1 …`** — positional parameters inside a form, bound at apply
   time. **Hygienic**: a form's `$0` is its *argument*, not the run stack (`9;{$0}%7` → `7`).
+- **Enclosing-form arguments `$$0 $$1 …`** — inside a nested form, each extra `$`
+  steps one argument frame out: `$$0` is the *enclosing* form's `$0` (`$$$0` two
+  frames out). This is how an inner form (a `$filter` predicate, a `↦` body) reads
+  the outer form's arguments without clobbering global context — closures without
+  a binding construct: `{$filter%({$gt%($0,$$0)}, [1,5,9])}%4` → `[5,9]`;
+  `parent={$filter%({$elem%($$0, $0.kids)}, $nodes)}`. Loud when no such frame or
+  argument exists.
 - **Named macros** — assign a form to a name and call it by name (forms persist in
   context): `steelman={~(>@$0)}; $steelman%'we should rewrite it in Rust'`. The whole
   idiom phrasebook becomes a named, reusable library.
@@ -235,7 +242,8 @@ transformations differ by mode.
   vary or err. (Measured 2026-07-08, sonnet CLI; see bd-429d87.)
 - **Precedence**: `.` (priority 19) binds tighter than `%` application (18), so a
   form stored in a dict applies like a method — `lib={dbl={$0*2}};$lib.dbl%21` → `42` —
-  and `$f%$row.k` applies `$f` to `$row.k`.
+  and `$f%$row.k` applies `$f` to `$row.k`. A parenthesised argument list closes the
+  call, so `$get%($nodes, $id).title` reads `.title` of the result, as `f(x).k` would.
 - **snake_case keys**: directly after `.`, a key run includes `_`
   (`$node.rule_policy_exact`), and an identifier containing `_` that is followed by an
   assignment `=` is one key (`first_name=ada`, `{row_id=1}`). Elsewhere `x_2` still
