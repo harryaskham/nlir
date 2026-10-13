@@ -5,9 +5,9 @@
 //!
 //! Layout is a layered dataflow tree: operand edges form the tree (leaves at the
 //! bottom, the final operator at the top, data flowing upward), binding edges
-//! (`key = …` → each `$key` read) are drawn as dashed teal cross-links on top.
-//! Styling is the nlir card aesthetic (deep-violet panel, Fira Code labels, node
-//! colours keyed by [`NodeKind`]).
+//! (`key = …` → each `$key` read) are drawn as dashed amber cross-links on top.
+//! Multi-statement programs wrap whole statement trees onto rows. Styling: a
+//! graphite panel, JetBrains Mono labels, node colours keyed by [`NodeKind`].
 
 use crate::graph::{EdgeKind, Graph, NodeId, NodeKind};
 use std::collections::HashMap;
@@ -20,6 +20,10 @@ const PAD: f64 = 30.0;
 const FONT: f64 = 13.0;
 const CHAR_W: f64 = 7.9;
 const MAX_LABEL: usize = 16;
+/// Leaf slots per row before statement trees wrap onto the next row.
+const MAX_ROW_SLOTS: f64 = 12.0;
+/// Vertical gap between wrapped rows.
+const ROW_GAP: f64 = 46.0;
 
 /// Render `graph` to a standalone, self-contained SVG document (card aesthetic).
 #[must_use]
@@ -63,14 +67,64 @@ pub fn render(graph: &Graph) -> String {
             slot[i] = sum / op_children[i].len() as f64;
         }
     }
-    let max_layer = layer.iter().copied().max().unwrap_or(0);
-    let leaves = next.max(1.0);
+    // Wrap whole statement trees into rows (a multi-statement program would
+    // otherwise lay every tree side by side in one very wide strip). A tree is
+    // the subtree of a root (a node with no operand parent); trees keep eval
+    // order and pack left-to-right up to MAX_ROW_SLOTS leaf slots per row.
+    let mut parent = vec![None; n];
+    for (p, children) in op_children.iter().enumerate() {
+        for &c in children {
+            parent[c] = Some(p);
+        }
+    }
+    let mut root_of: Vec<usize> = (0..n).collect();
+    for i in (0..n).rev() {
+        if let Some(p) = parent[i] {
+            root_of[i] = root_of[p];
+        }
+    }
+    let mut span: HashMap<usize, (f64, f64)> = HashMap::new();
+    for i in 0..n {
+        let e = span.entry(root_of[i]).or_insert((slot[i], slot[i]));
+        e.0 = e.0.min(slot[i]);
+        e.1 = e.1.max(slot[i]);
+    }
+    let mut roots: Vec<usize> = span.keys().copied().collect();
+    roots.sort_by(|a, b| span[a].0.total_cmp(&span[b].0));
+    let mut x_off: HashMap<usize, f64> = HashMap::new();
+    let mut row_of: HashMap<usize, usize> = HashMap::new();
+    let mut rows: Vec<(f64, usize)> = Vec::new(); // (slots used, max layer)
+    for &r in &roots {
+        let (lo, hi) = span[&r];
+        let w = hi - lo + 1.0;
+        let fits = rows
+            .last()
+            .is_some_and(|(used, _)| used + w <= MAX_ROW_SLOTS);
+        if !fits {
+            rows.push((0.0, 0));
+        }
+        let row = rows.len() - 1;
+        let (used, max_l) = rows[row];
+        x_off.insert(r, used - lo);
+        row_of.insert(r, row);
+        rows[row] = (used + w, max_l.max(layer[r]));
+    }
+    let mut row_top = Vec::with_capacity(rows.len());
+    let mut acc = 0.0;
+    for (_, max_l) in &rows {
+        row_top.push(acc);
+        acc += NODE_H + *max_l as f64 * ROW_H + ROW_GAP;
+    }
+    let slots_wide = rows.iter().map(|(used, _)| *used).fold(1.0, f64::max);
 
     // Pixel geometry.
-    let width = PAD * 2.0 + leaves * COL_W;
-    let height = PAD * 2.0 + NODE_H + max_layer as f64 * ROW_H;
-    let cx = |i: usize| PAD + COL_W / 2.0 + slot[i] * COL_W;
-    let cy = |i: usize| PAD + NODE_H / 2.0 + (max_layer - layer[i]) as f64 * ROW_H;
+    let width = PAD * 2.0 + slots_wide * COL_W;
+    let height = PAD * 2.0 + acc - ROW_GAP;
+    let cx = |i: usize| PAD + COL_W / 2.0 + (slot[i] + x_off[&root_of[i]]) * COL_W;
+    let cy = |i: usize| {
+        let row = row_of[&root_of[i]];
+        PAD + NODE_H / 2.0 + row_top[row] + (rows[row].1 - layer[i]) as f64 * ROW_H
+    };
     let node_w = |i: usize| {
         let len = fit(&graph.nodes[i].label).chars().count() as f64;
         (len * CHAR_W + 22.0).clamp(46.0, COL_W - 14.0)
@@ -79,12 +133,12 @@ pub fn render(graph: &Graph) -> String {
     let mut svg = String::new();
     let _ = write!(
         svg,
-        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.0} {height:.0}" font-family="'Fira Code',ui-monospace,monospace" font-size="{FONT}">"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.0} {height:.0}" font-family="'JetBrains Mono','Fira Code',ui-monospace,monospace" font-size="{FONT}">"##,
     );
     svg.push_str(DEFS);
     let _ = write!(
         svg,
-        r##"<rect x="1" y="1" width="{:.0}" height="{:.0}" rx="18" fill="#100a24" stroke="rgba(168,85,247,.28)"/>"##,
+        r##"<rect x="1" y="1" width="{:.0}" height="{:.0}" rx="14" fill="#111318" stroke="#262a33"/>"##,
         width - 2.0,
         height - 2.0,
     );
@@ -94,7 +148,7 @@ pub fn render(graph: &Graph) -> String {
         if let (Some(&f), Some(&t)) = (index.get(&edge.from), index.get(&edge.to)) {
             let _ = write!(
                 svg,
-                r##"<line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="rgba(168,85,247,.5)" stroke-width="1.6" marker-end="url(#op)"/>"##,
+                r##"<line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="rgba(160,170,190,.42)" stroke-width="1.4" marker-end="url(#op)"/>"##,
                 cx(f),
                 cy(f) - NODE_H / 2.0,
                 cx(t),
@@ -108,7 +162,7 @@ pub fn render(graph: &Graph) -> String {
             let bow = ((x2 - x1).abs() * 0.3 + 40.0).min(120.0);
             let _ = write!(
                 svg,
-                r##"<path d="M {x1:.1} {y1:.1} C {:.1} {:.1} {:.1} {:.1} {x2:.1} {y2:.1}" fill="none" stroke="#7dd3fc" stroke-width="1.4" stroke-dasharray="4 3" opacity=".85" marker-end="url(#bind)"/>"##,
+                r##"<path d="M {x1:.1} {y1:.1} C {:.1} {:.1} {:.1} {:.1} {x2:.1} {y2:.1}" fill="none" stroke="#e0a458" stroke-width="1.4" stroke-dasharray="4 3" opacity=".8" marker-end="url(#bind)"/>"##,
                 x1 + bow,
                 y1,
                 x2 + bow,
@@ -126,7 +180,7 @@ pub fn render(graph: &Graph) -> String {
         let (x, y) = (cx(i) - w / 2.0, cy(i) - NODE_H / 2.0);
         let _ = write!(
             svg,
-            r##"<g data-id="{}"><rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{NODE_H}" rx="10" fill="{fill}" stroke="{stroke}" stroke-width="1.3"/><text x="{:.1}" y="{:.1}" fill="{text}" text-anchor="middle" dominant-baseline="central">{}</text></g>"##,
+            r##"<g data-id="{}"><rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{NODE_H}" rx="8" fill="{fill}" stroke="{stroke}" stroke-width="1.2"/><text x="{:.1}" y="{:.1}" fill="{text}" text-anchor="middle" dominant-baseline="central">{}</text></g>"##,
             node.id.dotted(),
             cx(i),
             cy(i),
@@ -140,30 +194,31 @@ pub fn render(graph: &Graph) -> String {
 /// The SVG `<defs>` (arrow markers for operand + binding edges).
 const DEFS: &str = concat!(
     r##"<defs>"##,
-    r##"<marker id="op" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="rgba(168,85,247,.7)"/></marker>"##,
-    r##"<marker id="bind" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#7dd3fc"/></marker>"##,
+    r##"<marker id="op" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="rgba(160,170,190,.6)"/></marker>"##,
+    r##"<marker id="bind" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#e0a458"/></marker>"##,
     r##"</defs>"##,
 );
 
 /// An empty-graph placeholder SVG.
 fn empty_svg() -> String {
-    r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60"><rect width="240" height="60" rx="12" fill="#100a24" stroke="rgba(168,85,247,.28)"/><text x="120" y="34" fill="#8b7bbf" text-anchor="middle" font-family="'Fira Code',monospace" font-size="13">(empty)</text></svg>"##.to_owned()
+    r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60"><rect width="240" height="60" rx="12" fill="#111318" stroke="#262a33"/><text x="120" y="34" fill="#8a91a0" text-anchor="middle" font-family="'JetBrains Mono','Fira Code',monospace" font-size="13">(empty)</text></svg>"##.to_owned()
 }
 
 /// Node fill/stroke/text colours keyed by [`NodeKind`] (card aesthetic).
 fn palette(kind: &NodeKind) -> (&'static str, &'static str, &'static str) {
+    // Graphite panel; teal = operators, amber = bindings/reads, indigo = forms.
     match kind {
-        NodeKind::Apply(_) => ("#241a45", "#a855f7", "#e879f9"),
-        NodeKind::FormApply => ("#241a45", "#a855f7", "#e879f9"),
-        NodeKind::Assign(_) | NodeKind::ContextRead(_) => ("#2c2210", "#e0b23a", "#fde68a"),
-        NodeKind::Message => ("#0e2420", "#34d399", "#a7f3d0"),
-        NodeKind::Number => ("#1c0f2a", "#6a3a5a", "#fca5a5"),
-        NodeKind::Quoted => ("#0e1a26", "#3a6a8a", "#7dd3fc"),
-        NodeKind::Quote => ("#181233", "#8b5cf6", "#c4b5fd"),
-        NodeKind::Bare => ("#170f2c", "#4a3a6a", "#cbb9f5"),
-        NodeKind::Value => ("#0e2414", "#4ade80", "#86efac"),
-        NodeKind::StackPeek | NodeKind::StackIndex(_) => ("#1a1030", "#8b5cf6", "#c4b5fd"),
-        NodeKind::List | NodeKind::Group | NodeKind::Serial => ("#16112e", "#4a3a6a", "#b9a8e6"),
+        NodeKind::Apply(_) | NodeKind::FormApply => ("#14231f", "#3fa58c", "#9be3c8"),
+        NodeKind::Assign(_) | NodeKind::ContextRead(_) => ("#251f14", "#c99a3b", "#f2d48a"),
+        NodeKind::Message => ("#152030", "#4c8bd6", "#a9cdf5"),
+        NodeKind::Number => ("#1c1d23", "#565c6b", "#e8b9a6"),
+        NodeKind::Quoted => ("#161c25", "#4a6d8c", "#b7d3ea"),
+        NodeKind::Quote | NodeKind::StackPeek | NodeKind::StackIndex(_) => {
+            ("#1b1a28", "#7d74b8", "#cdc8f0")
+        }
+        NodeKind::Bare => ("#18191f", "#3a3f4b", "#c9ced8"),
+        NodeKind::Value => ("#14241b", "#4caf7a", "#a6e3bf"),
+        NodeKind::List | NodeKind::Group | NodeKind::Serial => ("#16181d", "#3a3f4b", "#aab1bf"),
     }
 }
 
