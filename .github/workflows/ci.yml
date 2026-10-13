@@ -1,17 +1,11 @@
 name: CI
 
-# Build + test on the azure-ephemeral runners with the SYSTEM Rust toolchain
-# (rust-not-nix). nlir builds with the system toolchain on Linux (bd-aa78ee): the
-# nix dev shell segfaulted coreutils on x86, and pulling the ~5GB nix cache per
-# ephemeral job is too heavy. The ecosystem crate deps (mcp-cli, updatable-cli,
-# feedback-cli) are PUBLIC repos fetched anonymously over https, so this needs no
-# SSH key, deploy key, or token — it builds as-is on the secretless pool. The
-# runner needs Rust + a C toolchain.
+# fmt · clippy · build · showcase verification · SPEC operator sync · tests, inside the
+# flake's dev shell on the self-hosted nix runners.
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -19,115 +13,36 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
-  # Ephemeral runners have a fresh known_hosts; accept github.com's host key on
-  # first use so any ssh fetch can't be blocked (the deps are fetched over https
-  # below, but this keeps the job robust to transient config).
-  GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+  # The harryaskham/* crates are public but their Cargo manifests name ssh:// URLs and
+  # the runners have no SSH key: fetch them over HTTPS. Per-process git config, so the
+  # persistent runner's global git config is never modified.
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: url.https://github.com/.insteadOf
+  GIT_CONFIG_VALUE_0: ssh://git@github.com/
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
-  build-test:
-    name: build + test
-    runs-on: [self-hosted, azure-ephemeral]
-    timeout-minutes: 30
+  check:
+    name: fmt · clippy · test · showcase · spec ops
+    runs-on: [self-hosted, nix, x86_64-linux]
+    timeout-minutes: 45
     steps:
-      - name: Reset leftover git url rewrite (persistent-runner hygiene)
-        shell: bash
-        run: git config --global --unset-all url."ssh://git@github.com/".insteadOf 2>/dev/null || true
       - uses: actions/checkout@v4
-
-      - name: Move cargo home off the SMB build-cache (bd-f35766 rustup hardlink fix)
-        shell: bash
-        run: |
-          # A shared /mnt/build-cache CARGO_HOME is an SMB (Azure Files) mount that
-          # cannot hardlink (os error 95), breaking rustup's toolchain install. Pin
-          # CARGO_HOME to local disk when it's on that mount so the toolchain
-          # installs on a hardlink-capable fs; CARGO_TARGET_DIR stays on the cache.
-          if [[ "${CARGO_HOME:-}" == /mnt/build-cache/* ]]; then
-            echo "CARGO_HOME=$RUNNER_TEMP/nlir-cargo-home" >> "$GITHUB_ENV"
-          fi
-
-      - name: Ensure curl and rustup are reachable for the toolchain install (minimal step PATH)
-        shell: bash
-        run: |
-          # dtolnay/rust-toolchain runs `command -v rustup`; if absent it curl-installs rustup.
-          # This persistent runner's step shell (nix bash --noprofile --norc) has a minimal PATH
-          # with neither curl NOR rustup, so BOTH the primary check and the curl fallback die
-          # (`curl: command not found`, exit 127). Put the system bin dirs on PATH so curl is
-          # found for the fallback, and surface an on-disk rustup for this runner user if present
-          # (skips the download). Best-effort: `if`-guarded so a missing dir/binary never trips
-          # `set -e`, and a trailing `exit 0` so a final short-circuited test (e.g. no on-disk
-          # rustup yet, before dtolnay installs it) can never fail this job (bd-7e465a).
-          for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
-            if [ -d "$d" ]; then echo "$d" >> "$GITHUB_PATH"; fi
-          done
-          for d in "$HOME/.cargo/bin" "${CARGO_HOME:-/nonexistent}/bin"; do
-            if [ -x "$d/rustup" ]; then echo "$d" >> "$GITHUB_PATH"; fi
-          done
-          exit 0
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          persist-credentials: false
 
-      - name: Install C toolchain (cc linker for cc/ring/libc build scripts)
-        shell: bash
+      - name: Check
         run: |
-          if ! command -v cc >/dev/null 2>&1; then
-            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
-            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends build-essential
-          fi
-
-      # The ecosystem crate deps (mcp-cli/updatable-cli/feedback-cli) are PUBLIC
-      # repos; cargo fetches them anonymously over https. Rewrite the ssh source
-      # URLs to plain https so no SSH key or token/secret is needed on the runner.
-      - name: Use anonymous https for public crate deps
-        shell: bash
-        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-
-      - name: rustfmt check
-        shell: bash
-        run: cargo fmt --all --check
-
-      - name: clippy (deny warnings)
-        shell: bash
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: build
-        shell: bash
-        run: cargo build --release
-
-      - name: verify showcase cards are real nlir executions (det-only, keyless)
-        shell: bash
-        run: |
-          # Harry's bar (bd): the showcase must be REAL executions, not theory. This
-          # re-runs each deterministic showcase card's expression against the freshly
-          # built nlir binary and asserts the stored output matches EXACTLY, so a
-          # fabricated/hand-edited card can never silently ship. --det-only needs no
-          # network/API key, so it runs on the secretless pool. (LLM cards are proven
-          # locally + by their runnable examples/*.sh.)
-          command -v python3 >/dev/null 2>&1 || {
-            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
-            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends python3
-          }
-          BIN="target/release/nlir"
-          [ -n "${CARGO_TARGET_DIR:-}" ] && [ -x "$CARGO_TARGET_DIR/release/nlir" ] && BIN="$CARGO_TARGET_DIR/release/nlir"
-          python3 scripts/verify-showcase.py --det-only --nlir "$BIN"
-
-      - name: verify SPEC operator tables stay in sync with config (bd-be33ee)
-        shell: bash
-        run: |
-          # The SPEC operator tables are hand-maintained while `nlir help` + the
-          # wasm playground are auto-derived from config.example.yaml, so the SPEC
-          # tables are the surface that silently drifts (bd-2e59bb had to add 11
-          # missing rows by hand). This asserts SPEC operator-table op-set + names
-          # == config, so a new operator can't land without its SPEC row. Keyless.
-          command -v python3 >/dev/null 2>&1 || {
-            SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
-            $SUDO apt-get update -qq && $SUDO apt-get install -y --no-install-recommends python3
-          }
-          python3 scripts/verify-spec-ops.py
-
-      - name: test
-        shell: bash
-        run: cargo test --all
+          nix develop --command bash -euo pipefail -c '
+            export CARGO_TARGET_DIR="$HOME/.cache/nlir-ci/target"
+            cargo fmt --all --check
+            cargo clippy --all-targets -- -D warnings
+            cargo build --release
+            python3 scripts/verify-showcase.py --det-only --nlir "$CARGO_TARGET_DIR/release/nlir"
+            python3 scripts/verify-spec-ops.py
+            cargo test --all
+          '
