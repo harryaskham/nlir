@@ -181,6 +181,7 @@ for f in "$out/index.html" "$out/spec.html"; do
     -e 's#href="README\.md"#href="index.html"#g' \
     -e 's#href="\./showcase"#href="showcase.html"#g' \
     -e "s#href=\"\./#href=\"$repo/blob/main/#g" \
+    -E -e "s#href=\"((examples|docs|src|scripts|crates|test|extensions)/[^\"]*)\"#href=\"$repo/blob/main/\\1\"#g" \
     "$f"
 done
 
