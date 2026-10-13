@@ -1065,6 +1065,27 @@ pub fn assemble_llm(
     })
 }
 
+/// Point the transport's system-prompt variable (`prompts.system.env`, normally
+/// `NLIR_SYSTEM_PROMPT`) at an operator's chosen `system:` frame, so the same
+/// model command carries a different frame per operator. No-op without one.
+pub fn select_system_prompt(call: &mut LlmCall, system: Option<&str>, config: &Config) {
+    let Some(name) = system else { return };
+    let target = config
+        .prompts
+        .get("system")
+        .and_then(|def| def.env.clone())
+        .unwrap_or_else(|| "NLIR_SYSTEM_PROMPT".to_owned());
+    let text = config
+        .prompts
+        .get(name)
+        .and_then(|def| def.env.as_ref())
+        .and_then(|env| call.vars.get(env))
+        .cloned();
+    if let Some(text) = text {
+        call.vars.insert(target, text);
+    }
+}
+
 /// Run an assembled [`LlmCall`] against the NATIVE backend (effectful): the
 /// `command` model kind shells out; `anthropic_messages` calls HTTP. This is the
 /// native realiser body — behaviour is identical to the pre-split [`realise_llm`].

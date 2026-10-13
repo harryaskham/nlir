@@ -273,6 +273,12 @@ pub struct OperatorConfig {
     /// short-circuits for free). A bare operand-start `?` with no `%` application
     /// is a clear parse error, never a silent incomplete form.
     pub prefix_builtin: Option<String>,
+    /// The `prompts:` entry used as this operator's SYSTEM frame (default: the
+    /// `system` prompt). Lets an operator carry its own frame independent of the
+    /// model it runs on — `=>` uses `system: generative` (obey the instruction)
+    /// on whatever tier `model:` / `--model` selects, rather than needing a
+    /// dedicated model alias whose command hard-codes the frame.
+    pub system: Option<String>,
 }
 
 impl OperatorConfig {
@@ -1171,6 +1177,19 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
     let mut seen_ops: BTreeMap<&str, &str> = BTreeMap::new();
     for (name, op) in &config.operators {
         let loc = format!("operators.{name}");
+        if let Some(system) = op.system.as_deref() {
+            match config.prompts.get(system) {
+                Some(def) if def.env.is_some() => {}
+                Some(_) => errs.push(ValidationError::new(
+                    &loc,
+                    format!("`system: {system}` names a prompt with no `env` to export"),
+                )),
+                None => errs.push(ValidationError::new(
+                    &loc,
+                    format!("`system: {system}` names no `prompts:` entry"),
+                )),
+            }
+        }
         if op.op.is_empty() {
             errs.push(ValidationError::new(&loc, "`op` must not be empty"));
         } else {
@@ -1332,6 +1351,65 @@ pub struct ResolvedDefaults {
     pub sep: String,
     /// Effective caching flag (context `_cache`).
     pub cache: bool,
+}
+
+/// Apply a `--model` override as a TIER remap: `ALIAS` (or a tier name) sends
+/// every size tier to that model; `medium=haiku,large=opus` remaps named tiers.
+/// Operators whose `model:` is a tier, or unset, follow the remap; operators
+/// pinned to a concrete alias keep it. Errors name an unknown model or tier.
+pub fn apply_model_override(config: &mut Config, spec: &str) -> Result<(), String> {
+    let resolve = |config: &Config, alias: &str| -> Result<String, String> {
+        let concrete = config
+            .defaults
+            .model
+            .as_ref()
+            .and_then(|d| d.tier(alias))
+            .unwrap_or(alias)
+            .to_owned();
+        if config.models.contains_key(&concrete) {
+            Ok(concrete)
+        } else {
+            Err(format!(
+                "--model: unknown model {alias:?} (not under `models:`)"
+            ))
+        }
+    };
+    let mut tiers = match &config.defaults.model {
+        Some(DefaultModel::Tiers(t)) => t.clone(),
+        Some(DefaultModel::Alias(a)) => ModelTiers {
+            small: Some(a.clone()),
+            medium: Some(a.clone()),
+            large: Some(a.clone()),
+        },
+        None => ModelTiers::default(),
+    };
+    if spec.contains('=') {
+        for pair in spec.split(',') {
+            let (tier, alias) = pair
+                .split_once('=')
+                .ok_or_else(|| format!("--model: expected TIER=MODEL, got {pair:?}"))?;
+            let concrete = resolve(config, alias.trim())?;
+            match tier.trim() {
+                "small" => tiers.small = Some(concrete),
+                "medium" => tiers.medium = Some(concrete),
+                "large" => tiers.large = Some(concrete),
+                other => {
+                    return Err(format!(
+                        "--model: unknown tier {other:?} (small|medium|large)"
+                    ));
+                }
+            }
+        }
+    } else {
+        let concrete = resolve(config, spec.trim())?;
+        tiers = ModelTiers {
+            small: Some(concrete.clone()),
+            medium: Some(concrete.clone()),
+            large: Some(concrete),
+        };
+    }
+    config.defaults.model = Some(DefaultModel::Tiers(tiers));
+    Ok(())
 }
 
 /// Resolve the effective run settings. Precedence is CLI override →

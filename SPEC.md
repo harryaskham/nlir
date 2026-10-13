@@ -534,7 +534,9 @@ any string op it can *build* structured generated thoughts, not just emit a sing
 prompt (`(=>a)&(=>b)` joins two generated sentences). It carries its own generative
 system frame (operand = instruction), so it obeys instead of describing, even on
 weaker models — the reason `>"write one word"` merely expands the request while
-`=>"write one word"` writes the word.
+`=>"write one word"` writes the word. The frame is an operator property
+(`system: generative`, naming a `prompts:` entry), not a model alias, so `=>` keeps it
+on any tier: `nlir --model haiku -e '=>…'` obeys on the fast model.
 
 | op | name | fixity · arity | what it does |
 |---|---|---|---|
@@ -611,7 +613,7 @@ Assume the last assistant message (`^-1`) is about *a rust-rewrite*.
 ## CLI surface
 
 ```
-nlir -e 'EXPR' [--quiet] [--mode det|llm] [--model haiku] [--parallelism 8] [--dry-run]
+nlir -e 'EXPR' [--quiet] [--mode det|llm] [--model haiku | --model medium=haiku,large=opus] [--parallelism 8] [--dry-run]
 nlir -f lib.nlir [-f prog.nlir] [-e 'EXPR']   # program files (`--` comment lines)
 nlir … --bind NAME=PATH           # JSON/YAML → native dict/list `$NAME`; other files → string (transient)
 

@@ -278,7 +278,10 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Instruction-following / generation: treats <text> as an INSTRUCTION and returns only the result of obeying it (vs the transform ops, which reshape their operand). Expresses NEW text — replies, drafts, answers — and composes under &/| like any string op. Bare => on a pipe obeys the piped text as the instruction.
     arity: 1
     fixity: prefix
-    model: generative
+    model: medium
+    # The OBEY frame travels with the operator (not a dedicated model alias), so
+    # => keeps it on whatever tier `model:` / `--model` selects.
+    system: generative
     prompt: |
       %
   diff:

@@ -2333,7 +2333,7 @@ fn realise(
             // parens (SPEC: preserved in output).
             let rendered = parenthesise_grouped(operands, grouped, sep);
             let args: Vec<String> = rendered.iter().map(|value| value.render(sep)).collect();
-            crate::llm::realise_llm(
+            let mut call = crate::llm::assemble_llm(
                 op_cfg.model.as_deref(),
                 prompt,
                 &args,
@@ -2342,8 +2342,11 @@ fn realise(
                 seed,
                 |name| std::env::var(name).ok(),
             )
-            .map(|text| typed_llm_result(text, op_cfg.result))
-            .map_err(|error| EvalError::Llm(error.to_string()))
+            .map_err(|error| EvalError::Llm(error.to_string()))?;
+            crate::llm::select_system_prompt(&mut call, op_cfg.system.as_deref(), config);
+            crate::llm::run_llm(&call)
+                .map(|text| typed_llm_result(text, op_cfg.result))
+                .map_err(|error| EvalError::Llm(error.to_string()))
         }
     }
 }
@@ -2432,7 +2435,7 @@ async fn realise_async<R: crate::realiser::Realiser>(
             };
             let rendered = parenthesise_grouped(operands, grouped, sep);
             let args: Vec<String> = rendered.iter().map(|value| value.render(sep)).collect();
-            let call = crate::llm::assemble_llm(
+            let mut call = crate::llm::assemble_llm(
                 op_cfg.model.as_deref(),
                 prompt,
                 &args,
@@ -2442,6 +2445,7 @@ async fn realise_async<R: crate::realiser::Realiser>(
                 |name| std::env::var(name).ok(),
             )
             .map_err(|error| EvalError::Llm(error.to_string()))?;
+            crate::llm::select_system_prompt(&mut call, op_cfg.system.as_deref(), config);
             realiser
                 .llm(&call)
                 .await

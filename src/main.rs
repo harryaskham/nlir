@@ -78,7 +78,9 @@ struct Cli {
     #[arg(long, global = true, value_enum, value_name = "MODE")]
     mode: Option<CliMode>,
 
-    /// Model name override for LLM realisation.
+    /// Model override for LLM realisation: `MODEL` sends every size tier
+    /// (small/medium/large) to that model; `medium=haiku,large=opus` remaps named
+    /// tiers. Operators pinned to a concrete model alias keep it.
     #[arg(long, global = true, value_name = "MODEL")]
     model: Option<String>,
 
@@ -429,6 +431,14 @@ fn resolve_config(cli: &Cli) -> Result<nlir::config::Config, i32> {
     // written back here or it is resolved-then-silently-dropped (bd-149949).
     if let Some(parallelism) = cli.parallelism {
         cfg.defaults.parallelism = parallelism.max(1);
+    }
+    // `--model` remaps the size tiers (every tier, or `tier=model,…`), so every
+    // tier-based operator follows it; operators pinned to a concrete alias keep it.
+    if let Some(spec) = cli.model.as_deref() {
+        nlir::config::apply_model_override(&mut cfg, spec).map_err(|error| {
+            eprintln!("nlir: {error}");
+            2
+        })?;
     }
     Ok(cfg)
 }
@@ -1009,7 +1019,7 @@ fn preview_llm_prompts(cli: &Cli, cfg: &nlir::config::Config, expr: &str) {
     };
     let mut previews = Vec::new();
     for statement in &program.statements {
-        collect_llm_previews(cli, cfg, statement, &mut previews);
+        collect_llm_previews(cfg, statement, &mut previews);
     }
     if previews.is_empty() {
         if !cli.quiet {
@@ -1026,7 +1036,6 @@ fn preview_llm_prompts(cli: &Cli, cfg: &nlir::config::Config, expr: &str) {
 /// Recursively collect assembled-prompt previews for llm-realised operators
 /// (no deterministic `command:`/`reduce:`, but a `prompt:`).
 fn collect_llm_previews(
-    cli: &Cli,
     cfg: &nlir::config::Config,
     expr: &nlir::parser::Expr,
     out: &mut Vec<String>,
@@ -1043,11 +1052,17 @@ fn collect_llm_previews(
                             prompt,
                             &args,
                             cfg,
-                            cli.model.as_deref(),
+                            // `--model` is already applied to cfg as a tier remap.
+                            None,
                             |name| std::env::var(name).ok(),
                         );
+                        let frame = op_cfg
+                            .system
+                            .as_deref()
+                            .map(|s| format!("\n    system frame: prompts.{s}"))
+                            .unwrap_or_default();
                         match rendered {
-                            Ok(text) => out.push(format!("`{op}` -> {text}")),
+                            Ok(text) => out.push(format!("`{op}` -> {text}{frame}")),
                             Err(error) => {
                                 out.push(format!("`{op}` -> (cannot preview: {error})"));
                             }
@@ -1056,15 +1071,15 @@ fn collect_llm_previews(
                 }
             }
             for operand in operands {
-                collect_llm_previews(cli, cfg, operand, out);
+                collect_llm_previews(cfg, operand, out);
             }
         }
-        Expr::Group(inner) | Expr::Serial(inner) => collect_llm_previews(cli, cfg, inner, out),
-        Expr::Message { index, .. } => collect_llm_previews(cli, cfg, index, out),
-        Expr::Assign { value, .. } => collect_llm_previews(cli, cfg, value, out),
+        Expr::Group(inner) | Expr::Serial(inner) => collect_llm_previews(cfg, inner, out),
+        Expr::Message { index, .. } => collect_llm_previews(cfg, index, out),
+        Expr::Assign { value, .. } => collect_llm_previews(cfg, value, out),
         Expr::List(items) => {
             for item in items {
-                collect_llm_previews(cli, cfg, item, out);
+                collect_llm_previews(cfg, item, out);
             }
         }
         _ => {}
