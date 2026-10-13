@@ -2763,18 +2763,27 @@ fn is_parallel_safe(expr: &Expr, config: &Config, mode: Mode) -> bool {
     }
 }
 
-/// Bind a form body's own positional arguments (`$0 $1 …` at the body's top
-/// scope) to `frame` values, so the body can be evaluated without an argument
-/// frame (on the parallel fan-out path). Nested quotes are left untouched: they
-/// open their own scope, and a form value is inert until applied. A `$N` beyond
-/// the frame still reads the stack, so it stays unbound (and not parallel-safe).
+/// Bind a form body's own positional arguments to `frame` values, so the body
+/// can be evaluated without an argument frame (the parallel fan-out path): `$N`
+/// at the body's top scope, and `$$N` / `$$$N` … inside nested quotes that point
+/// back out to this frame (lexical capture — the value the sequential path would
+/// read from the still-active frame). A `$N` beyond the frame still reads the
+/// stack, so it stays unbound (and not parallel-safe).
 fn bind_args(expr: &Expr, frame: &[Value]) -> Expr {
-    let bind = |e: &Expr| bind_args(e, frame);
-    let bind_box = |e: &Expr| Box::new(bind_args(e, frame));
+    bind_args_at(expr, frame, 0)
+}
+
+fn bind_args_at(expr: &Expr, frame: &[Value], level: u32) -> Expr {
+    let bind = |e: &Expr| bind_args_at(e, frame, level);
+    let bind_box = |e: &Expr| Box::new(bind_args_at(e, frame, level));
     match expr {
-        Expr::StackIndex(n) if *n >= 0 && (*n as usize) < frame.len() => {
+        Expr::StackIndex(n) if level == 0 && *n >= 0 && (*n as usize) < frame.len() => {
             Expr::Value(frame[*n as usize].clone())
         }
+        Expr::OuterArg { depth, index } if *depth == level && (*index as usize) < frame.len() => {
+            Expr::Value(frame[*index as usize].clone())
+        }
+        Expr::Quote(inner) => Expr::Quote(Box::new(bind_args_at(inner, frame, level + 1))),
         Expr::Message { role, index } => Expr::Message {
             role: *role,
             index: bind_box(index),
