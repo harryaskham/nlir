@@ -144,14 +144,23 @@ async function showLoop() {
   const best = trace.held_out;
   box.innerHTML = `
     <div class="loop-head">
-      <div class="stat"><b>${best.seed.mean.toFixed(2)} → ${best.best.mean.toFixed(2)}</b><span>held-out similarity, seed → learned</span></div>
+      <div class="stat"><b>${best.seed.mean.toFixed(2)} → ${best.best.mean.toFixed(2)}</b><span>held-out similarity, seed → learned program</span></div>
       ${trace.ceiling ? `<div class="stat"><b>${trace.ceiling.mean.toFixed(2)}</b><span>ceiling: a faithful paraphrase of the reference</span></div>` : ''}
       <div class="stat"><b>${best.best.min.toFixed(2)}</b><span>worst held-out sample</span></div>
       <div class="stat"><b>${rows.length - 1}</b><span>proposals · ${esc(trace.models.generation)} writes · ${esc(trace.models.judge)} judges · ${esc(String(trace.models.proposer).split('/').pop())} edits the program</span></div>
     </div>
+    <div class="parts" id="parts"></div>
     <svg class="spark" viewBox="0 0 600 120" id="spark"></svg>
     <div class="stepper"><button id="lprev" aria-label="Previous round">◀</button><span id="lcap"></span><button id="lnext" aria-label="Next round">▶</button></div>
     <div class="loop-grid"><pre class="console code" id="lsrc"></pre><div id="lgraph" class="lgraph"></div></div>`;
+  // Held-out similarity by profile part: where the learned program matches the
+  // human authors, and where their editorial judgement is still out of reach.
+  const byPart = {};
+  (trace.per_item || []).forEach(it => Object.entries(it.parts || {}).forEach(([k, v]) => (byPart[k] = byPart[k] || []).push(v)));
+  $('parts').innerHTML = Object.entries(byPart).map(([k, v]) => {
+    const m = v.reduce((a, b) => a + b, 0) / v.length;
+    return `<div class="part"><span class="pl">${esc(k.toLowerCase())}</span><span class="bar"><i style="width:${(m * 100).toFixed(0)}%"></i>${trace.ceiling ? `<b style="left:${(trace.ceiling.mean * 100).toFixed(0)}%"></b>` : ''}</span><span class="pv">${m.toFixed(2)}</span></div>`;
+  }).join('');
   const W = 600, H = 120, P = 14, xs = i => P + i * (W - 2 * P) / Math.max(rows.length - 1, 1), ys = s => H - P - s * (H - 2 * P);
   let run = 0;
   const bestPath = rows.map((r, i) => { if (r.accepted) run = Math.max(run, r.score); return `${i ? 'L' : 'M'}${xs(i).toFixed(1)},${ys(run).toFixed(1)}`; }).join(' ');
@@ -161,7 +170,8 @@ async function showLoop() {
     rows.map((r, i) => `<circle cx="${xs(i)}" cy="${ys(r.score)}" r="4.5" class="${r.accepted ? 'kept' : 'rej'}" data-i="${i}"><title>r${i} ${r.score.toFixed(3)}</title></circle>`).join('');
   const show = () => {
     const r = rows[k];
-    $('lcap').innerHTML = `<b>r${String(r.round).padStart(2, '0')}</b> · train ${r.score.toFixed(3)} · ${r.accepted ? 'kept' : 'rejected'}${r.phase > 1 ? ' · phase ' + r.phase : ''}<br><span>${esc(r.note)}</span>`;
+    const scores = r.val != null ? `validation ${r.val.toFixed(3)} · train ${r.train.toFixed(3)}` : `train ${r.score.toFixed(3)}`;
+    $('lcap').innerHTML = `<b>r${String(r.round).padStart(2, '0')}</b> · ${scores} · ${r.accepted ? 'kept' : 'rejected'}${r.phase > 1 ? ' · phase ' + r.phase : ''}<br><span>${esc(r.note)}</span>`;
     $('lsrc').innerHTML = highlight(r.program);
     $('lgraph').innerHTML = r.graph || '';
     $('spark').querySelectorAll('circle').forEach(c => c.classList.toggle('cur', +c.dataset.i === k));
