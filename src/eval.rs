@@ -139,8 +139,6 @@ pub struct EvaluationCache {
     values: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>,
     store: Option<std::sync::Arc<CacheStore>>,
     strict: bool,
-    /// Operator-definition fingerprints, memoised per operator name.
-    defs: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
 }
 
 /// The append-only file behind a persistent [`EvaluationCache`].
@@ -185,7 +183,6 @@ impl EvaluationCache {
                 lock: std::sync::Mutex::new(()),
             })),
             strict: false,
-            defs: std::sync::Arc::default(),
         })
     }
 
@@ -2957,7 +2954,7 @@ fn realise_cached(
     if !cache_on {
         return realise(op, op_cfg, operands, grouped, sep, mode, config, seed);
     }
-    let def = cache.definition(op, op_cfg, config, mode);
+    let def = realise_definition(op, op_cfg, config, mode);
     let key = realise_cache_key(&def, operands, grouped, sep, seed);
     // Serve a hit without holding the lock across the realisation.
     if let Some(cached) = cache.get(&key) {
@@ -3001,7 +2998,7 @@ async fn realise_cached_async<R: crate::realiser::Realiser>(
     cache: &EvaluationCache,
     realiser: &R,
 ) -> Result<Value, EvalError> {
-    let def = cache.definition(op, op_cfg, config, mode);
+    let def = realise_definition(op, op_cfg, config, mode);
     let key = realise_cache_key(&def, operands, grouped, sep, seed);
     let effectful = is_effectful(op_cfg, mode);
     if cache_on {
@@ -4433,35 +4430,24 @@ fn realise_cache_key(
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-impl EvaluationCache {
-    /// Fingerprint of everything that determines what an operator does: its config
-    /// (prompt, frame, template, model, …), the mode, the resolved model backend and
-    /// the prompt fragments. Editing any of them changes every key that uses the
-    /// operator, so a persistent store never replays a stale realisation.
-    fn definition(&self, op: &str, op_cfg: &OperatorConfig, config: &Config, mode: Mode) -> String {
-        let memo = format!("{op}\u{1f}{}", mode.as_str());
-        if let Some(def) = self.defs.lock().expect("defs mutex").get(&memo) {
-            return def.clone();
-        }
-        use sha2::{Digest, Sha256};
-        let model = if mode == Mode::Llm && op_cfg.prompt.is_some() {
-            crate::llm::resolve_model(config, op_cfg.model.as_deref(), None)
-                .ok()
-                .map(|(alias, model)| serde_json::json!([alias, model]))
-        } else {
-            None
-        };
-        let material = serde_json::json!([op, mode.as_str(), op_cfg, model, config.prompts]);
-        let def: String = Sha256::digest(material.to_string().as_bytes())
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        self.defs
-            .lock()
-            .expect("defs mutex")
-            .insert(memo, def.clone());
-        def
-    }
+/// Fingerprint the current operator definition, resolved backend and prompt fragments.
+/// Do not memoise this by sigil/mode on the reusable cache: editor hosts can supply
+/// a revised configuration while retaining the cache. Recompute the definition
+/// hash; unchanged material retains the existing store's byte-compatible address.
+fn realise_definition(op: &str, op_cfg: &OperatorConfig, config: &Config, mode: Mode) -> String {
+    use sha2::{Digest, Sha256};
+    let model = if mode == Mode::Llm && op_cfg.prompt.is_some() {
+        crate::llm::resolve_model(config, op_cfg.model.as_deref(), None)
+            .ok()
+            .map(|(alias, model)| serde_json::json!([alias, model]))
+    } else {
+        None
+    };
+    let material = serde_json::json!([op, mode.as_str(), op_cfg, model, config.prompts]);
+    Sha256::digest(material.to_string().as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 #[cfg(test)]
@@ -4990,6 +4976,69 @@ operators:
         let first = run();
         assert_eq!(run(), first, "the second run must reuse the first result");
         assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn shared_cache_observes_changed_operator_definition() {
+        let mut cfg = config();
+        let cache = EvaluationCache::default();
+        let run = |cfg: &Config| {
+            let mut ctx = Context::empty(&cfg.context);
+            evaluate_with_cache("#x", cfg, &mut ctx, Mode::Det, &cache)
+                .expect("evaluation")
+                .render("\n")
+        };
+        assert_eq!(run(&cfg), "subject of x");
+        cfg.operators.get_mut("subject").unwrap().template = Some("topic: %".into());
+        assert_eq!(
+            run(&cfg),
+            "topic: x",
+            "same sigil must not reuse the old definition"
+        );
+        assert_eq!(
+            cache.len(),
+            2,
+            "both definitions retain distinct content addresses"
+        );
+        assert_eq!(run(&cfg), "topic: x");
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn definition_hash_observes_prompt_frame_and_resolved_backend_changes() {
+        let yaml = r#"
+models:
+  m: { type: command, format: text, command: 'printf a' }
+prompts:
+  system: { text: 'transform text' }
+  other: { text: 'follow instructions' }
+operators:
+  transform: { op: '@', arity: 1, fixity: prefix, model: m, prompt: 'Transform %', system: system }
+"#;
+        let cfg = config::parse_str(yaml, Path::new("cache-test.yaml")).unwrap();
+        let hash = |c: &Config| realise_definition("@", &c.operators["transform"], c, Mode::Llm);
+        let original = hash(&cfg);
+        let mut prompt = cfg.clone();
+        prompt.operators.get_mut("transform").unwrap().prompt = Some("Rewrite %".into());
+        let mut frame = cfg.clone();
+        frame.operators.get_mut("transform").unwrap().system = Some("other".into());
+        let mut fragment = cfg.clone();
+        fragment.prompts.get_mut("system").unwrap().text = Some("revised frame".into());
+        let mut backend = cfg.clone();
+        backend.models.get_mut("m").unwrap().command = Some("printf b".into());
+        for (label, changed) in [
+            ("prompt", prompt),
+            ("frame", frame),
+            ("fragment", fragment),
+            ("backend", backend),
+        ] {
+            assert_ne!(original, hash(&changed), "definition changed: {label}");
+        }
+        assert_eq!(
+            original,
+            hash(&cfg),
+            "restoring the original config restores its address"
+        );
     }
 
     #[test]
