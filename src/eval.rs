@@ -162,13 +162,15 @@ impl EvaluationCache {
         if path.exists() {
             let text = std::fs::read_to_string(&path)
                 .map_err(|error| format!("cache store {}: {error}", path.display()))?;
-            for (n, line) in text.lines().enumerate() {
+            for line in text.lines() {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let record: Json = serde_json::from_str(line).map_err(|error| {
-                    format!("cache store {} line {}: {error}", path.display(), n + 1)
-                })?;
+                // Skip a malformed record (e.g. a line torn by a crash mid-write)
+                // rather than refuse the whole store: it only costs a re-realisation.
+                let Ok(record) = serde_json::from_str::<Json>(line) else {
+                    continue;
+                };
                 if let (Some(key), Some(value)) =
                     (record.get("k").and_then(Json::as_str), record.get("v"))
                 {
@@ -4458,6 +4460,15 @@ operators:
                 .render("\n")
         };
         let first = run(&EvaluationCache::persistent(&path).expect("store"));
+        // A torn line (a crash mid-append) is skipped, not fatal.
+        {
+            use std::io::Write as _;
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .expect("store");
+            file.write_all(b"{\"k\":\"torn").expect("append");
+        }
         let replayed = run(&EvaluationCache::persistent(&path).expect("store"));
         assert_eq!(first, replayed, "the store must replay the recorded call");
         let strict = EvaluationCache::persistent(&path)
