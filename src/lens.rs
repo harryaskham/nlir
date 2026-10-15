@@ -587,6 +587,10 @@ impl Put<'_, '_> {
                         );
                     }
                     ("trim", 1) => return self.put_trim(&args[0], arg_path(0).as_deref(), new, w),
+                    ("parse", 1) => {
+                        let text = crate::eval::value_to_json_pub(&new).to_string();
+                        return self.put(&args[0], arg_path(0).as_deref(), Value::string(text), w);
+                    }
                     ("json", 1 | 2) => {
                         let text = new.render(&self.sep);
                         return match serde_json::from_str::<serde_json::Value>(&text) {

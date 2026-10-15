@@ -291,6 +291,7 @@ shadows them):
 | `$zip%(a, b, …)` | `[[a0, b0], [a1, b1], …]`, truncated to the shortest — pair parallel results with their inputs |
 | `$slice%(c, start[, end])` | sub-list / substring, end-exclusive, negatives from the end, clamped |
 | `$json%v` / `$json%(v, indent)` | the value as JSON text (dicts stay ordered) |
+| `$parse%text` | JSON text as a value — the inverse of `$json`; tolerates a code fence or prose around the JSON (model replies), loud when there is none |
 | `$type%v` | `string` · `number` · `bool` · `list` · `dict` · `form` |
 | `$trim%s` · `$lower%s` · `$upper%s` · `$lines%s` | text plumbing (`$lines` splits on newlines) |
 | `$replace%(s, from, to)` | literal replace-all |

@@ -1703,8 +1703,9 @@ fn access_value(operands: &[Value], sep: &str) -> Result<Value, EvalError> {
 pub const BUILTIN_NAMES: &[&str] = &[
     "access", "and", "ceil", "contains", "diff", "draw", "elem", "entries", "filter", "flat",
     "floor", "fold", "get", "gt", "has", "if", "inter", "join", "json", "keys", "len", "lines",
-    "lower", "lt", "map", "match", "matches", "mod", "not", "nth", "or", "replace", "round",
-    "scan", "slice", "sort", "sqrt", "sub", "trim", "type", "union", "upper", "values", "zip",
+    "lower", "lt", "map", "match", "matches", "mod", "not", "nth", "or", "parse", "replace",
+    "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "type", "union", "upper", "values",
+    "zip",
 ];
 
 const PURE_BUILTIN_OPS: &[&str] = &[
@@ -3783,9 +3784,28 @@ fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usi
 /// (loud on bad input), dispatched only in `%`-application position and only
 /// when the context does not shadow the name — like `$len`/`$sort`.
 pub(crate) const DATA_BUILTINS: &[&str] = &[
-    "keys", "values", "get", "join", "json", "type", "trim", "replace", "match", "matches", "sub",
-    "lines", "slice", "has", "flat", "entries", "lower", "upper", "zip",
+    "keys", "values", "get", "join", "json", "parse", "type", "trim", "replace", "match",
+    "matches", "sub", "lines", "slice", "has", "flat", "entries", "lower", "upper", "zip",
 ];
+
+/// Parse JSON from model-style text: the whole text, else the span from the first
+/// `{`/`[` to the last matching `}`/`]` (dropping code fences and surrounding prose).
+fn parse_json_lenient(text: &str) -> Option<Json> {
+    let trimmed = text.trim();
+    if let Ok(json) = serde_json::from_str::<Json>(trimmed) {
+        return Some(json);
+    }
+    for (open, close) in [('{', '}'), ('[', ']')] {
+        if let (Some(start), Some(end)) = (trimmed.find(open), trimmed.rfind(close)) {
+            if start < end {
+                if let Ok(json) = serde_json::from_str::<Json>(&trimmed[start..=end]) {
+                    return Some(json);
+                }
+            }
+        }
+    }
+    None
+}
 
 /// The single operand of a unary data builtin: one arg is itself, a spread list
 /// literal (`$json%[a,b]` arrives as several args) is re-wrapped as a list.
@@ -3852,6 +3872,19 @@ fn data_builtin(name: &str, mut args: Vec<Value>, sep: &str) -> Result<Value, Ev
         }
     };
     match name {
+        // `$parse%text` — JSON text to a value (the inverse of `$json`). Lenient about
+        // the wrappers models put around JSON: a ```json fence or a sentence before
+        // or after; loud when there is no JSON at all.
+        "parse" => {
+            want(1, "(text)", &args)?;
+            let text = args.remove(0).render(sep);
+            parse_json_lenient(&text)
+                .map(|json| json_to_value_with(&json, None))
+                .ok_or_else(|| {
+                    let head: String = text.chars().take(120).collect();
+                    EvalError::Unsupported(format!("`$parse`: no JSON value in {head:?}"))
+                })
+        }
         "keys" => Ok(match unary_operand(args) {
             Value::Dict(pairs) => {
                 Value::list(pairs.into_iter().map(|(k, _)| Value::string(k)).collect())
