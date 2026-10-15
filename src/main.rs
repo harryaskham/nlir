@@ -1667,7 +1667,12 @@ fn run_put(cli: &Cli, args: &PutArgs) -> Result<(), i32> {
     let program = parse_for_show(&cfg, &source)?;
     let mut ctx = open_eval_context(cli)?;
     apply_binds(cli, &mut ctx)?;
-    match nlir::lens::put_program(&program, &cfg, &ctx, edited) {
+    if let Some(seed) = cli.seed {
+        ctx.set_transient("_seed", serde_json::Value::from(seed));
+    }
+    let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
+    let cache = eval_cache(cli, &ctx)?;
+    match nlir::lens::put_program_with(&program, &cfg, &ctx, edited, settings.mode, &cache) {
         Ok(report) => {
             println!(
                 "{}",

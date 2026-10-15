@@ -77,9 +77,51 @@ function highlightJson(v) {
     .replace(/(:\s|^\s+)("(?:[^"\\]|\\.)*")(,?)$/gm, '$1<span class="syn-str">$2</span>$3');
 }
 
-// Prose → spec: parse the (possibly edited) prose back into fields and compare
-// with the stored spec, part by part.
+// Prose → spec: push the (possibly edited) prose back through the projection with
+// nlir's backward pass (`put`): each change lands on the exact spec field — or, for a
+// heading or label edit, on the program literal that wrote it — and PutGet is checked
+// by re-rendering.
+const fieldLabel = (path, old) => {
+  if (/applicability/.test(path)) return 'Applicability';
+  const m = String(old || '').match(/^([^:\n]+):/);
+  return m ? m[1].trim() : path.split('/').slice(-2).join(' ');
+};
+
 async function reparse() {
+  const id = current;
+  const prose = $('prose').value.replace(/\n$/, '');
+  if (!nlir.put) return reparseFields();
+  const r = norm(nlir.put(`${lib};\n$render%(($node%$id).profile)`, cfgJson, JSON.stringify({ spec, id }), prose));
+  const st = $('state');
+  if (!r.ok) {
+    $('fields').innerHTML = `<div class="err">${esc(r.error)}</div>`;
+    st.className = 'state warn'; st.textContent = 'not invertible';
+    return;
+  }
+  const rep = norm(r.report);
+  const edits = (rep.edits || []).map(norm);
+  const rows = [];
+  for (const e of edits) {
+    for (const c of (e.changes || []).map(norm)) {
+      if (e.kind === 'data') {
+        const label = fieldLabel(c.path, c.old);
+        rows.push(`<div class="field changed"><div class="label">${esc(label)}<span>spec</span></div><div class="path">${esc(c.path)}</div><div class="text">${wordDiff(String(c.old ?? ''), String(c.new ?? ''))}</div></div>`);
+      } else {
+        rows.push(`<div class="field changed prog"><div class="label">Template<span>program · ${esc(e.target)}</span></div><div class="text">${wordDiff(String(c.old ?? ''), String(c.new ?? ''))}</div></div>`);
+      }
+    }
+  }
+  for (const k of (rep.stuck || []).map(norm)) rows.push(`<div class="field stuck"><div class="label">Not invertible<span>${esc(k.at)}</span></div><div class="text">${esc(k.reason)}</div></div>`);
+  for (const c of rep.conflicts || []) rows.push(`<div class="field stuck"><div class="label">Conflict</div><div class="text">${esc(c)}</div></div>`);
+  $('fields').innerHTML = rows.join('') || '<div class="quiet">No edits: the prose is exactly what the spec renders to.</div>';
+  const n = rows.length;
+  if (!edits.length && !(rep.stuck || []).length) { st.className = 'state ok'; st.textContent = 'round trip exact'; }
+  else if (rep.put_get) { st.className = 'state ok'; st.textContent = `${n} edit${n > 1 ? 's' : ''} · re-render reproduces your prose`; }
+  else { st.className = 'state warn'; st.textContent = (rep.stuck || []).length ? 'part of the edit is not invertible' : 'edits do not reproduce the prose'; }
+}
+
+// Older evaluator builds without `put`: compare `$fields%$prose` with the spec.
+async function reparseFields() {
   const id = current;
   let parsed, gold;
   try {
@@ -89,23 +131,16 @@ async function reparse() {
     ]);
   } catch (e) {
     $('fields').innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
-    $('state').className = 'state warn'; $('state').textContent = 'unparseable';
     return;
   }
   const parts = p => [['Applicability', (p.applicability || []).join('\n\n')], ...(p.decision_boundary || []).map(x => {
     const i = x.indexOf(':'); return [x.slice(0, i).trim(), x.slice(i + 1).trim()];
   })];
   const g = parts(gold), c = parts(parsed);
-  let changed = 0;
-  $('fields').innerHTML = g.map(([label, text], i) => {
+  $('fields').innerHTML = g.map(([label, text]) => {
     const cand = (c.find(([l]) => l.toUpperCase() === label.toUpperCase()) || [label, ''])[1];
-    const same = cand === text;
-    if (!same) changed++;
-    return `<div class="field ${same ? '' : 'changed'}"><div class="label">${esc(label)}${same ? '' : '<span>edited</span>'}</div><div class="text">${same ? esc(text) : wordDiff(text, cand)}</div></div>`;
+    return `<div class="field ${cand === text ? '' : 'changed'}"><div class="label">${esc(label)}</div><div class="text">${cand === text ? esc(text) : wordDiff(text, cand)}</div></div>`;
   }).join('');
-  const st = $('state');
-  if (!changed) { st.className = 'state ok'; st.textContent = 'round trip exact'; }
-  else { st.className = 'state warn'; st.textContent = `${changed} field${changed > 1 ? 's differ' : ' differs'} from the spec`; }
 }
 
 function wordDiff(a, b) {
@@ -188,9 +223,64 @@ async function showLoop() {
 // ---- views ---------------------------------------------------------------------------
 async function setView(v) {
   document.querySelectorAll('#view button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
-  $('pane-rule').hidden = v !== 'rule'; $('pane-policy').hidden = v !== 'policy'; $('pane-loop').hidden = v !== 'loop';
+  for (const k of ['rule', 'policy', 'loop', 'back']) $(`pane-${k}`).hidden = v !== k;
   if (v === 'policy' && !$('policy').innerHTML) $('policy').innerHTML = mdToHtml(await run('$policymd'));
   if (v === 'loop' && !$('loop').innerHTML) await showLoop();
+  if (v === 'back' && !$('back').innerHTML) await showBack();
+}
+
+// ---- recorded backward pass through a learned (model-backed) program ---------------
+// A profile's parts: applicability, then each labelled decision-boundary paragraph.
+function mdParts(md) {
+  const parts = [];
+  const app = md.match(/#### `applicability`\n\n([\s\S]*?)\n\n#### /);
+  if (app) parts.push(['Applicability', app[1].replace(/^> ?/gm, '').trim()]);
+  const db = md.split('#### `decision_boundary`')[1] || '';
+  for (const block of db.split(/\n\n/)) {
+    const m = block.replace(/^> ?/gm, '').match(/^([^:\n]+):\n([\s\S]*)$/);
+    if (m) parts.push([m[1].trim(), m[2].trim()]);
+  }
+  return parts;
+}
+
+async function showBack() {
+  const box = $('back');
+  let doc;
+  try { doc = await fetch('backward.json').then(r => r.json()); } catch (_) { box.innerHTML = '<p class="err">backward.json is missing.</p>'; return; }
+  const before = mdParts(doc.output);
+  box.innerHTML = `
+    <div class="loop-head"><div><h2>Editing prose backwards, through a learned program</h2>
+      <p class="sub">The program below was written by the learning loop: it renders rule ${esc(doc.rule)}'s profile from its packet with five model calls (${esc(doc.models.forward)}) and a deterministic layout. Edit the prose and <code>nlir put</code> runs it backwards: through the layout (an exact lens), through each <code>=&gt;</code> call (a ${esc(doc.models.backward)} request for minimal patches to the instruction), through <code>++</code> (which locates the patch in the packet) and <code>$json</code> (which parses it back) — ending on spec fields. Then the edited spec runs forward again, so you see what else it changes. Recorded with the CLI; the live Profile tab does the exact (model-free) half in your browser.</p></div>
+      <div class="seg" id="backScen">${doc.scenarios.map((s, i) => `<button data-i="${i}" class="${i ? '' : 'on'}">${esc(s.name)}</button>`).join('')}</div></div>
+    <div id="backBody"></div>
+    <details class="source"><summary>the learned program</summary><pre class="console code">${highlight(doc.program)}</pre></details>`;
+  const show = i => {
+    const s = doc.scenarios[i];
+    const edited = mdParts(s.edited), rerun = mdParts(s.rerun || '');
+    const editedRows = before.map(([label, text], k) => {
+      const e = (edited[k] || [label, text])[1];
+      return e === text ? '' : `<div class="field changed"><div class="label">${esc(label)}<span>your edit</span></div><div class="text">${wordDiff(text, e)}</div></div>`;
+    }).join('');
+    const specRows = s.edits.flatMap(e => e.changes.map(c => `<div class="field changed"><div class="label">${esc(e.target)}.${esc(c.path.replace(/\//g, '.'))}<span>spec</span></div><div class="text">${wordDiff(String(c.old ?? ''), String(c.new ?? ''))}</div></div>`)).join('');
+    const tension = s.tensions.length ? s.tensions.map(t => `<div class="callout warn"><b>Tension.</b> ${esc(t)}</div>`).join('') : '';
+    const ripple = before.map(([label, text], k) => {
+      const r = (rerun[k] || [label, ''])[1];
+      const touched = (edited[k] || [label, text])[1] !== text;
+      return `<div class="field ${r === text ? '' : 'changed'}"><div class="label">${esc(label)}<span>${touched ? 'edited part' : r === text ? 'unchanged' : 'ripple'}</span></div><div class="text">${r === text ? esc(text) : wordDiff(text, r)}</div></div>`;
+    }).join('');
+    const sim = s.similarity == null ? '—' : s.similarity.toFixed(2);
+    $('backBody').innerHTML = `
+      <p class="sub">${esc(s.blurb)}</p>
+      <div class="back-grid">
+        <article class="pane"><h2>1 · The edit</h2><div class="fields">${editedRows}</div></article>
+        <article class="pane"><h2>2 · Backward → spec</h2><div class="fields">${specRows}</div>${tension}</article>
+        <article class="pane"><h2>3 · Forward again <span class="state ${s.similarity >= 0.9 ? 'ok' : 'warn'}">keeps your edit's meaning: ${sim}</span></h2><div class="fields">${ripple}</div></article>
+      </div>`;
+  };
+  box.querySelectorAll('#backScen button').forEach(b => b.onclick = () => {
+    box.querySelectorAll('#backScen button').forEach(x => x.classList.toggle('on', x === b)); show(+b.dataset.i);
+  });
+  show(0);
 }
 
 async function roundTripBadge() {

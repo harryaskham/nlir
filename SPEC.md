@@ -428,7 +428,21 @@ record combine. A name bound by an earlier statement puts into that statement.
 
 `_inverses` declares isomorphisms: `_inverses={quote=unquote}` makes a call to either
 form put through the other, which is how a regex-built layout (`$sub` has no general
-inverse) inverts exactly. Model-realised operators are stuck for now (v2 §E2).
+inverse) inverts exactly. `$json` puts by parsing the edited text back into a value.
+
+**Model operators** (`=>`, `::`, `..`, `!`, …) get a model-backed put in llm mode
+(`nlir put --mode llm`): a request on the `large` tier asks for minimal find/replace
+patches to the operator's inputs that would turn its output into the edited output
+(preferring the subject matter over the operation's directions). The patches apply
+exactly and each changed input puts further back with the exact rules — so a patch to
+an instruction built with `++` lands in the data it was built from, e.g. a field of a
+packet rendered with `$json`. An operator may carry an authored backward instruction
+(`put:` in its config), folded into the request. The request is an ordinary
+content-addressed realisation, so it replays from the store. In llm mode PutGet is
+judged: `put_get_similarity` is `≈` between the edited output and the re-run; and when
+the edits touch two or more input leaves, `tensions` lists pairs that pull in opposite
+directions (edits can merge textually — text edits to one value merge three-way when
+their regions do not overlap — and still contradict each other).
 
 ## Whitespace, escapes & quoting
 

@@ -109,3 +109,12 @@ details.source pre { margin-top: .9rem; max-height: none; }
 .part .bar i { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 2px; }
 .part .bar b { position: absolute; top: -.2rem; bottom: -.2rem; width: 1px; background: var(--muted); }
 .part .pv { text-align: right; color: var(--ink); }
+
+/* backward pass */
+.field .path { font: 11.5px/1.4 var(--mono); color: var(--muted); margin: 2px 0 6px; word-break: break-all; }
+.field.prog .label span { background: color-mix(in srgb, #6c8ebf 25%, transparent); }
+.field.stuck { border-color: var(--amber); }
+.quiet { color: var(--muted); font-size: 13px; padding: 8px 2px; }
+.back-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 12px; }
+.callout { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--rule); font-size: 13.5px; line-height: 1.5; }
+.callout.warn { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, transparent); }

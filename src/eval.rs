@@ -700,6 +700,32 @@ impl<'a> Evaluator<'a> {
         self.sep()
     }
 
+    /// Realise an operator definition on already-evaluated operands through the
+    /// normal content-addressed path (crate-internal: lenses' backward requests).
+    pub(crate) fn realise_op(
+        &mut self,
+        op: &str,
+        op_cfg: &OperatorConfig,
+        operands: &[Value],
+    ) -> Result<Value, EvalError> {
+        let sep = self.sep();
+        let seed = self.context.seed();
+        let grouped = vec![false; operands.len()];
+        let cache_on = self.context.cache();
+        realise_cached(
+            op,
+            op_cfg,
+            operands,
+            &grouped,
+            &sep,
+            self.mode,
+            self.config,
+            seed,
+            cache_on,
+            &self.realise_cache,
+        )
+    }
+
     pub fn run(&mut self, program: &Program) -> Result<Value, EvalError> {
         let mut last = None;
         // Seed depth = value(s) already on the stack before eval (piped `$_stdin`).

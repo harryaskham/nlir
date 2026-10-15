@@ -476,6 +476,30 @@ pub fn graph(expr: &str, config_json: &str) -> JsValue {
     }
 }
 
+/// `put(expr, configJson, contextJson, edited) -> { ok, report | error }` — the
+/// deterministic backward pass (lenses, v2 §E): given an edited output, the edits
+/// to the context inputs and program literals that would produce it, with the lens
+/// laws checked. Model operators report as stuck in the browser (they need the
+/// CLI's llm-mode backward requests).
+#[wasm_bindgen]
+pub fn put(expr: &str, config_json: &str, context_json: &str, edited: &str) -> JsValue {
+    let result = (|| -> Result<serde_json::Value, String> {
+        let cfg = parse_config(config_json)?;
+        let ctx = parse_context(context_json, &cfg)?;
+        let sigils = nlir::config::operator_sigils(&cfg);
+        let tokens = nlir::lexer::tokenize(expr, &sigils).map_err(|e| e.to_string())?;
+        let program =
+            nlir::parser::parse_program(&tokens, &cfg.operators).map_err(|e| e.to_string())?;
+        let report =
+            nlir::lens::put_program(&program, &cfg, &ctx, edited).map_err(|e| e.to_string())?;
+        serde_json::to_value(&report).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(report) => payload(&serde_json::json!({ "ok": true, "report": report })),
+        Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
 /// `outline(expr, configJson) -> { ok, svg, text, statements | error }` — the
 /// statement-level graph (v2 §G): one node per top-level statement, edges for
 /// `$name` reads, inputs for bound data and prelude forms. Legible for programs

@@ -295,6 +295,11 @@ pub struct OperatorConfig {
     /// short-circuits for free). A bare operand-start `?` with no `%` application
     /// is a clear parse error, never a silent incomplete form.
     pub prefix_builtin: Option<String>,
+    /// An authored BACKWARD instruction for this model operator (lenses, v2 §E2):
+    /// how to recover the input from an edited output ("the input was rewritten
+    /// formally; restore the original register while keeping the edit's facts").
+    /// `nlir put` folds it into the generic backward request. Optional.
+    pub put: Option<String>,
     /// The `prompts:` entry used as this operator's SYSTEM frame (default: the
     /// `system` prompt). Lets an operator carry its own frame independent of the
     /// model it runs on — `=>` uses `system: generative` (obey the instruction)

@@ -94,6 +94,15 @@ pub struct PutReport {
     /// The output of that re-evaluation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub put_get_output: Option<String>,
+    /// In llm mode, pairs of input changes that pull against each other (a merged
+    /// set of edits can be textually clean and still contradict itself).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tensions: Vec<String>,
+    /// In llm mode, how fully the re-evaluated output keeps the edited output's
+    /// meaning (`≈`, 0–1): model operators are not exact inverses, so PutGet is
+    /// judged rather than compared byte for byte.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub put_get_similarity: Option<f64>,
 }
 
 #[derive(Default)]
@@ -113,11 +122,16 @@ impl Writes {
                 let merged = match merge3(&base, &prior, &new, sep) {
                     Ok(merged) => merged,
                     Err(at) => {
+                        let (x, y) =
+                            excerpts(&base.render(sep), &prior.render(sep), &new.render(sep));
+                        let at = if at.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" at {at}")
+                        };
                         self.conflicts.push(format!(
-                            "{} edited two ways at {at}: {:?} vs {:?}",
-                            describe(&root),
-                            prior.render(sep),
-                            new.render(sep)
+                            "{} edited two ways{at}: {x:?} vs {y:?}",
+                            describe(&root)
                         ));
                         prior
                     }
@@ -134,6 +148,27 @@ impl Writes {
         self.stuck.extend(other.stuck);
         self.conflicts.extend(other.conflicts);
     }
+}
+
+/// The neighbourhood of the first difference between each edit and the base.
+fn excerpts(base: &str, a: &str, b: &str) -> (String, String) {
+    let around = |text: &str| {
+        let prefix = base
+            .chars()
+            .zip(text.chars())
+            .take_while(|(x, y)| x == y)
+            .count();
+        let chars: Vec<char> = text.chars().collect();
+        let start = prefix.saturating_sub(30);
+        let end = (prefix + 90).min(chars.len());
+        format!(
+            "{}{}{}",
+            if start > 0 { "…" } else { "" },
+            chars[start..end].iter().collect::<String>(),
+            if end < chars.len() { "…" } else { "" }
+        )
+    };
+    (around(a), around(b))
 }
 
 fn describe(root: &Root) -> String {
@@ -193,8 +228,90 @@ fn merge3(base: &Value, a: &Value, b: &Value, sep: &str) -> Result<Value, String
             }
             Ok(Value::list(out))
         }
+        (Value::String(bs), Value::String(a_s), Value::String(b_s)) => merge_text(bs, a_s, b_s)
+            .map(Value::string)
+            .ok_or_else(String::new),
         _ => Err(String::new()),
     }
+}
+
+/// Three-way merge of two edits of one text: both apply when the regions they change
+/// do not overlap (a character diff of each against the base); otherwise `None`.
+fn merge_text(base: &str, a: &str, b: &str) -> Option<String> {
+    use similar::{DiffOp, TextDiff};
+    // Changed base ranges (start, end in base chars) with their replacement text.
+    fn hunks(base: &str, edited: &str) -> Vec<(usize, usize, String)> {
+        let diff = TextDiff::from_chars(base, edited);
+        let new_chars: Vec<char> = edited.chars().collect();
+        let mut out: Vec<(usize, usize, String)> = Vec::new();
+        for op in diff.ops() {
+            match *op {
+                DiffOp::Equal { .. } => {}
+                DiffOp::Delete {
+                    old_index, old_len, ..
+                } => out.push((old_index, old_index + old_len, String::new())),
+                DiffOp::Insert {
+                    old_index,
+                    new_index,
+                    new_len,
+                } => {
+                    out.push((
+                        old_index,
+                        old_index,
+                        new_chars[new_index..new_index + new_len].iter().collect(),
+                    ));
+                }
+                DiffOp::Replace {
+                    old_index,
+                    old_len,
+                    new_index,
+                    new_len,
+                } => {
+                    out.push((
+                        old_index,
+                        old_index + old_len,
+                        new_chars[new_index..new_index + new_len].iter().collect(),
+                    ));
+                }
+            }
+        }
+        // Coalesce hunks separated by a short unchanged run, so one edit is one hunk.
+        let mut merged: Vec<(usize, usize, String)> = Vec::new();
+        let base_chars: Vec<char> = base.chars().collect();
+        for (s, e, t) in out {
+            match merged.last_mut() {
+                Some(last) if s <= last.1 + 3 => {
+                    let gap: String = base_chars[last.1..s].iter().collect();
+                    last.2 = format!("{}{gap}{t}", last.2);
+                    last.1 = e.max(last.1);
+                }
+                _ => merged.push((s, e, t)),
+            }
+        }
+        merged
+    }
+    let ha = hunks(base, a);
+    let hb = hunks(base, b);
+    for (s1, e1, _) in &ha {
+        for (s2, e2, _) in &hb {
+            let touch = s1.max(s2) <= e1.min(e2) && !(s1 == e1 && s2 == e2 && s1 != s2);
+            if touch {
+                return None;
+            }
+        }
+    }
+    let mut all: Vec<(usize, usize, String)> = ha.into_iter().chain(hb).collect();
+    all.sort_by_key(|h| (h.0, h.1));
+    let chars: Vec<char> = base.chars().collect();
+    let mut out = String::new();
+    let mut at = 0;
+    for (s, e, t) in all {
+        out.extend(&chars[at..s]);
+        out.push_str(&t);
+        at = e;
+    }
+    out.extend(&chars[at..]);
+    Some(out)
 }
 
 /// Give `new` the type of `old` when its text allows (an edited number stays a number).
@@ -217,6 +334,7 @@ fn retype(old: &Value, new: Value, sep: &str) -> Value {
 
 struct Put<'e, 'a> {
     ev: &'e mut Evaluator<'a>,
+    mode: crate::Mode,
     program: &'e Program,
     binders: HashMap<String, usize>,
     inverses: BTreeMap<String, String>,
@@ -406,9 +524,19 @@ impl Put<'_, '_> {
                         new,
                         w,
                     ),
+                    _ if self.mode == crate::Mode::Llm
+                        && cfg
+                            .as_ref()
+                            .is_some_and(|c| c.prompt.is_some() && c.reduce.is_none()) =>
+                    {
+                        let cfg = cfg.expect("checked");
+                        self.put_model(expr, op, &cfg, operands, path, &old, new, w)
+                    }
                     _ => {
                         let what = if cfg.as_ref().is_some_and(|c| !c.is_deterministic()) {
-                            format!("`{op}` is model-realised (no deterministic inverse)")
+                            format!(
+                                "`{op}` is model-realised: run `nlir put` in llm mode for a model-backed backward pass"
+                            )
                         } else {
                             format!("`{op}` has no inverse")
                         };
@@ -458,6 +586,26 @@ impl Put<'_, '_> {
                         );
                     }
                     ("trim", 1) => return self.put_trim(&args[0], arg_path(0).as_deref(), new, w),
+                    ("json", 1 | 2) => {
+                        let text = new.render(&self.sep);
+                        return match serde_json::from_str::<serde_json::Value>(&text) {
+                            Ok(json) => {
+                                let value =
+                                    crate::eval::json_to_value_pub(&json, self.ev.config_ref());
+                                self.put(&args[0], arg_path(0).as_deref(), value, w)
+                            }
+                            Err(error) => {
+                                self.stuck(
+                                    w,
+                                    expr,
+                                    format!("the edited text is not JSON ({error})"),
+                                    old,
+                                    &new,
+                                );
+                                Ok(())
+                            }
+                        };
+                    }
                     ("map", 2) => {
                         return self.put_map(
                             expr,
@@ -586,6 +734,149 @@ impl Put<'_, '_> {
         }
         w.absorb(rest, &self.sep.clone());
         Ok(out)
+    }
+
+    /// A model operator's backward pass: ask a large model for minimal find/replace
+    /// patches to the operator's inputs that would turn its output into the edited
+    /// output, apply them exactly, and put each changed input further back (so a
+    /// patch to an instruction built by `++` lands in the data it was built from).
+    #[allow(clippy::too_many_arguments)]
+    fn put_model(
+        &mut self,
+        at: &Expr,
+        op: &str,
+        cfg: &crate::config::OperatorConfig,
+        operands: &[Expr],
+        path: Option<&[usize]>,
+        old: &Value,
+        new: Value,
+        w: &mut Writes,
+    ) -> Result<(), EvalError> {
+        let values = operands
+            .iter()
+            .map(|o| self.eval(o))
+            .collect::<Result<Vec<_>, _>>()?;
+        let texts: Vec<String> = values.iter().map(|v| v.render(&self.sep)).collect();
+        let what = cfg
+            .description
+            .as_deref()
+            .unwrap_or("a model-realised text operation")
+            .trim();
+        let mut request = format!(
+            "You are computing a BACKWARD pass. The operation `{op}` ({what}) turned the INPUTS below into the OUTPUT. \
+A person then edited the OUTPUT into the EDITED OUTPUT. Propose the smallest edits to the INPUTS such that \
+performing the same operation on the edited inputs would produce the edited output.\n\n\
+Rules:\n\
+- Change only what the edit requires; leave every other character of every input exactly as it is.\n\
+- Prefer editing the subject matter the output was derived from (the data, facts and conditions it states) \
+over the operation's own directions, unless the edit is about form rather than content.\n\
+- Each edit replaces ONE exact substring of ONE input: `find` must occur exactly once in that input, so \
+include enough surrounding text to make it unique, and `replace` is its new text. Inside JSON data, keep \
+the JSON valid.\n\
+- If no input edit could produce the change, return an empty list and say why.\n"
+        );
+        if let Some(back) = cfg.put.as_deref() {
+            request.push_str(&format!(
+                "- Guidance for reversing this operation: {}\n",
+                back.trim()
+            ));
+        }
+        request.push_str("\nReply with JSON only: {\"edits\": [{\"input\": 0, \"find\": \"…\", \"replace\": \"…\"}], \"why\": \"<one sentence>\"}\n");
+        for (i, text) in texts.iter().enumerate() {
+            request.push_str(&format!("\nINPUT {i}:\n<<<\n{text}\n>>>\n"));
+        }
+        request.push_str(&format!(
+            "\nOUTPUT:\n<<<\n{}\n>>>\n\nEDITED OUTPUT:\n<<<\n{}\n>>>\n",
+            old.render(&self.sep),
+            new.render(&self.sep)
+        ));
+        let backward = crate::config::OperatorConfig {
+            op: "⟲".into(),
+            prompt: Some("%".into()),
+            model: Some("large".into()),
+            system: Some("generative".into()),
+            ..crate::config::OperatorConfig::default()
+        };
+        let reply = self
+            .ev
+            .realise_op("⟲", &backward, &[Value::string(request)])?
+            .render(&self.sep);
+        let parsed = reply
+            .find('{')
+            .and_then(|start| reply.rfind('}').map(|end| &reply[start..=end]))
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok());
+        let Some(parsed) = parsed else {
+            let head: String = reply.chars().take(160).collect();
+            self.stuck(
+                w,
+                at,
+                format!("the backward request returned no JSON: {head}"),
+                old,
+                &new,
+            );
+            return Ok(());
+        };
+        let edits = parsed
+            .get("edits")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if edits.is_empty() {
+            let why = parsed
+                .get("why")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("no input edit proposed")
+                .to_owned();
+            self.stuck(
+                w,
+                at,
+                format!("no input edit reproduces this change: {why}"),
+                old,
+                &new,
+            );
+            return Ok(());
+        }
+        let mut patched = texts.clone();
+        for edit in edits {
+            let index = edit
+                .get("input")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0) as usize;
+            let find = edit
+                .get("find")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            let replace = edit
+                .get("replace")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            let applied = match patched.get_mut(index) {
+                Some(text) if !find.is_empty() && text.matches(find.as_str()).count() == 1 => {
+                    *text = text.replacen(find.as_str(), &replace, 1);
+                    true
+                }
+                _ => false,
+            };
+            if !applied {
+                self.stuck(
+                    w,
+                    at,
+                    format!("a proposed patch did not match input {index} exactly once: {find:?}"),
+                    old,
+                    &new,
+                );
+            }
+        }
+        for (i, (operand, (before, after))) in
+            operands.iter().zip(texts.iter().zip(patched)).enumerate()
+        {
+            if *before != after {
+                self.put(operand, child(path, i).as_deref(), Value::string(after), w)?;
+            }
+        }
+        Ok(())
     }
 
     fn put_access(
@@ -876,6 +1167,66 @@ fn split_aligned(parts: &[String], literal: &[bool], new: &str) -> Vec<String> {
         .collect()
 }
 
+/// Ask the large model whether any pair of input changes pulls in opposite
+/// directions; returns one line per tension (empty when none, or on failure).
+fn check_tensions(
+    config: &Config,
+    context: &Context,
+    cache: &crate::eval::EvaluationCache,
+    leaves: &[(String, &Change)],
+) -> Vec<String> {
+    let mut request = String::from(
+        "These edits were derived from one set of changes to a document. Check whether any two of them pull in \
+opposite directions — one permits or includes what another forbids or excludes, or they make incompatible \
+claims — so that the edited source contradicts itself. Ignore edits that merely overlap or repeat each other.\n\n\
+Reply with JSON only: {\"tensions\": [{\"a\": \"<path>\", \"b\": \"<path>\", \"why\": \"<one sentence>\"}]} \
+(an empty list when there are none).\n",
+    );
+    for (path, change) in leaves {
+        let text = |v: &serde_json::Value| v.as_str().map_or_else(|| v.to_string(), str::to_owned);
+        request.push_str(&format!(
+            "\nEDIT {path}\nBEFORE: {}\nAFTER: {}\n",
+            text(&change.old),
+            text(&change.new)
+        ));
+    }
+    let backward = crate::config::OperatorConfig {
+        op: "⟲?".into(),
+        prompt: Some("%".into()),
+        model: Some("large".into()),
+        system: Some("generative".into()),
+        ..crate::config::OperatorConfig::default()
+    };
+    let mut ctx = context.detached();
+    let mut ev = Evaluator::new_with_cache(config, &mut ctx, crate::Mode::Llm, cache.clone());
+    let Ok(reply) = ev.realise_op("⟲?", &backward, &[Value::string(request)]) else {
+        return Vec::new();
+    };
+    let reply = reply.render("");
+    let parsed = reply
+        .find('{')
+        .and_then(|start| reply.rfind('}').map(|end| &reply[start..=end]))
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok());
+    parsed
+        .and_then(|p| {
+            p.get("tensions")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+        })
+        .unwrap_or_default()
+        .iter()
+        .map(|t| {
+            let s = |k: &str| {
+                t.get(k)
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?")
+                    .to_owned()
+            };
+            format!("{} ⟷ {}: {}", s("a"), s("b"), s("why"))
+        })
+        .collect()
+}
+
 /// Leaf-level changes between an old and a new input value.
 fn changes(old: &Value, new: &Value, sep: &str, path: &str, out: &mut Vec<Change>) {
     if old.render(sep) == new.render(sep) {
@@ -959,10 +1310,34 @@ pub fn put_program(
     context: &Context,
     edited: &str,
 ) -> Result<PutReport, EvalError> {
+    put_program_with(
+        program,
+        config,
+        context,
+        edited,
+        crate::Mode::Det,
+        &crate::eval::EvaluationCache::default(),
+    )
+}
+
+/// [`put_program`] in a given mode with a caller's realisation cache: in llm mode,
+/// model operators get model-backed backward passes, and the forward run, the
+/// backward requests and the PutGet re-run all share `cache` (so unchanged model
+/// calls replay rather than re-run).
+///
+/// # Errors
+/// Returns an [`EvalError`] when the forward run fails.
+pub fn put_program_with(
+    program: &Program,
+    config: &Config,
+    context: &Context,
+    edited: &str,
+    mode: crate::Mode,
+    cache: &crate::eval::EvaluationCache,
+) -> Result<PutReport, EvalError> {
     let mut ctx = context.detached();
-    let mode = crate::Mode::Det;
     let (output, writes, sep) = {
-        let mut ev = Evaluator::new(config, &mut ctx, mode);
+        let mut ev = Evaluator::new_with_cache(config, &mut ctx, mode, cache.clone());
         let output = ev.run(program)?;
         let sep = ev.separator();
         let mut binders = HashMap::new();
@@ -985,6 +1360,7 @@ pub fn put_program(
         }
         let mut put = Put {
             ev: &mut ev,
+            mode,
             program,
             binders: binders.clone(),
             inverses,
@@ -1084,7 +1460,7 @@ pub fn put_program(
         for (name, value) in &inputs {
             check.set_transient(name.clone(), crate::eval::value_to_json_pub(value));
         }
-        let mut ev = Evaluator::new(config, &mut check, mode);
+        let mut ev = Evaluator::new_with_cache(config, &mut check, mode, cache.clone());
         match ev.run(&patched) {
             Ok(value) => {
                 let text = value.render(&sep);
@@ -1095,8 +1471,47 @@ pub fn put_program(
     } else {
         (None, None)
     };
+    let put_get_similarity = match (&put_get_output, mode, put_get) {
+        (Some(text), crate::Mode::Llm, Some(false)) if !edits.is_empty() => {
+            let mut judge_ctx = context.detached();
+            let mut ev = Evaluator::new_with_cache(config, &mut judge_ctx, mode, cache.clone());
+            let sigil = config
+                .operators
+                .get("similarity")
+                .map(|o| o.op.clone())
+                .unwrap_or_else(|| "≈".into());
+            let judged = Expr::Apply {
+                op: sigil,
+                fixity: crate::config::Fixity::Infix,
+                operands: vec![
+                    Expr::Value(Value::string(edited.to_owned())),
+                    Expr::Value(Value::string(text.clone())),
+                ],
+            };
+            ev.eval_expr(&judged)
+                .ok()
+                .and_then(|v| v.render("").trim().parse::<f64>().ok())
+        }
+        (_, _, Some(true)) => Some(1.0),
+        _ => None,
+    };
+    let leaves: Vec<(String, &Change)> = edits
+        .iter()
+        .filter(|e| e.kind == "data")
+        .flat_map(|e| {
+            e.changes
+                .iter()
+                .map(move |c| (format!("{}/{}", e.target, c.path), c))
+        })
+        .collect();
+    let tensions = if mode == crate::Mode::Llm && leaves.len() >= 2 {
+        check_tensions(config, context, cache, &leaves)
+    } else {
+        Vec::new()
+    };
     Ok(PutReport {
         output: output_text,
+        tensions,
         edited: edited.to_owned(),
         edits,
         stuck,
@@ -1104,6 +1519,7 @@ pub fn put_program(
         get_put,
         put_get,
         put_get_output,
+        put_get_similarity,
     })
 }
 
@@ -1191,7 +1607,61 @@ mod tests {
     }
 
     #[test]
-    fn model_operators_are_stuck_for_now() {
+    fn text_edits_merge_unless_they_overlap() {
+        let base = "approve without tests; small diffs do not excuse it";
+        let a = "approve without passing tests; small diffs do not excuse it";
+        let b = "approve without tests; small diffs never excuse it";
+        assert_eq!(
+            merge_text(base, a, b).as_deref(),
+            Some("approve without passing tests; small diffs never excuse it")
+        );
+        let c = "approve without any tests; small diffs do not excuse it";
+        assert_eq!(
+            merge_text(base, a, c),
+            None,
+            "two edits to one phrase conflict"
+        );
+    }
+
+    #[test]
+    fn model_operator_puts_patch_inputs_and_localise_them() {
+        // A fake `=>` that echoes its instruction, and a fake backward model that
+        // answers with a fixed patch: exercises the mechanics without a network.
+        let yaml = r##"
+defaults: { mode: llm, model: { small: echo, medium: echo, large: patcher } }
+models:
+  echo: { type: command, format: text, command: "printf '%s' \"$NLIR_PROMPT\"" }
+  patcher: { type: command, format: text, command: "printf '%s' '{\"edits\":[{\"input\":0,\"find\":\"cats\",\"replace\":\"dogs\"}]}'" }
+prompts:
+  generative: { text: "" }
+operators:
+  respond: { op: "=>", arity: 1, fixity: prefix, model: medium, prompt: "%" }
+  concat: { op: "++", arity: ">0", fixity: mixfix, priority: 10, operands: any, reduce: concat }
+  access: { op: ".", arity: 2, fixity: infix, priority: 19, builtin: access }
+"##;
+        let cfg = crate::config::parse_str(yaml, std::path::Path::new("t.yaml")).expect("config");
+        let sigils = crate::config::operator_sigils(&cfg);
+        let src = "=>('Write about ' ++ $d.topic ++ '.')";
+        let tokens = crate::lexer::tokenize(src, &sigils).expect("lex");
+        let program = crate::parser::parse_program(&tokens, &cfg.operators).expect("parse");
+        let mut ctx = Context::empty(&cfg.context);
+        ctx.set_transient("d".to_owned(), serde_json::json!({"topic": "cats"}));
+        let cache = crate::eval::EvaluationCache::default();
+        let forward =
+            put_program_with(&program, &cfg, &ctx, "x", crate::Mode::Llm, &cache).expect("put");
+        assert!(forward.output.contains("Write about cats."), "{forward:?}");
+        let edited = forward.output.replace("cats", "dogs");
+        let r =
+            put_program_with(&program, &cfg, &ctx, &edited, crate::Mode::Llm, &cache).expect("put");
+        assert_eq!(r.edits.len(), 1, "{r:?}");
+        assert_eq!(r.edits[0].target, "d");
+        assert_eq!(r.edits[0].changes[0].path, "topic");
+        assert_eq!(r.edits[0].changes[0].new, "dogs");
+        assert_eq!(r.put_get, Some(true), "{r:?}");
+    }
+
+    #[test]
+    fn model_operators_are_stuck_in_det_mode() {
         let r = report("'note' :: formal", "formal: memo", &[]);
         assert!(
             r.stuck.iter().any(|s| s.reason.contains("model-realised")),

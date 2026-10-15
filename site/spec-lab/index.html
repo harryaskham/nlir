@@ -32,6 +32,7 @@
         <button role="tab" data-view="rule" aria-selected="true">Profile</button>
         <button role="tab" data-view="policy" aria-selected="false">Policy</button>
         <button role="tab" data-view="loop" aria-selected="false">Learning loop</button>
+        <button role="tab" data-view="back" aria-selected="false">Backward pass</button>
       </div>
     </header>
 
@@ -49,7 +50,7 @@
       <article class="pane">
         <h2>Back to spec <span class="state" id="state"></span></h2>
         <div id="fields" class="fields"></div>
-        <code class="expr">$fields%$prose</code>
+        <code class="expr">nlir put — the edit pushed back through $render</code>
       </article>
     </section>
 
@@ -60,6 +61,10 @@
 
     <section class="doc-pane" id="pane-loop" hidden>
       <div id="loop"></div>
+    </section>
+
+    <section class="doc-pane" id="pane-back" hidden>
+      <div id="back"></div>
     </section>
 
     <details class="source">

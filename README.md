@@ -318,6 +318,14 @@ Concatenation, joins, field access, maps and form calls each carry a backward pa
 a library declares isomorphisms (`_inverses={quote=unquote}`) for the rest. Editing a
 heading instead lands in the program literal that wrote it.
 
+With `--mode llm`, model operators run backwards too: a large model proposes minimal
+patches to each `=>` instruction, and the exact rules carry them back to the data the
+instruction was built from. On a learned spec→prose program, adding a clause to one
+generated MET paragraph comes back as a one-sentence edit to the rule's text; re-running
+forward keeps the edit's meaning (≈ 0.95). Two edits that disagree come back as edits
+to two fields plus a named **tension** between them. The
+[spec lab](https://a.skh.am/nlir/spec-lab/)'s *Backward pass* tab replays that session.
+
 ## Seeing programs
 
 **`nlir help`** prints every operator from your config; **`nlir step '<expr>'`** walks
