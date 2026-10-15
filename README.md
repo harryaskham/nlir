@@ -294,9 +294,13 @@ nlir programs are small enough to search over. The [spec lab](https://a.skh.am/n
 loads an invented rule spec as native data, projects each rule into prose with an nlir
 library, parses the prose back exactly, and replays a hill-climb in which a large model
 rewrites the projection program while a fast model runs it and a judge scores the
-output with `≈`. The design for the next step — a meta-policy judge, a complexity
-term, deterministic replay through the realisation store, and lenses for editing prose
-back into the spec — is in [`docs/design/v2.md`](docs/design/v2.md).
+output with `≈`, while a program judge reviews every version against a meta-policy
+(no reference text pasted into the program, no keying on rule ids, no "reproduce the
+published answer" pointers) and the selection score prefers the shorter of two equal
+programs. On the toy spec the learned program goes from 0.00 to 0.67 held-out
+similarity with GPT-6 Luna writing and 0.78 when GPT-6.1 Sol runs the same program;
+every version reviews clean at under 2 kB. The design is in
+[`docs/design/v2.md`](docs/design/v2.md).
 
 ## Editing backwards — lenses
 
