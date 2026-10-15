@@ -971,6 +971,14 @@ impl std::error::Error for RealiseError {
 ///
 /// # Errors
 /// Returns [`RealiseError`] if the model cannot be resolved.
+fn seed_label(seed: crate::config::SeedSupport) -> &'static str {
+    match seed {
+        crate::config::SeedSupport::Exact => "exact",
+        crate::config::SeedSupport::BestEffort => "best-effort",
+        crate::config::SeedSupport::None => "none — replay via the cache store",
+    }
+}
+
 pub fn realise_llm_preview(
     model_alias: Option<&str>,
     prompt_template: &str,
@@ -987,7 +995,10 @@ pub fn realise_llm_preview(
     let mut out = String::new();
     match model.kind {
         ModelKind::Command => {
-            out.push_str(&format!("model `{name}` (command)"));
+            out.push_str(&format!(
+                "model `{name}` (command; seed: {})",
+                seed_label(model.seed)
+            ));
             if let Some(prompt) = vars.get(NLIR_PROMPT_VAR) {
                 out.push_str(&format!(
                     "\n    {NLIR_PROMPT_VAR}={}",
@@ -1001,7 +1012,10 @@ pub fn realise_llm_preview(
         }
         ModelKind::AnthropicMessages => {
             let id = model.model.as_deref().unwrap_or("<no model id>");
-            out.push_str(&format!("model `{name}` (anthropic_messages: {id})"));
+            out.push_str(&format!(
+                "model `{name}` (anthropic_messages: {id}; seed: {})",
+                seed_label(model.seed)
+            ));
             for message in &model.messages {
                 let content = substitute_nlir_vars(&message.content, &vars);
                 out.push_str(&format!(
@@ -1276,7 +1290,10 @@ mod tests {
             |_| None,
         )
         .expect("preview assembles");
-        assert!(out.contains("model `sonnet` (command)"), "out={out}");
+        assert!(
+            out.contains("model `sonnet` (command; seed: none"),
+            "out={out}"
+        );
         assert!(
             out.contains("Answer: <text>foo</text>"),
             "prompt not assembled: {out}"

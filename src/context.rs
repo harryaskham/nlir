@@ -255,12 +255,31 @@ impl Context {
         match self.data.get("_cache") {
             Some(Value::Bool(flag)) => *flag,
             Some(Value::String(text)) => match text.trim() {
-                "true" => true,
-                "false" => false,
+                "true" | "on" | "eval" | "persist" => true,
+                "false" | "off" => false,
                 _ => self.cache_default,
             },
             _ => self.cache_default,
         }
+    }
+
+    /// The persistent realisation store requested by the context (`_cache_file`),
+    /// unless `_cache` is `off` or `eval`.
+    #[must_use]
+    pub fn cache_file(&self) -> Option<String> {
+        let mode = self
+            .data
+            .get("_cache")
+            .and_then(Value::as_str)
+            .map(str::trim);
+        if matches!(mode, Some("off" | "false" | "eval")) {
+            return None;
+        }
+        self.data
+            .get("_cache_file")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .filter(|path| !path.trim().is_empty())
     }
 
     /// The reproducibility seed threaded into seed-supporting llm backends
@@ -369,6 +388,32 @@ impl Context {
         let key = key.into();
         self.transient.insert(key.clone());
         self.data.insert(key, value);
+    }
+
+    /// Temporarily set `key` (in memory only), returning what was there so
+    /// [`Context::restore`] can put it back exactly — used for scoped overrides
+    /// such as the per-draw `_seed` of `$draw`.
+    pub fn override_transient(&mut self, key: &str, value: Value) -> (Option<Value>, bool) {
+        let previous = (self.data.get(key).cloned(), self.transient.contains(key));
+        self.transient.insert(key.to_owned());
+        self.data.insert(key.to_owned(), value);
+        previous
+    }
+
+    /// Undo [`Context::override_transient`].
+    pub fn restore(&mut self, key: &str, previous: (Option<Value>, bool)) {
+        match previous {
+            (Some(value), was_transient) => {
+                self.data.insert(key.to_owned(), value);
+                if !was_transient {
+                    self.transient.remove(key);
+                }
+            }
+            (None, _) => {
+                self.data.remove(key);
+                self.transient.remove(key);
+            }
+        }
     }
 
     /// Remove `key` in memory, returning its previous value if present. Used to

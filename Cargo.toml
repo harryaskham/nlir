@@ -24,6 +24,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # Regex for the deterministic `$match`/`$matches`/`$sub` data builtins. Pure Rust, so
 # it also compiles into the wasm evaluator; unicode-perl/case only (no big tables).
 regex = { version = "1", default-features = false, features = ["std", "unicode-perl", "unicode-case"] }
+# SHA-256 content addresses for the realisation store (v2 §D). Pure Rust; wasm-safe.
+sha2 = "0.10"
 serde_yaml = "0.9"
 schemars = { version = "1", features = ["derive"] }
 # ureq (HTTP) is native-only (the llm anthropic backend); optional so the wasm

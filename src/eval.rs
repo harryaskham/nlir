@@ -116,33 +116,104 @@ impl From<RealiseError> for EvalError {
 /// A bounded cache prevents a long-lived editor from growing with every draft.
 const MAX_EVALUATION_CACHE_ENTRIES: usize = 1024;
 
-/// Reusable operator-realisation cache for incremental/speculative evaluation.
+/// Content-addressed record of operator realisations (v2 §D).
 ///
-/// One [`Evaluator`] already dedupes identical subcalls within a run. Keeping
-/// this cloneable cache across successive runs extends that contract to editor
-/// previews: unchanged `(op, mode, model, grouping, operands, seed)` calls hit,
-/// while an edited operand naturally changes the key and re-realises only that
-/// node and its dependants. Scope one cache to a stable config/context editing
-/// session; call [`Self::clear`] when either changes incompatibly.
+/// Every realisation is keyed by the operator's FULL definition (its config, the
+/// resolved model and the prompt fragments), its operands, grouping, separator and
+/// seed. Model and command calls are the only effects in nlir, so replaying a key
+/// returns exactly what the call produced: evaluation becomes deterministic and
+/// identical calls are free.
+///
+/// Scopes:
+/// - one [`Evaluator`] run (the default — a fresh cache per evaluation);
+/// - a caller-held cache across runs (editor previews: [`evaluate_with_cache`]);
+/// - a persistent **store file** ([`Self::persistent`]) shared across runs, evals and
+///   hill-climb rounds. It only grows; effectful (llm / command) realisations are
+///   appended as JSON lines and never evicted.
+///
+/// `_cache=off` in the context bypasses it entirely (the old nondeterministic
+/// behaviour). [`Self::strict`] turns an unrecorded effectful call into an error,
+/// for audits that must replay exactly.
 #[derive(Clone, Default)]
 pub struct EvaluationCache {
     values: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>,
+    store: Option<std::sync::Arc<CacheStore>>,
+    strict: bool,
+    /// Operator-definition fingerprints, memoised per operator name.
+    defs: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+}
+
+/// The append-only file behind a persistent [`EvaluationCache`].
+struct CacheStore {
+    path: std::path::PathBuf,
+    lock: std::sync::Mutex<()>,
 }
 
 impl EvaluationCache {
-    /// Number of completed realisations retained for reuse.
+    /// A cache backed by a persistent store file (JSON lines `{"k","v",…}`): existing
+    /// records are loaded, and new effectful realisations are appended. The file is
+    /// created on first write.
+    ///
+    /// # Errors
+    /// Returns the I/O or parse error when an existing store cannot be read.
+    pub fn persistent(path: impl Into<std::path::PathBuf>) -> Result<Self, String> {
+        let path = path.into();
+        let mut values = std::collections::HashMap::new();
+        if path.exists() {
+            let text = std::fs::read_to_string(&path)
+                .map_err(|error| format!("cache store {}: {error}", path.display()))?;
+            for (n, line) in text.lines().enumerate() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let record: Json = serde_json::from_str(line).map_err(|error| {
+                    format!("cache store {} line {}: {error}", path.display(), n + 1)
+                })?;
+                if let (Some(key), Some(value)) =
+                    (record.get("k").and_then(Json::as_str), record.get("v"))
+                {
+                    values.insert(key.to_owned(), json_to_value_with(value, None));
+                }
+            }
+        }
+        Ok(Self {
+            values: std::sync::Arc::new(std::sync::Mutex::new(values)),
+            store: Some(std::sync::Arc::new(CacheStore {
+                path,
+                lock: std::sync::Mutex::new(()),
+            })),
+            strict: false,
+            defs: std::sync::Arc::default(),
+        })
+    }
+
+    /// Fail any effectful (llm / command) realisation the cache has not recorded.
+    #[must_use]
+    pub fn strict(mut self, strict: bool) -> Self {
+        self.strict = strict;
+        self
+    }
+
+    /// Whether this cache is backed by a store file.
+    #[must_use]
+    pub fn is_persistent(&self) -> bool {
+        self.store.is_some()
+    }
+
+    /// Number of realisations held in memory.
     #[must_use]
     pub fn len(&self) -> usize {
         self.values.lock().expect("evaluation cache mutex").len()
     }
 
-    /// Whether the cache contains no completed realisations.
+    /// Whether the cache holds no realisations.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Drop every retained realisation, e.g. after changing config/model policy.
+    /// Drop every in-memory realisation (e.g. after a config change in an editor).
+    /// A store file is left untouched; its keys already encode the definitions.
     pub fn clear(&self) {
         self.values.lock().expect("evaluation cache mutex").clear();
     }
@@ -155,9 +226,34 @@ impl EvaluationCache {
             .cloned()
     }
 
+    /// Record a realisation. `effectful` realisations (model / command calls) are
+    /// also appended to the store file when there is one; a store never evicts.
+    fn record(&self, key: String, value: Value, effectful: bool, label: &str) {
+        if effectful {
+            if let Some(store) = &self.store {
+                let line = serde_json::json!({ "k": key, "v": value_to_json(&value), "op": label });
+                let _guard = store.lock.lock().expect("cache store mutex");
+                use std::io::Write as _;
+                // One write per record on an O_APPEND file: concurrent nlir processes
+                // sharing a store interleave whole lines, never fragments.
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&store.path)
+                {
+                    let _ = file.write_all(format!("{line}\n").as_bytes());
+                }
+            }
+        }
+        self.insert(key, value);
+    }
+
     fn insert(&self, key: String, value: Value) {
         let mut values = self.values.lock().expect("evaluation cache mutex");
-        if !values.contains_key(&key) && values.len() >= MAX_EVALUATION_CACHE_ENTRIES {
+        if self.store.is_none()
+            && !values.contains_key(&key)
+            && values.len() >= MAX_EVALUATION_CACHE_ENTRIES
+        {
             // No recency bookkeeping on the hot path: evict one completed entry.
             // Semantic keys make any eviction safe; a future access simply re-runs.
             if let Some(evicted) = values.keys().next().cloned() {
@@ -924,6 +1020,22 @@ impl<'a> Evaluator<'a> {
         // context does not define the name — a user-defined `map`/`fold` form still
         // wins (normal form apply below).
         if let Expr::ContextRead(name) = form {
+            if name == "draw" && self.context.get(name).is_none() {
+                let (body, n) = self.draw_operands(args)?;
+                let base = self.context.seed().unwrap_or(0);
+                let mut out = Vec::with_capacity(n);
+                for i in 0..n {
+                    let saved = self
+                        .context
+                        .override_transient("_seed", Json::from(base + i as i64));
+                    self.enter_arg_frame(vec![Value::number(i as f64)])?;
+                    let drawn = self.eval(&body);
+                    self.arg_frames.pop();
+                    self.context.restore("_seed", saved);
+                    out.push(drawn?);
+                }
+                return Ok(Value::list(out));
+            }
             if matches!(name.as_str(), "map" | "fold" | "scan" | "filter")
                 && self.context.get(name).is_none()
             {
@@ -1629,6 +1741,29 @@ impl<'a> Evaluator<'a> {
     /// Resolve the shared `(form, list)` operands for a `map`/`fold` builtin: the
     /// first arg must be a `{…}` form; the second is coerced to a list (a lone
     /// non-list value becomes a one-element list).
+    /// `$draw%(form, n)`: the form and a sample count (bounded).
+    fn draw_operands(&mut self, args: &[Expr]) -> Result<(Expr, usize), EvalError> {
+        if args.len() != 2 {
+            return Err(builtin_arity_err("draw", "(form, n)", args.len()));
+        }
+        let body = match self.eval(&args[0])? {
+            Value::Form(inner) => *inner,
+            _ => {
+                return Err(EvalError::Unsupported(
+                    "`$draw`'s first argument must be a {…} form".to_owned(),
+                ));
+            }
+        };
+        let sep = self.sep();
+        let n = number_operand("draw", self.eval(&args[1])?, &sep)?;
+        if !(0.0..=64.0).contains(&n) || n.fract() != 0.0 {
+            return Err(EvalError::Unsupported(format!(
+                "`$draw` count must be a whole number from 0 to 64, got {n}"
+            )));
+        }
+        Ok((body, n as usize))
+    }
+
     fn higher_order_operands(
         &mut self,
         name: &str,
@@ -1916,6 +2051,43 @@ impl<'a> Evaluator<'a> {
                     // same reserved-name detection as `eval_higher_order`, driven
                     // through the async realiser so the mapping form may be llm.
                     if let Expr::ContextRead(name) = form.as_ref() {
+                        if name == "draw" && self.context.get(name).is_none() {
+                            if args.len() != 2 {
+                                return Err(builtin_arity_err("draw", "(form, n)", args.len()));
+                            }
+                            let body = match self.eval_async(&args[0], realiser).await? {
+                                Value::Form(inner) => *inner,
+                                _ => {
+                                    return Err(EvalError::Unsupported(
+                                        "`$draw`'s first argument must be a {…} form".to_owned(),
+                                    ));
+                                }
+                            };
+                            let sep = self.sep();
+                            let n = number_operand(
+                                "draw",
+                                self.eval_async(&args[1], realiser).await?,
+                                &sep,
+                            )?;
+                            if !(0.0..=64.0).contains(&n) || n.fract() != 0.0 {
+                                return Err(EvalError::Unsupported(format!(
+                                    "`$draw` count must be a whole number from 0 to 64, got {n}"
+                                )));
+                            }
+                            let base = self.context.seed().unwrap_or(0);
+                            let mut out = Vec::new();
+                            for i in 0..n as usize {
+                                let saved = self
+                                    .context
+                                    .override_transient("_seed", Json::from(base + i as i64));
+                                self.enter_arg_frame(vec![Value::number(i as f64)])?;
+                                let drawn = self.eval_async(&body, realiser).await;
+                                self.arg_frames.pop();
+                                self.context.restore("_seed", saved);
+                                out.push(drawn?);
+                            }
+                            return Ok(Value::list(out));
+                        }
                         if matches!(name.as_str(), "map" | "fold" | "scan" | "filter")
                             && self.context.get(name).is_none()
                         {
@@ -2703,22 +2875,32 @@ fn realise_cached(
     if !cache_on {
         return realise(op, op_cfg, operands, grouped, sep, mode, config, seed);
     }
-    let key = realise_cache_key(
-        op,
-        mode,
-        op_cfg.model.as_deref(),
-        operands,
-        grouped,
-        sep,
-        seed,
-    );
+    let def = cache.definition(op, op_cfg, config, mode);
+    let key = realise_cache_key(&def, operands, grouped, sep, seed);
     // Serve a hit without holding the lock across the realisation.
     if let Some(cached) = cache.get(&key) {
         return Ok(cached);
     }
+    let effectful = is_effectful(op_cfg, mode);
+    if effectful && cache.strict {
+        return Err(unrecorded(op));
+    }
     let result = realise(op, op_cfg, operands, grouped, sep, mode, config, seed)?;
-    cache.insert(key, result.clone());
+    cache.record(key, result.clone(), effectful, op);
     Ok(result)
+}
+
+/// Whether a realisation leaves the process (a model or command call) — the only
+/// effects in nlir, and the only realisations a store file keeps.
+fn is_effectful(op_cfg: &OperatorConfig, mode: Mode) -> bool {
+    op_cfg.reduce.is_none()
+        && (op_cfg.command.is_some() || (mode == Mode::Llm && op_cfg.prompt.is_some()))
+}
+
+fn unrecorded(op: &str) -> EvalError {
+    EvalError::Unsupported(format!(
+        "strict replay: `{op}` would make an unrecorded call (not in the cache store)"
+    ))
 }
 
 /// Async cached realisation for incremental previews. Cache lookup/insertion is
@@ -2737,18 +2919,15 @@ async fn realise_cached_async<R: crate::realiser::Realiser>(
     cache: &EvaluationCache,
     realiser: &R,
 ) -> Result<Value, EvalError> {
-    let key = realise_cache_key(
-        op,
-        mode,
-        op_cfg.model.as_deref(),
-        operands,
-        grouped,
-        sep,
-        seed,
-    );
+    let def = cache.definition(op, op_cfg, config, mode);
+    let key = realise_cache_key(&def, operands, grouped, sep, seed);
+    let effectful = is_effectful(op_cfg, mode);
     if cache_on {
         if let Some(cached) = cache.get(&key) {
             return Ok(cached);
+        }
+        if effectful && cache.strict {
+            return Err(unrecorded(op));
         }
     }
     let result = realise_async(
@@ -2756,7 +2935,7 @@ async fn realise_cached_async<R: crate::realiser::Realiser>(
     )
     .await?;
     if cache_on {
-        cache.insert(key, result.clone());
+        cache.record(key, result.clone(), effectful, op);
     }
     Ok(result)
 }
@@ -3898,26 +4077,51 @@ fn builtin_op_operands(name: &str, operands: &[Value]) -> Result<(Expr, Vec<Valu
 /// Build the per-run realisation cache key (bd-1d078c): the operator sigil,
 /// mode, model alias, grouping, and rendered operand texts uniquely identify a
 /// realisation result, so identical subcalls dedupe.
+/// The content address of one realisation: the operator's definition fingerprint,
+/// the operands (typed), grouping, separator and seed, hashed with SHA-256.
 fn realise_cache_key(
-    op: &str,
-    mode: Mode,
-    model: Option<&str>,
+    definition: &str,
     operands: &[Value],
     grouped: &[bool],
     sep: &str,
     seed: Option<i64>,
 ) -> String {
-    let texts: Vec<String> = operands.iter().map(|value| value.render(sep)).collect();
-    // `seed` is part of the key so a mid-run `_seed` change (bd-72d6d3) is not
-    // masked by a prior realisation's cached result — a seed change SHOULD
-    // re-realise (that is the whole point of a reproducibility seed). Absent when
-    // unset, so seedless evals keep their previous keys.
-    format!(
-        "{op}\u{1f}{}\u{1f}{}\u{1f}{grouped:?}\u{1f}{texts:?}\u{1f}{}",
-        mode.as_str(),
-        model.unwrap_or(""),
-        seed.map_or(String::new(), |value| value.to_string())
-    )
+    use sha2::{Digest, Sha256};
+    let operands: Vec<Json> = operands.iter().map(value_to_json).collect();
+    let material = serde_json::json!([definition, operands, grouped, sep, seed]);
+    let digest = Sha256::digest(material.to_string().as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+impl EvaluationCache {
+    /// Fingerprint of everything that determines what an operator does: its config
+    /// (prompt, frame, template, model, …), the mode, the resolved model backend and
+    /// the prompt fragments. Editing any of them changes every key that uses the
+    /// operator, so a persistent store never replays a stale realisation.
+    fn definition(&self, op: &str, op_cfg: &OperatorConfig, config: &Config, mode: Mode) -> String {
+        let memo = format!("{op}\u{1f}{}", mode.as_str());
+        if let Some(def) = self.defs.lock().expect("defs mutex").get(&memo) {
+            return def.clone();
+        }
+        use sha2::{Digest, Sha256};
+        let model = if mode == Mode::Llm && op_cfg.prompt.is_some() {
+            crate::llm::resolve_model(config, op_cfg.model.as_deref(), None)
+                .ok()
+                .map(|(alias, model)| serde_json::json!([alias, model]))
+        } else {
+            None
+        };
+        let material = serde_json::json!([op, mode.as_str(), op_cfg, model, config.prompts]);
+        let def: String = Sha256::digest(material.to_string().as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        self.defs
+            .lock()
+            .expect("defs mutex")
+            .insert(memo, def.clone());
+        def
+    }
 }
 
 #[cfg(test)]
@@ -4036,6 +4240,51 @@ operators:
         // Argument-frame hygiene: inside a form `$0` is the ARG, not the stack
         // top — `9;{$0}%7` -> 7, not 9 (bd-5dd86f).
         assert_eq!(det("9;{$0}%7"), "7");
+    }
+
+    #[test]
+    fn persistent_store_replays_effectful_calls_across_evaluations() {
+        // An impure `command:` operator (a fresh random number per call) becomes
+        // deterministic once recorded: a second evaluation sharing the store file
+        // replays the recorded value; strict replay refuses an unrecorded call.
+        let yaml = r##"
+operators:
+  rnd: { op: "⚄", arity: 1, fixity: prefix, command: "echo \"$RANDOM-$RANDOM-${NLIR_ARGS[0]}\"" }
+"##;
+        let cfg =
+            crate::config::parse_str(yaml, std::path::Path::new("test.yaml")).expect("config");
+        let path = crate::test_support::unique_temp_path("nlir-store", "jsonl");
+        let run = |cache: &EvaluationCache| {
+            let mut ctx = Context::empty(&cfg.context);
+            evaluate_with_cache("⚄a", &cfg, &mut ctx, Mode::Llm, cache)
+                .expect("eval")
+                .render("\n")
+        };
+        let first = run(&EvaluationCache::persistent(&path).expect("store"));
+        let replayed = run(&EvaluationCache::persistent(&path).expect("store"));
+        assert_eq!(first, replayed, "the store must replay the recorded call");
+        let strict = EvaluationCache::persistent(&path)
+            .expect("store")
+            .strict(true);
+        assert_eq!(run(&strict), first);
+        let mut ctx = Context::empty(&cfg.context);
+        let err = evaluate_with_cache("⚄b", &cfg, &mut ctx, Mode::Llm, &strict)
+            .expect_err("strict replay must refuse an unrecorded call");
+        assert!(format!("{err}").contains("unrecorded"), "{err}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn draw_scopes_the_seed_and_restores_it() {
+        let cfg = config();
+        let mut ctx = Context::empty(&cfg.context);
+        let out = evaluate("_seed=40;$draw%({$0*2}, 3)", &cfg, &mut ctx, Mode::Det).expect("eval");
+        assert_eq!(out.render(","), "0,2,4");
+        assert_eq!(
+            ctx.seed(),
+            Some(40),
+            "the caller's seed is restored after the draws"
+        );
     }
 
     #[test]
@@ -4350,26 +4599,17 @@ operators:
     }
 
     #[test]
-    fn realise_cache_key_discriminates_on_seed() {
-        // bd-72d6d3: `_seed` is part of the realise cache key, so a mid-run
-        // `_seed` change (`_seed=1;X;_seed=2;X`) re-realises instead of reusing
-        // the prior seed's cached result — a seed change SHOULD change output.
+    fn realise_cache_key_discriminates_on_seed_and_definition() {
+        // `_seed` is part of the content address (a seed change SHOULD re-realise),
+        // and so is the operator definition (an edited prompt must never replay a
+        // stale record from a persistent store).
         let operands = [Value::string("a")];
         let grouped = [false];
-        let key =
-            |seed| realise_cache_key("@@", Mode::Llm, Some("m"), &operands, &grouped, "\n", seed);
-        assert_ne!(
-            key(Some(1)),
-            key(Some(2)),
-            "different seeds -> different keys"
-        );
-        assert_eq!(key(Some(1)), key(Some(1)), "same seed -> same key");
-        assert_ne!(
-            key(Some(1)),
-            key(None),
-            "seeded key differs from the seedless key"
-        );
-        assert_eq!(key(None), key(None), "seedless keys are stable");
+        let key = |def: &str, seed| realise_cache_key(def, &operands, &grouped, "\n", seed);
+        assert_ne!(key("d1", Some(1)), key("d1", Some(2)));
+        assert_ne!(key("d1", None), key("d1", Some(1)));
+        assert_ne!(key("d1", Some(1)), key("d2", Some(1)));
+        assert_eq!(key("d1", Some(7)), key("d1", Some(7)));
     }
 
     #[test]

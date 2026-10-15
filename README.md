@@ -356,6 +356,25 @@ nested form reads its enclosing form's arguments as `$$0`. The
 spec tree projected into prose and parsed back exactly, with edits to the prose
 turned into the spec changes they imply.
 
+## Determinism — a content-addressed record of every call
+
+Model and command calls are nlir's only effects. Each realisation is keyed by the
+operator's full definition (prompt, frame, resolved model), its operands and `_seed`,
+so a recorded call replays exactly and identical calls cost nothing:
+
+```sh
+nlir --cache-file runs/store.jsonl -e "=>'Name a lighthouse keeper''s cat'"   # 3.9 s, recorded
+nlir --cache-file runs/store.jsonl -e "=>'Name a lighthouse keeper''s cat'"   # 0.03 s, replayed
+nlir --cache-file runs/store.jsonl --replay strict -f program.nlir            # fail on any unrecorded call
+nlir -e "\$draw%({=>'Name a cat'}, 3)"                                         # three explicit samples
+```
+
+The store is JSON lines that only grow, shared across runs, evaluations and
+hill-climb rounds; `_seed` is the namespace (a new seed draws fresh samples) and
+`$draw%(form, n)` asks for `n` samples explicitly. `_cache=off` restores the old,
+nondeterministic behaviour. Hosted models do not honour seeds reproducibly, so each
+model declares `seed: exact | best-effort | none` and the store does the work.
+
 ## The composable core — adverbs, trains, basics
 
 Forms unlock a small **composable core**: a handful of primitives that compose

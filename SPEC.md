@@ -60,15 +60,17 @@ EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval
   role-filtered views. `^` on an empty message set is a loud
   `no conversation context` error, not an empty read.
 - System keys (`_`-prefixed): `_messages`, `_sep` (list/range → text separator,
-  default `"\n"`), `_cache` (caching on/off, default `true`), `_precision`
+  default `"\n"`), `_cache` (`eval` default · `persist` · `off`; `true`/`false`
+  still mean `eval`/`off` — see Caching), `_cache_file` (the persistent
+  realisation store), `_precision`
   (final-display decimal places for numbers, default off = exact/round-tripping;
-  display-only, never changes computation), `_seed` (integer reproducibility
-  seed threaded into the llm request, unset by default — exported as
-  `${NLIR_SEED}` and injected as the request body's top-level `seed`. Backend-dependent: reproducibility needs
-  a backend that honors `seed`, and no currently-configured backend does (Anthropic
-  Messages has no native `seed`; the reachable OpenAI-compatible model is
-  non-deterministic even at a fixed seed) — so `_seed` is presently a no-op, ready
-  for a seed-honoring backend).
+  display-only, never changes computation), `_seed` (an integer **namespace** for
+  realisations, unset by default: the same seed replays recorded calls, a new seed
+  draws fresh samples. It is also exported as `${NLIR_SEED}` and sent as the
+  request's top-level `seed`, but providers do not make that reproducible — measured
+  Oct 2026, Claude ignores it and gpt-4.1 varies even at temperature 0 — so
+  determinism comes from the store, and each model declares `seed: exact |
+  best-effort | none`, shown by `--dry-run`).
 - **Context writes happen immediately** (write-through to the context file when
   one is active).
 
@@ -438,8 +440,21 @@ After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
   automatic detection can't infer — but the marked subtree stays parallel with its
   siblings. In `` a+`(a+b) `` the outer operands `a` and `` `(a+b) `` run in
   parallel, while `a` then `b` inside the backtick run serially.
-- **Caching:** identical subcalls `(op, mode, model, grouping, operand-texts, seed)`
-  are deduped when `_cache` is true (default); `_cache=false` disables it. A normal
+- **Caching (content-addressed realisations):** every realisation is keyed by a
+  SHA-256 of the operator's full definition (its config, the resolved model backend,
+  the prompt fragments), the typed operands, grouping, separator and `_seed`. Model
+  and command calls are nlir's only effects, so a hit returns exactly what the call
+  produced: identical calls are free and replays are deterministic. Scopes: one
+  evaluation (default); a host-held cache across runs (below); or a **store file**
+  (`--cache-file PATH`, `NLIR_CACHE_FILE`, or `_cache_file` with `_cache=persist`)
+  of JSON lines shared across runs, evals and hill-climb rounds — it only grows,
+  records effectful realisations only, and never evicts. `--replay strict` turns an
+  unrecorded model/command call into an error. `_cache=off` disables caching (the
+  old, nondeterministic behaviour). Editing an operator's prompt or model changes
+  its keys, so a store never replays a stale definition.
+- **Explicit randomness:** `$draw%(form, n)` evaluates `form` `n` times (0–64) under
+  seeds `_seed, _seed+1, …` (from 0 when unset), passing the draw index as `$0`, and
+  restores `_seed` afterwards. Fresh samples are always an explicit request. A normal
   evaluation owns a run-local cache. Incremental/speculative hosts may retain an
   `EvaluationCache` across edits via `evaluate_with_cache`,
   `evaluate_async_with_cache`, or the cached async step/streaming variants:

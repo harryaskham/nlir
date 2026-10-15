@@ -163,6 +163,23 @@ pub struct ModelConfig {
     pub messages: Vec<ModelMessage>,
     /// Provider-specific structured-output config (arbitrary JSON schema shape).
     pub output_config: Option<serde_json::Value>,
+    /// Whether the provider honours `_seed`: `exact`, `best-effort` or `none`
+    /// (default). Informational — determinism comes from the realisation store —
+    /// and shown by `--dry-run` so seed-sensitive work can pick an exact model.
+    pub seed: SeedSupport,
+}
+
+/// How faithfully a model backend honours a request seed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SeedSupport {
+    /// Same seed, same output.
+    Exact,
+    /// Accepted, but outputs may still vary (e.g. across backend fingerprints).
+    BestEffort,
+    /// Ignored.
+    #[default]
+    None,
 }
 
 /// Model backend kind.

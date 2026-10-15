@@ -88,6 +88,17 @@ struct Cli {
     #[arg(long, global = true, value_name = "N")]
     parallelism: Option<usize>,
 
+    /// Persistent realisation store (JSON lines): model and command calls are
+    /// recorded by content address and replayed on later runs, making evaluation
+    /// deterministic and repeated calls free. Also `NLIR_CACHE_FILE`, or `_cache_file`
+    /// in the context. `_cache=off` disables caching entirely.
+    #[arg(long, global = true, value_name = "PATH")]
+    cache_file: Option<PathBuf>,
+
+    /// `strict`: fail on any model/command call not already in the cache store.
+    #[arg(long, global = true, value_name = "MODE")]
+    replay: Option<String>,
+
     /// Print only the stdout result (suppress the stderr expansion trace).
     #[arg(long, global = true)]
     quiet: bool,
@@ -416,6 +427,44 @@ fn apply_binds(cli: &Cli, ctx: &mut nlir::context::Context) -> Result<Vec<String
         names.push(name.to_owned());
     }
     Ok(names)
+}
+
+/// The realisation cache for one CLI evaluation: a persistent store when one is
+/// named (`--cache-file`, `NLIR_CACHE_FILE`, or `_cache_file` in the context), else
+/// an evaluation-scoped cache; `--replay strict` forbids unrecorded calls.
+fn eval_cache(cli: &Cli, ctx: &nlir::context::Context) -> Result<nlir::eval::EvaluationCache, i32> {
+    let strict = match cli.replay.as_deref() {
+        None => false,
+        Some("strict") => true,
+        Some(other) => {
+            eprintln!("nlir: --replay expects `strict`, got `{other}`");
+            return Err(2);
+        }
+    };
+    let path = cli
+        .cache_file
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .or_else(|| {
+            std::env::var("NLIR_CACHE_FILE")
+                .ok()
+                .filter(|p| !p.trim().is_empty())
+        })
+        .or_else(|| ctx.cache_file());
+    let cache = match path {
+        Some(path) if ctx.cache() => {
+            nlir::eval::EvaluationCache::persistent(path).map_err(|error| {
+                eprintln!("nlir: {error}");
+                2
+            })?
+        }
+        _ => nlir::eval::EvaluationCache::default(),
+    };
+    if strict && !cache.is_persistent() {
+        eprintln!("nlir: --replay strict needs a cache store (--cache-file or NLIR_CACHE_FILE)");
+        return Err(2);
+    }
+    Ok(cache.strict(strict))
 }
 
 /// Load the nlir config (SPEC §CLI: `--config PATH` else the default path),
@@ -917,8 +966,9 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     // Smart-pipe: expose piped stdin as the reserved `$_stdin` context key so
     // `cat foo.rs | nlir -e '<expr>'` works (Harry's agentic-coding direction).
     let piped_stdin = read_stdin_into_context(&mut ctx);
+    let cache = eval_cache(cli, &ctx)?;
     // Evaluate against a MUTABLE context (assignments write through).
-    let result = nlir::eval::evaluate(expr, &cfg, &mut ctx, settings.mode);
+    let result = nlir::eval::evaluate_with_cache(expr, &cfg, &mut ctx, settings.mode, &cache);
     // Read `_sep` / `_precision` AFTER eval so a `_sep=` / `_precision=`
     // assignment affects rendering (bd-50f84a: precision is display-only).
     let sep = ctx.sep();
