@@ -183,11 +183,12 @@ async function showLoop() {
       <div class="stat"><b>${best.seed.mean.toFixed(2)} → ${best.best.mean.toFixed(2)}</b><span>held-out similarity, seed → learned program</span></div>
       ${trace.ceiling ? `<div class="stat"><b>${trace.ceiling.mean.toFixed(2)}</b><span>ceiling: a faithful paraphrase of the reference</span></div>` : ''}
       <div class="stat"><b>${best.best.min.toFixed(2)}</b><span>worst held-out sample</span></div>
-      <div class="stat"><b>${rows.length - 1}</b><span>proposals · ${esc(trace.models.generation)} writes · ${esc(trace.models.judge)} judges · ${esc(String(trace.models.proposer).split('/').pop())} edits the program</span></div>
+      <div class="stat"><b>${rows.length - 1}</b><span>proposals · ${esc(trace.models.generation)} writes · ${esc(trace.models.judge)} judges · ${esc(String(trace.models.proposer).split('/').pop())} edits${trace.models.program_judge ? ' and ' + esc(String(trace.models.program_judge).split('/').pop()) + ' reviews' : ''} the program</span></div>
     </div>
     <div class="parts" id="parts"></div>
     <svg class="spark" viewBox="0 0 600 120" id="spark"></svg>
     <div class="stepper"><button id="lprev" aria-label="Previous round">◀</button><span id="lcap"></span><button id="lnext" aria-label="Next round">▶</button></div>
+    <div class="lread" id="lread"></div>
     <div class="loop-grid"><pre class="console code" id="lsrc"></pre><div id="lgraph" class="lgraph"></div></div>`;
   // Held-out similarity by profile part: where the learned program matches the
   // human authors, and where their editorial judgement is still out of reach.
@@ -208,7 +209,15 @@ async function showLoop() {
   const show = () => {
     const r = rows[k];
     const scores = r.val != null ? `validation ${r.val.toFixed(3)} · train ${r.train.toFixed(3)}` : `train ${r.score.toFixed(3)}`;
-    $('lcap').innerHTML = `<b>r${String(r.round).padStart(2, '0')}</b> · ${scores} · ${r.accepted ? 'kept' : 'rejected'}${r.phase > 1 ? ' · phase ' + r.phase : ''}<br><span>${esc(r.note)}</span>`;
+    const w = trace.weights;
+    const breakdown = (r.quality != null && w)
+      ? ` · selection ${r.score.toFixed(3)} = similarity ${(r.sim ?? r.val ?? r.train).toFixed(3)} − ${(w.quality * (1 - r.quality)).toFixed(3)} review − ${(w.complexity_per_kb * (r.kb || 0)).toFixed(3)} size`
+      : '';
+    $('lcap').innerHTML = `<b>r${String(r.round).padStart(2, '0')}</b> · ${scores} · ${r.accepted ? 'kept' : 'rejected'}${r.phase > 1 ? ' · phase ' + r.phase : ''}${breakdown}<br><span>${esc(r.note)}</span>`;
+    const codes = (r.codes || []).map(c => `<span class="chip warn">${esc(c)}</span>`).join('');
+    $('lread').innerHTML = r.reading
+      ? `<div><b>What this program does</b> <span class="chip">review ${(r.quality ?? 0).toFixed(2)}</span><span class="chip">${(r.kb ?? 0).toFixed(2)} kB</span>${codes}</div><p>${esc(r.reading)}</p>${r.review ? `<p class="muted">Reviewer: ${esc(r.review)}</p>` : ''}`
+      : '';
     $('lsrc').innerHTML = highlight(r.program);
     $('lgraph').innerHTML = r.graph || '';
     pz.refit();
