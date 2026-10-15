@@ -6,7 +6,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const norm = v => (v instanceof Map ? Object.fromEntries(v) : v);
 
-let nlir, cfgJson = '{}', lib = '', spec = null, current = null, edited = false;
+let nlir, cfgJson = '{}', lib = '', spec = null, current = null, edited = false, ruleHeading = null;
 
 async function boot() {
   const [m, specText, specLib, profileLib] = await Promise.all([
@@ -57,6 +57,7 @@ async function select(id) {
   const head = await runJson(`{id=$id, title=($node%$id).title, dim=($node%($up%$id)).title, force=($node%$id).force}`, { id });
   $('crumbs').innerHTML = `${esc(head.dim)} <span>·</span> <span class="force">${esc(head.force)}</span>`;
   $('title').innerHTML = `<span class="code">${esc(id)}</span> ${esc(head.title)}`;
+  ruleHeading = {title:$('title').innerHTML, crumbs:$('crumbs').innerHTML};
   await showSpec();
   $('prose').value = await run('$render%(($node%$id).profile)', { id });
   await reparse();
@@ -170,40 +171,53 @@ function mdToHtml(md) {
 }
 
 // ---- learning-loop replay ------------------------------------------------------------
-async function showLoop() {
-  const box = $('loop');
+const LOOP_RUNS = [
+  {file:'trace-strict-b.json', label:'Strict · 2 profiles'},
+  {file:'trace-strict-a.json', label:'Strict · no profiles'},
+  {file:'trace.json', label:'Holistic · v2'},
+];
+let loopRequest = 0;
+async function showLoop(file = LOOP_RUNS[0].file) {
+  if (!LOOP_RUNS.some(r => r.file === file)) return;
+  const request = ++loopRequest, box = $('loop');
+  const choices = `<div class="seg" id="loopRuns" role="group" aria-label="Learning experiment">${LOOP_RUNS.map(r=>`<button data-file="${r.file}" class="${r.file===file?'on':''}" aria-pressed="${r.file===file}">${r.label}</button>`).join('')}</div>`;
+  const wire = () => $('loopRuns').querySelectorAll('button').forEach(b => b.onclick = () => showLoop(b.dataset.file));
   let trace;
-  try { trace = await (await fetch('trace.json')).json(); }
-  catch (_) { box.innerHTML = '<p class="muted">No recorded run.</p>'; return; }
-  const rows = trace.rounds;
-  let k = rows.length - 1;
+  try { const response = await fetch(file); if (!response.ok) throw new Error('missing trace'); trace = await response.json(); }
+  catch (_) { if (request !== loopRequest) return; box.innerHTML = choices+'<p class="muted">This recorded run could not be loaded.</p>'; wire(); return; }
+  if (request !== loopRequest) return; // a slower previous selection must not replace this one
+  const rows = trace.rounds, strict = trace.judge_mode === 'strict';
+  const metric = strict ? 'clause F1' : 'holistic similarity';
+  let k = Math.max(0, rows.map((r,i)=>r.accepted?i:-1).filter(i=>i>=0).pop() ?? rows.length-1);
   const best = trace.held_out;
-  box.innerHTML = `
+  box.innerHTML = `${choices}
+    <p class="sub">${strict ? `${trace.writer_profiles} worked profiles supplied to the writer; both editors see training references. Four-round toy searches; A/B learn separate programs.` : 'Historical holistic-similarity run. Its score is not directly comparable with clause F1.'}</p>
+    ${trace.comparison?.complete ? `<p class="sub">B − A: ${trace.comparison.B_minus_A.mean.toFixed(3)}; descriptive 95% rule-bootstrap interval [${trace.comparison.B_minus_A.lower.toFixed(3)}, ${trace.comparison.B_minus_A.upper.toFixed(3)}]. Four held-out rules, two samples per rule. Not a causal example-input effect.</p>` : ''}
     <div class="loop-head">
-      <div class="stat"><b>${best.seed.mean.toFixed(2)} → ${best.best.mean.toFixed(2)}</b><span>held-out similarity, seed → learned program</span></div>
-      ${trace.ceiling ? `<div class="stat"><b>${trace.ceiling.mean.toFixed(2)}</b><span>ceiling: a faithful paraphrase of the reference</span></div>` : ''}
+      <div class="stat"><b>${best.seed.mean.toFixed(2)} → ${best.best.mean.toFixed(2)}</b><span>held-out ${metric}, seed → learned program</span></div>
+      ${trace.ceiling ? `<div class="stat"><b>${trace.ceiling.mean.toFixed(2)}</b><span>archived paraphrase baseline · different judge (Sonnet), not a ceiling</span></div>` : ''}
       <div class="stat"><b>${best.best.min.toFixed(2)}</b><span>worst held-out sample</span></div>
-      <div class="stat"><b>${rows.length - 1}</b><span>proposals · ${esc(trace.models.generation)} writes · ${esc(trace.models.judge)} judges · ${esc(String(trace.models.proposer).split('/').pop())} edits${trace.models.program_judge ? ' and ' + esc(String(trace.models.program_judge).split('/').pop()) + ' reviews' : ''} the program</span></div>
+      <div class="stat"><b>${rows.length - 1}</b><span>proposals · ${esc(trace.models.generation_version || trace.models.generation)} writes · ${esc(trace.models.judge)} judges · ${esc(String(trace.models.proposer).split('/').pop())} edits${trace.models.program_judge ? ' and ' + esc(String(trace.models.program_judge).split('/').pop()) + ' reviews' : ''} the program</span></div>
     </div>
     <div class="parts" id="parts"></div>
     <svg class="spark" viewBox="0 0 600 120" id="spark"></svg>
     <div class="stepper"><button id="lprev" aria-label="Previous round">◀</button><span id="lcap"></span><button id="lnext" aria-label="Next round">▶</button></div>
     <div class="lread" id="lread"></div>
     <div class="loop-grid"><pre class="console code" id="lsrc"></pre><div id="lgraph" class="lgraph"></div></div>`;
+  wire();
   // Held-out similarity by profile part: where the learned program matches the
   // human authors, and where their editorial judgement is still out of reach.
   const byPart = {};
   (trace.per_item || []).forEach(it => Object.entries(it.parts || {}).forEach(([k, v]) => (byPart[k] = byPart[k] || []).push(v)));
   $('parts').innerHTML = Object.entries(byPart).map(([k, v]) => {
     const m = v.reduce((a, b) => a + b, 0) / v.length;
-    return `<div class="part"><span class="pl">${esc(k.toLowerCase())}</span><span class="bar"><i style="width:${(m * 100).toFixed(0)}%"></i>${trace.ceiling ? `<b style="left:${(trace.ceiling.mean * 100).toFixed(0)}%"></b>` : ''}</span><span class="pv">${m.toFixed(2)}</span></div>`;
+    return `<div class="part"><span class="pl">${esc(k.toLowerCase())}</span><span class="bar"><i style="width:${(m * 100).toFixed(0)}%"></i></span><span class="pv">${m.toFixed(2)}</span></div>`;
   }).join('');
   const W = 600, H = 120, P = 14, xs = i => P + i * (W - 2 * P) / Math.max(rows.length - 1, 1), ys = s => H - P - s * (H - 2 * P);
-  let run = 0;
+  let run = rows[0]?.score ?? 0;
   const bestPath = rows.map((r, i) => { if (r.accepted) run = Math.max(run, r.score); return `${i ? 'L' : 'M'}${xs(i).toFixed(1)},${ys(run).toFixed(1)}`; }).join(' ');
   const phaseLines = rows.map((r, i) => (i && r.phase !== rows[i - 1].phase) ? `<line x1="${xs(i - .5)}" x2="${xs(i - .5)}" y1="${P}" y2="${H - P}" class="phase"/><text x="${xs(i - .5) + 4}" y="${P + 9}" class="phase-l">phase ${r.phase}</text>` : '').join('');
-  const ceil = trace.ceiling ? `<line x1="${P}" x2="${W - P}" y1="${ys(trace.ceiling.mean)}" y2="${ys(trace.ceiling.mean)}" class="ceil"/>` : '';
-  $('spark').innerHTML = `${ceil}${phaseLines}<path d="${bestPath}" class="best"/>` +
+  $('spark').innerHTML = `${phaseLines}<path d="${bestPath}" class="best"/>` +
     rows.map((r, i) => `<circle cx="${xs(i)}" cy="${ys(r.score)}" r="4.5" class="${r.accepted ? 'kept' : 'rej'}" data-i="${i}"><title>r${i} ${r.score.toFixed(3)}</title></circle>`).join('');
   const pz = panzoom($('lgraph'));
   const show = () => {
@@ -211,7 +225,7 @@ async function showLoop() {
     const scores = r.val != null ? `validation ${r.val.toFixed(3)} · train ${r.train.toFixed(3)}` : `train ${r.score.toFixed(3)}`;
     const w = trace.weights;
     const breakdown = (r.quality != null && w)
-      ? ` · selection ${r.score.toFixed(3)} = similarity ${(r.sim ?? r.val ?? r.train).toFixed(3)} − ${(w.quality * (1 - r.quality)).toFixed(3)} review − ${(w.complexity_per_kb * (r.kb || 0)).toFixed(3)} size`
+      ? ` · selection ${r.score.toFixed(3)} = ${metric} ${(r.sim ?? r.val ?? r.train).toFixed(3)} − ${(w.quality * (1 - r.quality)).toFixed(3)} review − ${(w.complexity_per_kb * (r.kb || 0)).toFixed(3)} size`
       : '';
     $('lcap').innerHTML = `<b>r${String(r.round).padStart(2, '0')}</b> · ${scores} · ${r.accepted ? 'kept' : 'rejected'}${r.phase > 1 ? ' · phase ' + r.phase : ''}${breakdown}<br><span>${esc(r.note)}</span>`;
     const codes = (r.codes || []).map(c => `<span class="chip warn">${esc(c)}</span>`).join('');
@@ -231,6 +245,10 @@ async function showLoop() {
 
 // ---- views ---------------------------------------------------------------------------
 async function setView(v) {
+  if (ruleHeading) {
+    $('title').innerHTML = v === 'loop' ? 'Learning profile programs' : ruleHeading.title;
+    $('crumbs').innerHTML = v === 'loop' ? 'Code review assistant <span>·</span> 12-rule dataset' : ruleHeading.crumbs;
+  }
   document.querySelectorAll('#view button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
   for (const k of ['rule', 'policy', 'loop', 'back']) $(`pane-${k}`).hidden = v !== k;
   if (v === 'policy' && !$('policy').innerHTML) $('policy').innerHTML = mdToHtml(await run('$policymd'));

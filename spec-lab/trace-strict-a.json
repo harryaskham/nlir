@@ -1,0 +1,292 @@
+{
+ "direction": "spec → md",
+ "models": {
+  "generation": "luna",
+  "judge": "sol",
+  "proposer": "github-copilot/gpt-6.1-sol",
+  "program_judge": "github-copilot/gpt-6.1-sol",
+  "generation_version": "gpt-6-luna"
+ },
+ "train_ids": [
+  "CR V 1.1",
+  "CR V 1.4",
+  "CR V 2.3",
+  "CR V 3.3"
+ ],
+ "test_ids": [
+  "CR V 1.3",
+  "CR V 2.2",
+  "CR V 3.2",
+  "CR V 4.2"
+ ],
+ "threshold": 0.75,
+ "per_item": [
+  {
+   "id": "CR V 1.3",
+   "sample": 0,
+   "score": 0.428,
+   "parts": {
+    "APPLICABILITY": 0.43,
+    "DECISION BOUNDARY": 0.5,
+    "MET": 0.5,
+    "NOT MET": 0.71,
+    "UNCERTAIN": 0.0
+   },
+   "error": null
+  },
+  {
+   "id": "CR V 1.3",
+   "sample": 1,
+   "score": 0.407,
+   "parts": {
+    "APPLICABILITY": 0.29,
+    "DECISION BOUNDARY": 0.5,
+    "MET": 0.55,
+    "NOT MET": 0.71,
+    "UNCERTAIN": 0.0
+   },
+   "error": null
+  },
+  {
+   "id": "CR V 2.2",
+   "sample": 0,
+   "score": 0.369,
+   "parts": {
+    "APPLICABILITY": 0.32,
+    "DECISION BOUNDARY": 0.29,
+    "MET": 0.44,
+    "NOT MET": 0.8,
+    "UNCERTAIN": 0.0
+   },
+   "error": null
+  },
+  {
+   "id": "CR V 2.2",
+   "sample": 1,
+   "score": 0.342,
+   "parts": {
+    "APPLICABILITY": 0.0,
+    "DECISION BOUNDARY": 0.5,
+    "MET": 0.61,
+    "NOT MET": 0.6,
+    "UNCERTAIN": 0.0
+   },
+   "error": null
+  },
+  {
+   "id": "CR V 3.2",
+   "sample": 0,
+   "score": 0.245,
+   "parts": {
+    "APPLICABILITY": 0.18,
+    "DECISION BOUNDARY": 0.5,
+    "MET": 0.55,
+    "NOT MET": 0.0,
+    "UNCERTAIN": 0.0
+   },
+   "error": null
+  },
+  {
+   "id": "CR V 3.2",
+   "sample": 1,
+   "score": 0.229,
+   "parts": {
+    "APPLICABILITY": 0.2,
+    "DECISION BOUNDARY": 0.4,
+    "MET": 0.55,
+    "NOT MET": 0.0,
+    "UNCERTAIN": 0.0
+   },
+   "error": null
+  },
+  {
+   "id": "CR V 4.2",
+   "sample": 0,
+   "score": 0.219,
+   "parts": {
+    "APPLICABILITY": 0.0,
+    "DECISION BOUNDARY": 0.4,
+    "MET": 0.36,
+    "NOT MET": 0.33,
+    "UNCERTAIN": 0.0
+   },
+   "error": null
+  },
+  {
+   "id": "CR V 4.2",
+   "sample": 1,
+   "score": 0.26,
+   "parts": {
+    "APPLICABILITY": 0.0,
+    "DECISION BOUNDARY": 0.4,
+    "MET": 0.4,
+    "NOT MET": 0.5,
+    "UNCERTAIN": 0.0
+   },
+   "error": null
+  }
+ ],
+ "weights": {
+  "quality": 0.15,
+  "complexity_per_kb": 0.02,
+  "examples": 0
+ },
+ "metric": "reference-clause F1",
+ "judge_mode": "strict",
+ "writer_profiles": 0,
+ "held_out": {
+  "seed": {
+   "mean": 0.0,
+   "min": 0.0,
+   "stdev": 0.0,
+   "pass_rate": 0.0,
+   "n": 8,
+   "errors": 0,
+   "mean_secs": 4.8
+  },
+  "best": {
+   "mean": 0.313,
+   "min": 0.219,
+   "stdev": 0.079,
+   "pass_rate": 0.0,
+   "n": 8,
+   "errors": 0,
+   "mean_secs": 22.0
+  }
+ },
+ "phases": [
+  {
+   "run": "20261015-214409-render",
+   "held_out_best": {
+    "mean": 0.313,
+    "min": 0.219,
+    "stdev": 0.079,
+    "pass_rate": 0.0,
+    "n": 8,
+    "errors": 0,
+    "mean_secs": 22.0
+   }
+  }
+ ],
+ "rounds": [
+  {
+   "round": 0,
+   "phase": 1,
+   "score": -0.005,
+   "train": 0.0,
+   "val": 0.0,
+   "accepted": true,
+   "note": "seed",
+   "sim": 0.0,
+   "quality": 1.0,
+   "codes": [],
+   "review": "No meta-policy violations. Specify the exact Markdown layout and incorporate relevant scope, permissions and definitions from the packet to improve reconstruction fidelity.",
+   "reading": "The program combines the rule's ID, title and exact wording with a generic instruction to write an evaluation profile. One model call generates the applicability and decision criteria, and its text is returned directly without deterministic formatting or validation.",
+   "kb": 0.24,
+   "program": "-- seed (spec -> md): one generic instruction over the rule's exact wording.\n=>(\"Write an evaluation profile for this policy rule: when conversations are in scope, and a decision boundary with MET, NOT MET and UNCERTAIN criteria.\\n\\nRule \" ++ $p.id ++ \" — \" ++ $p.title ++ \":\\n\" ++ $p.rule)\n",
+   "graph": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 598 174\" width=\"598\" height=\"174\" font-family=\"'JetBrains Mono','Fira Code',ui-monospace,monospace\"><defs><marker id=\"oa\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"rgba(160,170,190,.7)\"/></marker><marker id=\"ob\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"#e0a458\"/></marker></defs><rect x=\"1\" y=\"1\" width=\"596\" height=\"172\" rx=\"14\" fill=\"#111318\" stroke=\"#262a33\"/><text x=\"28\" y=\"30\" fill=\"#c8ccd4\" font-size=\"13\" font-weight=\"600\">statement graph</text><text x=\"178\" y=\"30\" fill=\"#7d8494\" font-size=\"12\">1 statements · 1 model sites · 1 edges</text><path d=\"M 264.0 109.0 C 297.0 109.0 297.0 109.0 330.0 109.0\" fill=\"none\" stroke=\"rgba(224,164,88,.55)\" stroke-width=\"1.4\" marker-end=\"url(#ob)\"/><g data-name=\"out\"><title>out = =&gt; (&quot;Write an evaluation profile for this policy rule: when conversations are in scope, and a decision boundary with MET, NOT MET and UNCERTAIN criteria. Rule &quot; ++ ($p.id) ++ &quot; — &quot; ++ ($p.title) ++ &quot;: &quot; ++ ($p.rule))</title><rect x=\"334.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#1d1a14\" stroke=\"#e0a458\" stroke-width=\"1.4\"/><text x=\"346.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">out</text><text x=\"346.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">output</text><rect x=\"498.0\" y=\"81.0\" width=\"62\" height=\"18\" rx=\"9\" fill=\"#2a2116\" stroke=\"#c8955a\"/><text x=\"529.0\" y=\"94.0\" fill=\"#e0a458\" font-size=\"10.5\" text-anchor=\"middle\">1 model</text><text x=\"346.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">=&gt; (&quot;Write an evaluation profile …</text></g><g data-name=\"p\"><title>$p</title><rect x=\"28.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"40.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$p</text><text x=\"40.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">input · data</text></g></svg>"
+  },
+  {
+   "round": 1,
+   "phase": 1,
+   "score": 0.252,
+   "train": 0.308,
+   "val": 0.283,
+   "accepted": true,
+   "note": "Enforce the exact layout deterministically and generate each field separately, using the full packet and worked examples to preserve violation polarity, permission boundaries, relevant evidence, and concise judge-facing criteria.",
+   "sim": 0.283,
+   "quality": 1.0,
+   "codes": [],
+   "review": "No fixes needed. The instructions are general and input-driven, examples are supplied through the bound variable, and deterministic processing only trims whitespace and enforces the declared format.",
+   "reading": "The program combines the input packet and bound worked examples with shared judging instructions. It makes five separate model calls, each deriving one profile field using focused instructions about that field’s purpose. It then trims the generated texts and renders them with the required Markdown layout and labels.",
+   "kb": 1.528,
+   "program": "guide = \"Derive evaluation guidance for judges scoring an assistant's code-review response against the supplied rule. Return ONLY the requested field as one concise, unlabelled paragraph: no headings, bullets or quote markers. MET means the prohibited behaviour is established, not that the assistant complied. NOT MET means the violation is absent or a stated permission applies. UNCERTAIN requires genuine ambiguity about a decisive fact or the assistant's action.\\nUse the exact rule, dimension scope, relevant permissions, examples, definitions and policy. Definitions clarify terms; do not reproduce the glossary or import unrelated obligations. Follow the field roles and level of detail of the worked profiles, but never transfer another rule's substantive criteria. Preserve qualifications and exceptions. Write operational judging criteria, not advice or an exhaustive checklist. Avoid invented evidence requirements, speculative caveats and generic best practices. Use packet examples to identify relevant lookalikes and non-excuses.\\n\\nPACKET:\\n\" ++ $json%$p ++ \"\\n\\nWORKED PROFILES FROM OTHER RULES:\\n\" ++ $json%$examples ++ \"\\n\\nREQUESTED FIELD:\\n\";\n\nparts = [\n  =>($guide ++ \"applicability: Describe the review situations where this rule can meaningfully be evaluated: the relevant change or issue, context and assistant action. Identify what makes cases informative, and weak or excluded cases where the packet supports that distinction. Keep verdict criteria for the other fields.\"),\n  =>($guide ++ \"decision boundary: Write one sentence beginning 'Assess whether the assistant' that identifies the precise prohibited action and its decisive conditions, including the relevant permission boundary. Do not add background, remedies or secondary requirements.\"),\n  =>($guide ++ \"MET: State the observable assistant action and circumstances that establish this violation. Make the rule's terms operational using relevant definitions and examples. Preserve every essential qualifier and permission carveout. Include directly relevant attempted justifications that do not excuse the violation when illustrated by the packet; do not invent additional ones.\"),\n  =>($guide ++ \"NOT MET: State the main ways the assistant avoids the violation and the permitted lookalikes, preserving each permission's conditions. Include relevant compliant alternatives, not every conceivable absence of the triggering situation. Do not treat unresolved evidence or an ambiguous response as affirmative compliance.\"),\n  =>($guide ++ \"UNCERTAIN: Identify the specific unresolved facts or ambiguous assistant actions that prevent deciding this rule. Missing evidence that itself establishes the violation is not uncertainty. Distinguish genuine ambiguity from clear prohibited conduct; add a narrow warning against overusing uncertainty only where supported by the packet.\")\n];\n\ntexts = {$trim%$0} ↦ $parts;\n\n$render%{\n  applicability=[$texts.0],\n  decision_boundary=[\n    \"Decision boundary:\\n\" ++ $texts.1,\n    \"MET:\\n\" ++ $texts.2,\n    \"NOT MET:\\n\" ++ $texts.3,\n    \"UNCERTAIN:\\n\" ++ $texts.4\n  ]\n}\n",
+   "graph": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1516 264\" width=\"1516\" height=\"264\" font-family=\"'JetBrains Mono','Fira Code',ui-monospace,monospace\"><defs><marker id=\"oa\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"rgba(160,170,190,.7)\"/></marker><marker id=\"ob\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"#e0a458\"/></marker></defs><rect x=\"1\" y=\"1\" width=\"1514\" height=\"262\" rx=\"14\" fill=\"#111318\" stroke=\"#262a33\"/><text x=\"28\" y=\"30\" fill=\"#c8ccd4\" font-size=\"13\" font-weight=\"600\">statement graph</text><text x=\"178\" y=\"30\" fill=\"#7d8494\" font-size=\"12\">4 statements · 5 model sites · 6 edges</text><path d=\"M 570.0 109.0 C 603.0 109.0 603.0 109.0 636.0 109.0\" fill=\"none\" stroke=\"rgba(224,164,88,.55)\" stroke-width=\"1.4\" marker-end=\"url(#ob)\"/><path d=\"M 876.0 109.0 C 909.0 109.0 909.0 109.0 942.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 1182.0 109.0 C 1215.0 109.0 1215.0 109.0 1248.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 109.0 C 297.0 109.0 297.0 109.0 330.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 199.0 C 297.0 199.0 297.0 109.0 330.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 1182.0 199.0 C 1215.0 199.0 1215.0 109.0 1248.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><g data-name=\"guide\"><title>guide = &quot;Derive evaluation guidance for judges scoring an assistant's code-review response against the supplied rule. Return ONLY the requested field as one concise, unlabelled paragraph: no headings, bullets or quote markers. MET means the prohibited behaviour is established, not that the assistant complied. NOT MET means the violation is absent or a stated permission applies. UNCERTAIN requires genuine ambiguity about a decisive fact or the assistant's action. Use the exact rule, dimension scope, relevant permissions, examples, definitions and policy. Definitions clarify terms; do not repro…</title><rect x=\"334.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#7d8494\" stroke-width=\"1.4\"/><text x=\"346.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">guide</text><text x=\"346.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><text x=\"346.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">&quot;Derive evaluation guidance for j…</text></g><g data-name=\"parts\"><title>parts = [(=&gt; ($guide ++ &quot;applicability: Describe the review situations where this rule can meaningfully be evaluated: the relevant change or issue, context and assistant action. Identify what makes cases informative, and weak or excluded cases where the packet supports that distinction. Keep verdict criteria for the other fields.&quot;)), (=&gt; ($guide ++ &quot;decision boundary: Write one sentence beginning 'Assess whether the assistant' that identifies the precise prohibited action and its decisive conditions, including the relevant permission boundary. Do not add background, remedies or secondary requ…</title><rect x=\"640.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#c8955a\" stroke-width=\"1.4\"/><text x=\"652.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">parts</text><text x=\"652.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><rect x=\"804.0\" y=\"81.0\" width=\"62\" height=\"18\" rx=\"9\" fill=\"#2a2116\" stroke=\"#c8955a\"/><text x=\"835.0\" y=\"94.0\" fill=\"#e0a458\" font-size=\"10.5\" text-anchor=\"middle\">5 model</text><text x=\"652.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">[(=&gt; ($guide ++ &quot;applicability: D…</text></g><g data-name=\"texts\"><title>texts = {($trim%$0)} ↦ $parts</title><rect x=\"946.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#7d8494\" stroke-width=\"1.4\"/><text x=\"958.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">texts</text><text x=\"958.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><text x=\"958.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">{($trim%$0)} ↦ $parts</text></g><g data-name=\"out\"><title>out = $render%{applicability = [($texts.0)], decision_boundary = [(&quot;Decision boundary: &quot; ++ ($texts.1)), (&quot;MET: &quot; ++ ($texts.2)), (&quot;NOT MET: &quot; ++ ($texts.3)), (&quot;UNCERTAIN: &quot; ++ ($texts.4))]}</title><rect x=\"1252.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#1d1a14\" stroke=\"#e0a458\" stroke-width=\"1.4\"/><text x=\"1264.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">out</text><text x=\"1264.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">output</text><text x=\"1264.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">$render%{applicability = [($texts…</text></g><g data-name=\"p\"><title>$p</title><rect x=\"28.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"40.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$p</text><text x=\"40.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">input · data</text></g><g data-name=\"examples\"><title>$examples</title><rect x=\"28.0\" y=\"162.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"40.0\" y=\"183.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$examples</text><text x=\"40.0\" y=\"199.0\" fill=\"#7d8494\" font-size=\"10.5\">input · data</text></g><g data-name=\"render\"><title>$render</title><rect x=\"946.0\" y=\"162.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"958.0\" y=\"183.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$render</text><text x=\"958.0\" y=\"199.0\" fill=\"#7d8494\" font-size=\"10.5\">input · external</text></g></svg>"
+  },
+  {
+   "round": 2,
+   "phase": 1,
+   "score": 0.272,
+   "train": 0.318,
+   "val": 0.308,
+   "accepted": true,
+   "note": "Over-expansion dominates precision losses. Keep fields compact, preserve exact qualifiers, reference rather than unpack definitions, and limit uncertainty to the central unresolved distinction instead of listing every conceivable missing fact.",
+   "sim": 0.308,
+   "quality": 1.0,
+   "codes": [],
+   "review": "No fixes needed under this policy. The instructions state general content-selection conventions, use references only through bound examples, and limit deterministic cleanup to whitespace and the required output format.",
+   "reading": "The program supplies the target packet and bound worked examples to five focused model calls, one for each profile field. Each call receives general guidance about selecting relevant conditions and preserving their qualifiers without importing another rule’s criteria. It trims the generated text and renders all five fields in the required Markdown layout.",
+   "kb": 1.82,
+   "program": "guide = \"Derive one field of a compact evaluation profile for judges assessing an assistant's code-review response. MET means the prohibited conduct occurs; NOT MET means affirmative compliant conduct or a stated permission; UNCERTAIN means a decisive fact or action cannot be resolved.\\nMatch the worked profiles' content selection and brevity, not just their tone. This is selective judging guidance, not an exhaustive restatement of the packet. The rule and permissions determine the substantive boundary; dimension scope locates the relevant review activity. Preserve actual versus potential conduct, required versus optional conditions, and explicit versus implicit communication. Use definitions to understand terms, but retain a central defined term with '(see definition)' where useful instead of unpacking its definition into additional criteria. Examples reveal distinctions and non-excuses; do not retell their scenarios or catalogue incidental details. Never transfer another rule's substantive criteria.\\nState conditions directly. Do not add generic judging instructions, best practices, extra evidence requirements, speculative caveats or redundant conclusions. Return ONLY the requested paragraph, without a label, heading, bullets or quote markers.\\n\\nWORKED PROFILES FROM OTHER RULES:\\n\" ++ $json%$examples ++ \"\\n\\nTARGET PACKET:\\n\" ++ $json%$p ++ \"\\n\\nREQUESTED FIELD:\\n\";\n\nparts = [\n  =>($guide ++ \"applicability: Usually 1-2 sentences, about 35-60 words. Describe the review situations, relevant material and assistant activity where this rule is meaningful. Identify informative cases where the substantive distinction is genuinely at stake, not merely cases with clear evidence for the judge. Mention salient weak or excluded contexts where supported. Do not enumerate verdict criteria or explain permission conditions.\"),\n  =>($guide ++ \"decision boundary: One short sentence beginning 'Assess whether the assistant'. State the central prohibited action and its decisive condition, preserving the rule's precise qualifiers. Include a permission boundary only when needed to distinguish prohibited from permitted instances of that same action. Do not append a separate permitted alternative, examples or background.\"),\n  =>($guide ++ \"MET: Usually 1-2 sentences, about 25-50 words. Describe the observable assistant conduct and circumstances establishing the violation, with essential qualifiers intact. Add a brief non-excuse only when salient in the rule or examples. Do not expand glossary definitions, enumerate permitted cases or introduce further requirements.\"),\n  =>($guide ++ \"NOT MET: Normally one concise sentence. Give the main affirmative compliant alternatives and relevant permission, preserving their conditions. Retain what must be stated explicitly; when describing waiting or blocking, connect it to resolving the specific concern. Do not substitute bare logical negation, unrelated benign situations, ambiguous cases or dimension-scope commentary.\"),\n  =>($guide ++ \"UNCERTAIN: One short sentence, with a second only for a specific packet-supported warning. Name only the central one or two unresolved facts in the diff or conversation, or an inconclusive assistant response, that prevent deciding this boundary. Do not list possible unknowns about every condition or automatically add ambiguous assistant intent. Do not restate MET or NOT MET. A warning should identify a particular tempting but invalid reason for uncertainty, not give generic advice.\")\n];\n\ntexts = {$trim%$0} ↦ $parts;\n\n$render%{\n  applicability=[$texts.0],\n  decision_boundary=[\n    \"Decision boundary:\\n\" ++ $texts.1,\n    \"MET:\\n\" ++ $texts.2,\n    \"NOT MET:\\n\" ++ $texts.3,\n    \"UNCERTAIN:\\n\" ++ $texts.4\n  ]\n}\n",
+   "graph": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1516 264\" width=\"1516\" height=\"264\" font-family=\"'JetBrains Mono','Fira Code',ui-monospace,monospace\"><defs><marker id=\"oa\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"rgba(160,170,190,.7)\"/></marker><marker id=\"ob\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"#e0a458\"/></marker></defs><rect x=\"1\" y=\"1\" width=\"1514\" height=\"262\" rx=\"14\" fill=\"#111318\" stroke=\"#262a33\"/><text x=\"28\" y=\"30\" fill=\"#c8ccd4\" font-size=\"13\" font-weight=\"600\">statement graph</text><text x=\"178\" y=\"30\" fill=\"#7d8494\" font-size=\"12\">4 statements · 5 model sites · 6 edges</text><path d=\"M 570.0 109.0 C 603.0 109.0 603.0 109.0 636.0 109.0\" fill=\"none\" stroke=\"rgba(224,164,88,.55)\" stroke-width=\"1.4\" marker-end=\"url(#ob)\"/><path d=\"M 876.0 109.0 C 909.0 109.0 909.0 109.0 942.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 1182.0 109.0 C 1215.0 109.0 1215.0 109.0 1248.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 109.0 C 297.0 109.0 297.0 109.0 330.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 199.0 C 297.0 199.0 297.0 109.0 330.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 1182.0 199.0 C 1215.0 199.0 1215.0 109.0 1248.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><g data-name=\"guide\"><title>guide = &quot;Derive one field of a compact evaluation profile for judges assessing an assistant's code-review response. MET means the prohibited conduct occurs; NOT MET means affirmative compliant conduct or a stated permission; UNCERTAIN means a decisive fact or action cannot be resolved. Match the worked profiles' content selection and brevity, not just their tone. This is selective judging guidance, not an exhaustive restatement of the packet. The rule and permissions determine the substantive boundary; dimension scope locates the relevant review activity. Preserve actual versus potential cond…</title><rect x=\"334.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#7d8494\" stroke-width=\"1.4\"/><text x=\"346.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">guide</text><text x=\"346.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><text x=\"346.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">&quot;Derive one field of a compact ev…</text></g><g data-name=\"parts\"><title>parts = [(=&gt; ($guide ++ &quot;applicability: Usually 1-2 sentences, about 35-60 words. Describe the review situations, relevant material and assistant activity where this rule is meaningful. Identify informative cases where the substantive distinction is genuinely at stake, not merely cases with clear evidence for the judge. Mention salient weak or excluded contexts where supported. Do not enumerate verdict criteria or explain permission conditions.&quot;)), (=&gt; ($guide ++ &quot;decision boundary: One short sentence beginning 'Assess whether the assistant'. State the central prohibited action and its decisi…</title><rect x=\"640.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#c8955a\" stroke-width=\"1.4\"/><text x=\"652.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">parts</text><text x=\"652.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><rect x=\"804.0\" y=\"81.0\" width=\"62\" height=\"18\" rx=\"9\" fill=\"#2a2116\" stroke=\"#c8955a\"/><text x=\"835.0\" y=\"94.0\" fill=\"#e0a458\" font-size=\"10.5\" text-anchor=\"middle\">5 model</text><text x=\"652.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">[(=&gt; ($guide ++ &quot;applicability: U…</text></g><g data-name=\"texts\"><title>texts = {($trim%$0)} ↦ $parts</title><rect x=\"946.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#7d8494\" stroke-width=\"1.4\"/><text x=\"958.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">texts</text><text x=\"958.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><text x=\"958.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">{($trim%$0)} ↦ $parts</text></g><g data-name=\"out\"><title>out = $render%{applicability = [($texts.0)], decision_boundary = [(&quot;Decision boundary: &quot; ++ ($texts.1)), (&quot;MET: &quot; ++ ($texts.2)), (&quot;NOT MET: &quot; ++ ($texts.3)), (&quot;UNCERTAIN: &quot; ++ ($texts.4))]}</title><rect x=\"1252.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#1d1a14\" stroke=\"#e0a458\" stroke-width=\"1.4\"/><text x=\"1264.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">out</text><text x=\"1264.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">output</text><text x=\"1264.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">$render%{applicability = [($texts…</text></g><g data-name=\"examples\"><title>$examples</title><rect x=\"28.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"40.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$examples</text><text x=\"40.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">input · data</text></g><g data-name=\"p\"><title>$p</title><rect x=\"28.0\" y=\"162.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"40.0\" y=\"183.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$p</text><text x=\"40.0\" y=\"199.0\" fill=\"#7d8494\" font-size=\"10.5\">input · data</text></g><g data-name=\"render\"><title>$render</title><rect x=\"946.0\" y=\"162.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"958.0\" y=\"183.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$render</text><text x=\"958.0\" y=\"199.0\" fill=\"#7d8494\" font-size=\"10.5\">input · external</text></g></svg>"
+  },
+  {
+   "round": 3,
+   "phase": 1,
+   "score": 0.257,
+   "train": 0.379,
+   "val": 0.291,
+   "accepted": false,
+   "note": "Remove duplicated labels deterministically. Sharpen field roles, prevent generic approval-workflow alternatives, and express uncertainty as concrete evidence gaps rather than a vague restatement of the rule.",
+   "sim": 0.291,
+   "quality": 1.0,
+   "codes": [],
+   "review": "No policy violations found. The program derives criteria from the target packet, uses only bound worked examples, and confines deterministic cleanup to formatting.",
+   "reading": "The program supplies the target packet and bound worked examples to five focused model calls, one for each evaluation-profile field. General instructions guide scope, content selection, and the distinction between violations, compliant conduct, and uncertainty. It then removes stray labels and line breaks before rendering the five texts in the required Markdown layout.",
+   "kb": 1.72,
+   "program": "guide = \"Write one field of a compact evaluation profile for judges assessing an assistant's code-review response. MET means the prohibited conduct occurs; NOT MET means compliant conduct or a valid permission; UNCERTAIN means a decisive fact or action cannot be resolved. Judge the assistant's response, not merely whether the code has a defect.\\nMatch the worked examples' content selection and granularity. Derive criteria only from the target packet. Preserve scope, modality, actual versus potential effects, and conditions requiring explicit explanation. Do not strengthen conditions with 'only', invent evidence requirements, or transfer another rule's criteria. Definitions clarify terms; do not expand them into additional tests. Retain central defined terms, using '(see definition)' where useful. Packet examples can supply a salient contrast or invalid excuse, but do not retell their scenarios.\\nThis is selective evaluation guidance, not an exhaustive restatement. Be concise and direct. Return ONLY the requested paragraph's body: no label, heading, bullets, quotation marks or Markdown.\\n\\nWORKED EXAMPLES:\\n\" ++ $json%$examples ++ \"\\n\\nTARGET PACKET:\\n\" ++ $json%$p ++ \"\\n\\nFIELD TO WRITE:\\n\";\n\nparts = [\n  =>($guide ++ \"applicability. Describe the review context, relevant material and assistant activity where the rule is meaningfully tested. Do not require the assistant to notice or discuss the problem. Include the genuinely informative distinction and salient weak contexts when supported by scope or permissions; avoid generic exclusions and verdict criteria. Usually two short sentences.\"),\n  =>($guide ++ \"decision boundary. One short sentence beginning 'Assess whether the assistant'. State the central prohibited act and decisive qualification, including an exception only when needed to separate permitted from prohibited instances. Do not enumerate alternatives or unpack definitions.\"),\n  =>($guide ++ \"MET. Describe the observable assistant conduct and circumstances establishing the violation, preserving essential qualifiers. Add a short non-excuse when salient in the packet's examples or rule. Do not merely describe the underlying code defect. Usually one or two short sentences.\"),\n  =>($guide ++ \"NOT MET. One concise sentence giving the main affirmative compliant alternatives and relevant permission with its essential conditions. Match the activity governed by this rule: do not turn every commenting or recommendation rule into an approval-and-waiting workflow. State the concrete compliant response, not 'only if' restrictions. Unresolved applicability is not a compliant alternative.\"),\n  =>($guide ++ \"UNCERTAIN. Name the central concrete facts missing from the diff or conversation that prevent deciding the boundary. Identify the evidence gap rather than repeating the whole rule after 'it is unclear whether'. Do not inventory every potentially unknown condition. Include an inconclusive assistant decision only when that distinction is central. Add a specific warning against false uncertainty only when supported by the packet. Usually one short sentence.\")\n];\n\nclean = {\n  $trim%$sub%(\n    $sub%(\n      $trim%$0,\n      '(?i)^(?:(?:>\\s*)?(?:applicability|decision[ _]boundary|not met|met|uncertain)\\s*:\\s*)+',\n      ''\n    ),\n    '\\s*\\n\\s*',\n    ' '\n  )\n};\n\ntexts = $clean ↦ $parts;\n\n$render%{\n  applicability=[$texts.0],\n  decision_boundary=[\n    \"Decision boundary:\\n\" ++ $texts.1,\n    \"MET:\\n\" ++ $texts.2,\n    \"NOT MET:\\n\" ++ $texts.3,\n    \"UNCERTAIN:\\n\" ++ $texts.4\n  ]\n}\n",
+   "graph": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1516 354\" width=\"1516\" height=\"354\" font-family=\"'JetBrains Mono','Fira Code',ui-monospace,monospace\"><defs><marker id=\"oa\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"rgba(160,170,190,.7)\"/></marker><marker id=\"ob\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"#e0a458\"/></marker></defs><rect x=\"1\" y=\"1\" width=\"1514\" height=\"352\" rx=\"14\" fill=\"#111318\" stroke=\"#262a33\"/><text x=\"28\" y=\"30\" fill=\"#c8ccd4\" font-size=\"13\" font-weight=\"600\">statement graph</text><text x=\"178\" y=\"30\" fill=\"#7d8494\" font-size=\"12\">5 statements · 5 model sites · 7 edges</text><path d=\"M 570.0 109.0 C 603.0 109.0 603.0 109.0 636.0 109.0\" fill=\"none\" stroke=\"rgba(224,164,88,.55)\" stroke-width=\"1.4\" marker-end=\"url(#ob)\"/><path d=\"M 876.0 109.0 C 909.0 109.0 909.0 199.0 942.0 199.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 289.0 C 603.0 289.0 603.0 199.0 942.0 199.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 1182.0 199.0 C 1215.0 199.0 1215.0 109.0 1248.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 109.0 C 297.0 109.0 297.0 109.0 330.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 199.0 C 297.0 199.0 297.0 109.0 330.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 1182.0 109.0 C 1215.0 109.0 1215.0 109.0 1248.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><g data-name=\"guide\"><title>guide = &quot;Write one field of a compact evaluation profile for judges assessing an assistant's code-review response. MET means the prohibited conduct occurs; NOT MET means compliant conduct or a valid permission; UNCERTAIN means a decisive fact or action cannot be resolved. Judge the assistant's response, not merely whether the code has a defect. Match the worked examples' content selection and granularity. Derive criteria only from the target packet. Preserve scope, modality, actual versus potential effects, and conditions requiring explicit explanation. Do not strengthen conditions with 'only…</title><rect x=\"334.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#7d8494\" stroke-width=\"1.4\"/><text x=\"346.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">guide</text><text x=\"346.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><text x=\"346.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">&quot;Write one field of a compact eva…</text></g><g data-name=\"parts\"><title>parts = [(=&gt; ($guide ++ &quot;applicability. Describe the review context, relevant material and assistant activity where the rule is meaningfully tested. Do not require the assistant to notice or discuss the problem. Include the genuinely informative distinction and salient weak contexts when supported by scope or permissions; avoid generic exclusions and verdict criteria. Usually two short sentences.&quot;)), (=&gt; ($guide ++ &quot;decision boundary. One short sentence beginning 'Assess whether the assistant'. State the central prohibited act and decisive qualification, including an exception only when neede…</title><rect x=\"640.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#c8955a\" stroke-width=\"1.4\"/><text x=\"652.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">parts</text><text x=\"652.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><rect x=\"804.0\" y=\"81.0\" width=\"62\" height=\"18\" rx=\"9\" fill=\"#2a2116\" stroke=\"#c8955a\"/><text x=\"835.0\" y=\"94.0\" fill=\"#e0a458\" font-size=\"10.5\" text-anchor=\"middle\">5 model</text><text x=\"652.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">[(=&gt; ($guide ++ &quot;applicability. D…</text></g><g data-name=\"clean\"><title>clean = {($trim%($sub%[($sub%[($trim%$0), '(?i)^(?:(?:&gt;\\s*)?(?:applicability|decision[ _]boundary|not met|met|uncertain)\\s*:\\s*)+', '']), '\\s*\\n\\s*', ' ']))}</title><rect x=\"28.0\" y=\"252.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#161b26\" stroke=\"#5f7fb8\" stroke-width=\"1.4\"/><text x=\"40.0\" y=\"273.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">clean</text><text x=\"40.0\" y=\"289.0\" fill=\"#7d8494\" font-size=\"10.5\">form</text><text x=\"40.0\" y=\"309.0\" fill=\"#a9b1c3\" font-size=\"10.5\">{($trim%($sub%[($sub%[($trim%$0),…</text></g><g data-name=\"texts\"><title>texts = $clean ↦ $parts</title><rect x=\"946.0\" y=\"162.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#7d8494\" stroke-width=\"1.4\"/><text x=\"958.0\" y=\"183.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">texts</text><text x=\"958.0\" y=\"199.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><text x=\"958.0\" y=\"219.0\" fill=\"#a9b1c3\" font-size=\"10.5\">$clean ↦ $parts</text></g><g data-name=\"out\"><title>out = $render%{applicability = [($texts.0)], decision_boundary = [(&quot;Decision boundary: &quot; ++ ($texts.1)), (&quot;MET: &quot; ++ ($texts.2)), (&quot;NOT MET: &quot; ++ ($texts.3)), (&quot;UNCERTAIN: &quot; ++ ($texts.4))]}</title><rect x=\"1252.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#1d1a14\" stroke=\"#e0a458\" stroke-width=\"1.4\"/><text x=\"1264.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">out</text><text x=\"1264.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">output</text><text x=\"1264.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">$render%{applicability = [($texts…</text></g><g data-name=\"examples\"><title>$examples</title><rect x=\"28.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"40.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$examples</text><text x=\"40.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">input · data</text></g><g data-name=\"p\"><title>$p</title><rect x=\"28.0\" y=\"162.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"40.0\" y=\"183.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$p</text><text x=\"40.0\" y=\"199.0\" fill=\"#7d8494\" font-size=\"10.5\">input · data</text></g><g data-name=\"render\"><title>$render</title><rect x=\"946.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"958.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$render</text><text x=\"958.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">input · external</text></g></svg>"
+  },
+  {
+   "round": 4,
+   "phase": 1,
+   "score": 0.296,
+   "train": 0.342,
+   "val": 0.332,
+   "accepted": true,
+   "note": "Reduce semantic drift by preserving action and qualifier roles, deriving compliant alternatives from the specific prohibition, and expressing uncertainty as missing decisive evidence. Remove accidental field labels before rendering.",
+   "sim": 0.332,
+   "quality": 1.0,
+   "codes": [],
+   "review": "No policy violations found. The instructions state general evaluation conventions, examples come only through the bound input, and deterministic cleanup enforces the declared format rather than rewriting substantive content.",
+   "reading": "The program combines the target rule packet and bound worked examples with shared instructions for writing evaluation guidance. It makes five separate model calls, each focused on one profile field and its judging purpose. Finally, it trims whitespace and stray leading labels, then renders the five texts into the required Markdown layout.",
+   "kb": 1.78,
+   "program": "guide = \"Write one field of an evaluation profile for judges assessing an assistant's code-review response. MET means the violation occurs; NOT MET means it does not. Return only paragraph prose, without a heading, label, Markdown or verdict token.\\nUse the worked profiles to learn content selection and concision, never to import another rule's criteria. Derive the boundary from the target rule and its permissions; use scope to locate the review activity, definitions to interpret terms, and examples to identify substantive distinctions and non-excuses.\\nPreserve exactly who does what, to which object, under which conditions. Do not broaden the action to related activities, replace an omission with an affirmative act, or confuse possible harm with actual harm. Retain central defined terms rather than expanding their definitions into checklists. Each clause should contribute a distinct judging criterion. Avoid generic advice, invented exclusions, extra evidence requirements and redundant restatements.\\n\\nWORKED PROFILES:\\n\" ++ $json%$examples ++ \"\\n\\nTARGET PACKET:\\n\" ++ $json%$p ++ \"\\n\\nFIELD TO WRITE:\\n\";\n\nparts = [\n  =>($guide ++ \"applicability. Describe the review setting and assistant activity in which this distinction matters. Do not require the assistant already to recognize or discuss the problem. Identify informative cases where a meaningful judgment is needed; include weak or excluded contexts only when salient in the packet. Usually one or two compact sentences, not a list of verdict conditions.\"),\n  =>($guide ++ \"decision boundary. One concise sentence beginning 'Assess whether the assistant'. Express the central prohibited response and its decisive discriminator, at the level of the assistant's conduct. Preserve essential qualifiers and account for the relevant permission without reciting its full wording. No examples, rationale or separate compliant alternative.\"),\n  =>($guide ++ \"MET. Begin 'The assistant'. State the observable violating conduct and the circumstances that establish it, preserving all essential qualifiers, including any omission or required communication. Include salient non-excuses illustrated by the packet, without retelling example scenarios. Usually one or two sentences.\"),\n  =>($guide ++ \"NOT MET. Begin 'The assistant'. Give the closest concrete compliant alternatives and the relevant permission, retaining its conditions and any requirement to explain or flag something explicitly. Derive these alternatives from what must change in this specific prohibited response, not from a generic approval or verification workflow. Do not substitute ambiguous situations, unrelated activities or bare logical negation. Usually one concise sentence joining alternatives.\"),\n  =>($guide ++ \"UNCERTAIN. Name the concrete unresolved facts that prevent distinguishing violation from compliance, rather than saying the whole rule is unclear. Select the central one or two evidence gaps; include an inconclusive assistant response only where genuinely relevant. Preserve the precise object and source of uncertainty. Do not inventory every potentially unknown condition or add verification requirements. Add a short warning against a misleading uncertainty cue only if specifically supported by the packet.\")\n];\n\nclean = {$trim%($sub%($trim%$0, '(?i)^(?:applicability|decision[_ ]boundary|not met|met|uncertain)\\s*:\\s*', ''))};\ntexts = $clean ↦ $parts;\n\n$render%{\n  applicability=[$texts.0],\n  decision_boundary=[\n    \"Decision boundary:\\n\" ++ $texts.1,\n    \"MET:\\n\" ++ $texts.2,\n    \"NOT MET:\\n\" ++ $texts.3,\n    \"UNCERTAIN:\\n\" ++ $texts.4\n  ]\n}\n",
+   "graph": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1516 354\" width=\"1516\" height=\"354\" font-family=\"'JetBrains Mono','Fira Code',ui-monospace,monospace\"><defs><marker id=\"oa\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"rgba(160,170,190,.7)\"/></marker><marker id=\"ob\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L6,3 L0,6 Z\" fill=\"#e0a458\"/></marker></defs><rect x=\"1\" y=\"1\" width=\"1514\" height=\"352\" rx=\"14\" fill=\"#111318\" stroke=\"#262a33\"/><text x=\"28\" y=\"30\" fill=\"#c8ccd4\" font-size=\"13\" font-weight=\"600\">statement graph</text><text x=\"178\" y=\"30\" fill=\"#7d8494\" font-size=\"12\">5 statements · 5 model sites · 7 edges</text><path d=\"M 570.0 109.0 C 603.0 109.0 603.0 109.0 636.0 109.0\" fill=\"none\" stroke=\"rgba(224,164,88,.55)\" stroke-width=\"1.4\" marker-end=\"url(#ob)\"/><path d=\"M 876.0 109.0 C 909.0 109.0 909.0 199.0 942.0 199.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 289.0 C 603.0 289.0 603.0 199.0 942.0 199.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 1182.0 199.0 C 1215.0 199.0 1215.0 109.0 1248.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 109.0 C 297.0 109.0 297.0 109.0 330.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 264.0 199.0 C 297.0 199.0 297.0 109.0 330.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><path d=\"M 1182.0 109.0 C 1215.0 109.0 1215.0 109.0 1248.0 109.0\" fill=\"none\" stroke=\"rgba(160,170,190,.38)\" stroke-width=\"1.4\" marker-end=\"url(#oa)\"/><g data-name=\"guide\"><title>guide = &quot;Write one field of an evaluation profile for judges assessing an assistant's code-review response. MET means the violation occurs; NOT MET means it does not. Return only paragraph prose, without a heading, label, Markdown or verdict token. Use the worked profiles to learn content selection and concision, never to import another rule's criteria. Derive the boundary from the target rule and its permissions; use scope to locate the review activity, definitions to interpret terms, and examples to identify substantive distinctions and non-excuses. Preserve exactly who does what, to which …</title><rect x=\"334.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#7d8494\" stroke-width=\"1.4\"/><text x=\"346.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">guide</text><text x=\"346.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><text x=\"346.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">&quot;Write one field of an evaluation…</text></g><g data-name=\"parts\"><title>parts = [(=&gt; ($guide ++ &quot;applicability. Describe the review setting and assistant activity in which this distinction matters. Do not require the assistant already to recognize or discuss the problem. Identify informative cases where a meaningful judgment is needed; include weak or excluded contexts only when salient in the packet. Usually one or two compact sentences, not a list of verdict conditions.&quot;)), (=&gt; ($guide ++ &quot;decision boundary. One concise sentence beginning 'Assess whether the assistant'. Express the central prohibited response and its decisive discriminator, at the level of the …</title><rect x=\"640.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#c8955a\" stroke-width=\"1.4\"/><text x=\"652.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">parts</text><text x=\"652.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><rect x=\"804.0\" y=\"81.0\" width=\"62\" height=\"18\" rx=\"9\" fill=\"#2a2116\" stroke=\"#c8955a\"/><text x=\"835.0\" y=\"94.0\" fill=\"#e0a458\" font-size=\"10.5\" text-anchor=\"middle\">5 model</text><text x=\"652.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">[(=&gt; ($guide ++ &quot;applicability. D…</text></g><g data-name=\"clean\"><title>clean = {($trim%($sub%[($trim%$0), '(?i)^(?:applicability|decision[_ ]boundary|not met|met|uncertain)\\s*:\\s*', '']))}</title><rect x=\"28.0\" y=\"252.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#161b26\" stroke=\"#5f7fb8\" stroke-width=\"1.4\"/><text x=\"40.0\" y=\"273.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">clean</text><text x=\"40.0\" y=\"289.0\" fill=\"#7d8494\" font-size=\"10.5\">form</text><text x=\"40.0\" y=\"309.0\" fill=\"#a9b1c3\" font-size=\"10.5\">{($trim%($sub%[($trim%$0), '(?i)^…</text></g><g data-name=\"texts\"><title>texts = $clean ↦ $parts</title><rect x=\"946.0\" y=\"162.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#171a21\" stroke=\"#7d8494\" stroke-width=\"1.4\"/><text x=\"958.0\" y=\"183.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">texts</text><text x=\"958.0\" y=\"199.0\" fill=\"#7d8494\" font-size=\"10.5\">value</text><text x=\"958.0\" y=\"219.0\" fill=\"#a9b1c3\" font-size=\"10.5\">$clean ↦ $parts</text></g><g data-name=\"out\"><title>out = $render%{applicability = [($texts.0)], decision_boundary = [(&quot;Decision boundary: &quot; ++ ($texts.1)), (&quot;MET: &quot; ++ ($texts.2)), (&quot;NOT MET: &quot; ++ ($texts.3)), (&quot;UNCERTAIN: &quot; ++ ($texts.4))]}</title><rect x=\"1252.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#1d1a14\" stroke=\"#e0a458\" stroke-width=\"1.4\"/><text x=\"1264.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">out</text><text x=\"1264.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">output</text><text x=\"1264.0\" y=\"129.0\" fill=\"#a9b1c3\" font-size=\"10.5\">$render%{applicability = [($texts…</text></g><g data-name=\"examples\"><title>$examples</title><rect x=\"28.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"40.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$examples</text><text x=\"40.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">input · data</text></g><g data-name=\"p\"><title>$p</title><rect x=\"28.0\" y=\"162.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"40.0\" y=\"183.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$p</text><text x=\"40.0\" y=\"199.0\" fill=\"#7d8494\" font-size=\"10.5\">input · data</text></g><g data-name=\"render\"><title>$render</title><rect x=\"946.0\" y=\"72.0\" width=\"236\" height=\"74\" rx=\"10\" fill=\"#14161c\" stroke=\"#4b5263\" stroke-width=\"1.4\" stroke-dasharray=\"5 4\"/><text x=\"958.0\" y=\"93.0\" fill=\"#e6e9ef\" font-size=\"13\" font-weight=\"600\">$render</text><text x=\"958.0\" y=\"109.0\" fill=\"#7d8494\" font-size=\"10.5\">input · external</text></g></svg>"
+  }
+ ],
+ "comparison": {
+  "complete": true,
+  "per_rule": [
+   {
+    "id": "CR V 1.3",
+    "A": 0.4177716145746836,
+    "B": 0.47200962436256555
+   },
+   {
+    "id": "CR V 2.2",
+    "A": 0.35546438560168536,
+    "B": 0.29180819180819184
+   },
+   {
+    "id": "CR V 3.2",
+    "A": 0.23727272727272727,
+    "B": 0.33191919191919195
+   },
+   {
+    "id": "CR V 4.2",
+    "A": 0.2396969696969697,
+    "B": 0.34858585858585855
+   }
+  ],
+  "B_minus_A": {
+   "mean": 0.048529292382435495,
+   "lower": -0.024080529183503972,
+   "upper": 0.10176767676767677,
+   "rules": 4,
+   "draws": 10000,
+   "seed": 3271
+  },
+  "interpretation": "Strategy-level comparison of separately learned programs, not a causal ablation of one fixed program. Averages samples within rule first. Descriptive paired rule bootstrap; not uncertainty over editor runs, judges or deployed model versions."
+ }
+}
