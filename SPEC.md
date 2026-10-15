@@ -633,6 +633,7 @@ Assume the last assistant message (`^-1`) is about *a rust-rewrite*.
 nlir -e 'EXPR' [--quiet] [--mode det|llm] [--model haiku | --model medium=haiku,large=opus] [--parallelism 8] [--dry-run]
 nlir -f lib.nlir [-f prog.nlir] [-e 'EXPR']   # program files (`--` comment lines)
 nlir … --bind NAME=PATH           # JSON/YAML → native dict/list `$NAME`; other files → string (transient)
+nlir … --cache-file PATH [--replay strict]   # realisation store (§Execution graph: Caching)
 
 # context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
 # (default file loads for the REPL / set / get; a one-shot `-e` skips it — bd-85c49d)
@@ -647,6 +648,10 @@ nlir append-message [--role user] "text"
 
 # interactive: one expr per submission, trailing `\` continues; :cmd == `nlir cmd`
 nlir repl [--context-file F] [--raw]     # :set/:get/:append-message inside repl
+
+# graphs: the expression DAG, or one node per top-level statement
+nlir show 'EXPR' [--png F | --out F | --kitty | --frames | --save-animation F | --animate]
+nlir show --statements [-f FILE…] ['EXPR'] [--png F | --out F | --text | --json]
 
 # plumbing (CLI template stack)
 nlir parse 'EXPR'

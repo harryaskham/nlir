@@ -476,6 +476,32 @@ pub fn graph(expr: &str, config_json: &str) -> JsValue {
     }
 }
 
+/// `outline(expr, configJson) -> { ok, svg, text, statements | error }` — the
+/// statement-level graph (v2 §G): one node per top-level statement, edges for
+/// `$name` reads, inputs for bound data and prelude forms. Legible for programs
+/// of any size, where the expression graph is not.
+#[wasm_bindgen]
+pub fn outline(expr: &str, config_json: &str) -> JsValue {
+    let result = (|| -> Result<serde_json::Value, String> {
+        let cfg = parse_config(config_json)?;
+        let sigils = nlir::config::operator_sigils(&cfg);
+        let tokens = nlir::lexer::tokenize(expr, &sigils).map_err(|e| e.to_string())?;
+        let program =
+            nlir::parser::parse_program(&tokens, &cfg.operators).map_err(|e| e.to_string())?;
+        let outline = nlir::outline::outline(&program, &cfg, &[]);
+        Ok(serde_json::json!({
+            "ok": true,
+            "svg": nlir::outline::render_svg(&outline),
+            "text": outline.to_text(),
+            "statements": program.statements.len(),
+        }))
+    })();
+    match result {
+        Ok(value) => payload(&value),
+        Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
 /// `graphFrames(expr, configJson, mode) -> { ok, frames:[{svg, reduced}] | error }`
 /// — the step-through animation frames (msm-0's `step_frames`): each frame's
 /// graph rendered, with `reduced` = the just-reduced NodeId as a dotted path

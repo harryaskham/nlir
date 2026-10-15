@@ -161,6 +161,7 @@ let wasmReal = false;
       operators(c){ return A(m.operators(c)); },
       parse(e,c){ return O(m.parse(e,c)); },
       graph(e,c){ return O(m.graph(e,c)); },
+      outline(e,c){ return O(m.outline(e,c)); },
       graphFrames(e,c,md){ const r = O(m.graphFrames(e,c,md)); if (r.frames) r.frames = A(r.frames); return r; },
       async graphFramesAsync(e,c,x,md,r){ const rr = O(await m.graphFramesAsync(e,c,x,md,r)); if (rr.frames) rr.frames = A(rr.frames); return rr; },
       async graphFramesStreaming(e,c,x,md,r,onFrame){ return O(await m.graphFramesStreaming(e,c,x,md,r, f => onFrame(O(f)))); },
@@ -498,6 +499,7 @@ async function livePreviewTick(){
 
 // ---- graph (G5): dataflow graph panel + step-frame animation with node highlight ----
 let animTimer = null;
+let graphPZ = null;
 function showGraph(){
   clearInterval(animTimer);
   const expr = getExpr().trim(); if (!expr) return;
@@ -507,6 +509,19 @@ function showGraph(){
   const r = nlir.graph(expr, configJson());
   if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
   box.innerHTML = r.svg + (r.mock ? '<div class="mock" style="margin-top:.5rem">preview graph — the live site renders your expression</div>' : '');
+  graphPZ && graphPZ.refit();
+}
+function showOutline(){
+  clearInterval(animTimer);
+  const expr = getExpr().trim(); if (!expr) return;
+  const box = $('graphsvg');
+  $('graphview').hidden = false; $('scrub').hidden = true; $('framecap').textContent = '';
+  if (!nlir.outline){ box.innerHTML = '<span class="placeholder">the statement graph needs the live evaluator</span>'; return; }
+  const r = nlir.outline(expr, configJson());
+  if (!r.ok){ box.innerHTML = `<span class="err">${r.error}</span>`; return; }
+  box.innerHTML = r.svg;
+  $('framecap').textContent = `${r.statements} statement(s) — drag to pan, scroll to zoom`;
+  graphPZ && graphPZ.refit();
 }
 function renderFrame(frame){
   const box = $('graphsvg'); box.innerHTML = frame.svg;
@@ -580,6 +595,8 @@ function init(){
   $('runBtn').onclick = run;
   $('stepBtn').onclick = step;
   $('graphBtn').onclick = showGraph;
+  $('outlineBtn').onclick = showOutline;
+  import('../panzoom.js').then(m => { graphPZ = m.panzoom($('graphsvg')); }).catch(() => {});
   $('animBtn').onclick = animate;
   $('vimToggle').onclick = () => setVim(!state.settings.vim);
   document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));

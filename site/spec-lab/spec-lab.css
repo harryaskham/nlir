@@ -96,6 +96,7 @@ del { color: var(--amber); text-decoration-color: color-mix(in srgb, var(--amber
 .stepper button { padding: .35rem .6rem; }
 #lcap { font-size: .88rem; color: var(--ink-2); } #lcap span { color: var(--muted); }
 .loop-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.lgraph { min-height: 320px; max-height: 70vh; border-radius: var(--r); }
 .lgraph svg { width: 100%; height: auto; display: block; border-radius: var(--r); }
 
 details.source { margin-top: 2.6rem; border-top: 1px solid var(--rule); padding-top: 1rem; }

@@ -1,3 +1,4 @@
+import { panzoom } from '../panzoom.js';
 // Spec lab: every projection below is an nlir expression evaluated by the wasm
 // build against the bound spec tree ($spec) plus spec.nlir + profile.nlir. The page only lays out
 // what nlir returns.
@@ -168,12 +169,14 @@ async function showLoop() {
   const ceil = trace.ceiling ? `<line x1="${P}" x2="${W - P}" y1="${ys(trace.ceiling.mean)}" y2="${ys(trace.ceiling.mean)}" class="ceil"/>` : '';
   $('spark').innerHTML = `${ceil}${phaseLines}<path d="${bestPath}" class="best"/>` +
     rows.map((r, i) => `<circle cx="${xs(i)}" cy="${ys(r.score)}" r="4.5" class="${r.accepted ? 'kept' : 'rej'}" data-i="${i}"><title>r${i} ${r.score.toFixed(3)}</title></circle>`).join('');
+  const pz = panzoom($('lgraph'));
   const show = () => {
     const r = rows[k];
     const scores = r.val != null ? `validation ${r.val.toFixed(3)} · train ${r.train.toFixed(3)}` : `train ${r.score.toFixed(3)}`;
     $('lcap').innerHTML = `<b>r${String(r.round).padStart(2, '0')}</b> · ${scores} · ${r.accepted ? 'kept' : 'rejected'}${r.phase > 1 ? ' · phase ' + r.phase : ''}<br><span>${esc(r.note)}</span>`;
     $('lsrc').innerHTML = highlight(r.program);
     $('lgraph').innerHTML = r.graph || '';
+    pz.refit();
     $('spark').querySelectorAll('circle').forEach(c => c.classList.toggle('cur', +c.dataset.i === k));
   };
   $('lprev').onclick = () => { k = (k + rows.length - 1) % rows.length; show(); };

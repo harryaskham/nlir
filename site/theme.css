@@ -137,3 +137,12 @@ kbd { font: 500 .74rem/1 var(--mono); color: var(--muted); border: 1px solid var
 
 footer.foot { border-top: 1px solid var(--rule); color: var(--muted); font-size: .84rem; padding: 2rem clamp(1rem, 4vw, 2.4rem) 3rem; display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: space-between; }
 footer.foot a { color: var(--ink-2); }
+
+/* Pan/zoom graph panes (panzoom.js) */
+.pz { position: relative; overflow: hidden; touch-action: none; }
+.pz:focus-visible { outline: 2px solid var(--accent, #e0a458); outline-offset: 2px; }
+.pz svg { transform-origin: 0 0; user-select: none; }
+.pz-bar { position: absolute; right: 8px; top: 8px; display: flex; gap: 4px; }
+.pz-bar button { font: inherit; font-size: 12px; min-width: 28px; height: 26px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--line, #262a33); background: color-mix(in srgb, var(--bg, #111318) 85%, transparent); color: var(--fg, #c8ccd4); cursor: pointer; }
+.pz-bar button:hover { border-color: var(--accent, #e0a458); }

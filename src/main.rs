@@ -52,7 +52,7 @@ struct Cli {
     /// statements before any `-e` expression, so a library file can define named
     /// forms that a later file or `-e` uses. Lines whose first non-blank characters
     /// are `--` are comments.
-    #[arg(short = 'f', long = "file", value_name = "PATH")]
+    #[arg(short = 'f', long = "file", global = true, value_name = "PATH")]
     files: Vec<PathBuf>,
 
     /// Bind a file as a native value: `--bind NAME=PATH` (repeatable). `.json` and
@@ -181,11 +181,23 @@ struct StepArgs {
     expr: String,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Clone, Args)]
 struct ShowArgs {
-    /// The shorthand expression to render as a dataflow graph.
+    /// The shorthand expression to render as a dataflow graph (or pass the program
+    /// with -f FILE… / -e EXPR).
     #[arg(value_name = "EXPR", allow_hyphen_values = true)]
-    expr: String,
+    expr: Option<String>,
+    /// Draw the statement-level graph instead of the expression tree: one node per
+    /// top-level statement, edges for `$name` reads (including inside forms), and
+    /// input nodes for bound data and prelude forms. Legible for programs of any size.
+    #[arg(long)]
+    statements: bool,
+    /// With --statements: print the outline as text instead of drawing it.
+    #[arg(long)]
+    text: bool,
+    /// With --statements: print the outline as JSON.
+    #[arg(long)]
+    json: bool,
     /// Write the SVG to a file instead of stdout.
     #[arg(long, value_name = "PATH")]
     out: Option<PathBuf>,
@@ -367,8 +379,13 @@ fn strip_program_comments(source: &str) -> String {
 /// The program for `-f FILE… [-e EXPR]`: each file (comments stripped, trailing
 /// `;` trimmed) then the `-e` expression, joined as `;`-separated statements.
 fn program_text(cli: &Cli) -> Result<String, i32> {
+    program_text_from(&cli.files, cli.expr.as_deref())
+}
+
+/// [`program_text`] over explicit files and an optional trailing expression.
+fn program_text_from(files: &[PathBuf], expr: Option<&str>) -> Result<String, i32> {
     let mut parts = Vec::new();
-    for path in &cli.files {
+    for path in files {
         let source = std::fs::read_to_string(path).map_err(|error| {
             eprintln!("nlir: cannot read program file {}: {error}", path.display());
             2
@@ -379,8 +396,8 @@ fn program_text(cli: &Cli) -> Result<String, i32> {
             parts.push(body.to_owned());
         }
     }
-    if let Some(expr) = &cli.expr {
-        parts.push(expr.clone());
+    if let Some(expr) = expr {
+        parts.push(expr.to_owned());
     }
     if parts.is_empty() {
         eprintln!("nlir: the program files are empty");
@@ -1178,13 +1195,58 @@ fn run_parse(cli: &Cli, args: &ParseArgs) -> Result<(), i32> {
 fn svg_to_pixmap(svg: &str) -> Result<resvg::tiny_skia::Pixmap, String> {
     use resvg::{tiny_skia, usvg};
     let mut opt = usvg::Options::default();
-    opt.fontdb_mut().load_system_fonts();
+    load_graph_fonts(opt.fontdb_mut());
     let tree = usvg::Tree::from_str(svg, &opt).map_err(|error| format!("rasterise: {error}"))?;
     let size = tree.size().to_int_size();
     let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height())
         .ok_or_else(|| "rasterise: could not allocate the pixmap".to_string())?;
     resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
     Ok(pixmap)
+}
+
+/// Fonts for rasterising graphs. The graphs only use a monospace family, so load
+/// a few known local files rather than scanning every font directory: on macOS a
+/// full `load_system_fonts` opens downloadable (dataless) asset fonts, and each
+/// open blocks while the file materialises — a 1.5 s render became 90 s. Falls
+/// back to the full scan only when none of the candidates exist.
+fn load_graph_fonts(db: &mut resvg::usvg::fontdb::Database) {
+    const CANDIDATES: &[(&str, &str)] = &[
+        ("/System/Library/Fonts/Menlo.ttc", "Menlo"),
+        ("/System/Library/Fonts/SFNSMono.ttf", "SF Mono"),
+        (
+            "/System/Library/Fonts/Supplemental/Courier New.ttf",
+            "Courier New",
+        ),
+        (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "DejaVu Sans Mono",
+        ),
+        (
+            "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+            "DejaVu Sans Mono",
+        ),
+        (
+            "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+            "DejaVu Sans Mono",
+        ),
+        (
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            "Liberation Mono",
+        ),
+    ];
+    let mut family = None;
+    for (path, name) in CANDIDATES {
+        if std::path::Path::new(path).exists() && db.load_font_file(path).is_ok() {
+            family.get_or_insert(*name);
+        }
+    }
+    match family {
+        Some(name) => {
+            db.set_monospace_family(name);
+            db.set_sans_serif_family(name);
+        }
+        None => db.load_system_fonts(),
+    }
 }
 
 /// Rasterise an SVG document string to PNG bytes (graph-viz G4). `nlir show
@@ -1350,6 +1412,22 @@ fn emit_kitty_png(png: &[u8]) -> std::io::Result<()> {
 /// draw byte-identical graphs. Prints the SVG to stdout, or `--out FILE` writes it.
 fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
     let cfg = resolve_config(cli)?;
+    let source = match &args.expr {
+        Some(expr) if cli.files.is_empty() => expr.clone(),
+        Some(expr) => program_text_from(&cli.files, Some(expr))?,
+        None if !cli.files.is_empty() || cli.expr.is_some() => program_text(cli)?,
+        None => {
+            eprintln!("nlir show: pass an EXPR, or the program with -f FILE… / -e EXPR");
+            return Err(2);
+        }
+    };
+    let args = &ShowArgs {
+        expr: Some(source),
+        ..args.clone()
+    };
+    if args.statements {
+        return run_show_statements(cli, &cfg, args);
+    }
     if args.frames || args.save_animation.is_some() || args.animate {
         // --frames / --save-animation: one graph per small-step reduction
         // (nlir::eval::step_frames, the same engine as `nlir step`). Frame 0 is the
@@ -1358,7 +1436,12 @@ fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
         // rasterises them into one animated PNG.
         let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
         let mut ctx = open_context(cli)?;
-        let frames = match nlir::eval::step_frames(&args.expr, &cfg, &mut ctx, settings.mode) {
+        let frames = match nlir::eval::step_frames(
+            args.expr.as_deref().unwrap_or(""),
+            &cfg,
+            &mut ctx,
+            settings.mode,
+        ) {
             Ok(frames) => frames,
             Err(error) => {
                 eprintln!("nlir show: {error}");
@@ -1424,23 +1507,54 @@ fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
         }
         return Ok(());
     }
-    let sigils = nlir::config::operator_sigils(&cfg);
-    let tokens = match nlir::lexer::tokenize(&args.expr, &sigils) {
-        Ok(t) => t,
-        Err(error) => {
-            eprintln!("nlir show: {error}");
-            return Err(1);
-        }
-    };
-    let program = match nlir::parser::parse_program(&tokens, &cfg.operators) {
-        Ok(p) => p,
-        Err(error) => {
-            eprintln!("nlir show: {error}");
-            return Err(1);
-        }
-    };
+    let program = parse_for_show(&cfg, args.expr.as_deref().unwrap_or(""))?;
     let graph = nlir::graph::Graph::from_program(&program);
     let svg = nlir::graph_svg::render(&graph);
+    emit_show_svg(cli, args, &svg)
+}
+
+fn parse_for_show(cfg: &nlir::config::Config, source: &str) -> Result<nlir::parser::Program, i32> {
+    let sigils = nlir::config::operator_sigils(cfg);
+    let tokens = nlir::lexer::tokenize(source, &sigils).map_err(|error| {
+        eprintln!("nlir show: {error}");
+        1
+    })?;
+    nlir::parser::parse_program(&tokens, &cfg.operators).map_err(|error| {
+        eprintln!("nlir show: {error}");
+        1
+    })
+}
+
+/// `nlir show --statements`: the statement-level outline as SVG / PNG / text / JSON.
+fn run_show_statements(cli: &Cli, cfg: &nlir::config::Config, args: &ShowArgs) -> Result<(), i32> {
+    let program = parse_for_show(cfg, args.expr.as_deref().unwrap_or(""))?;
+    let bound: Vec<String> = cli
+        .binds
+        .iter()
+        .filter_map(|spec| spec.split_once('=').map(|(name, _)| name.trim().to_owned()))
+        .collect();
+    let outline = nlir::outline::outline(&program, cfg, &bound);
+    if args.text {
+        print!("{}", outline.to_text());
+        return Ok(());
+    }
+    if args.json {
+        match serde_json::to_string_pretty(&outline) {
+            Ok(json) => println!("{json}"),
+            Err(error) => {
+                eprintln!("nlir show: {error}");
+                return Err(1);
+            }
+        }
+        return Ok(());
+    }
+    let svg = nlir::outline::render_svg(&outline);
+    emit_show_svg(cli, args, &svg)
+}
+
+/// Write a rendered graph SVG per `--png` / `--out`, else show it in kitty or print it.
+fn emit_show_svg(cli: &Cli, args: &ShowArgs, svg: &str) -> Result<(), i32> {
+    let svg = svg.to_owned();
     if let Some(path) = &args.png {
         let png = match svg_to_png(&svg) {
             Ok(png) => png,

@@ -303,8 +303,13 @@ back into the spec — is in [`docs/design/v2.md`](docs/design/v2.md).
 **`nlir help`** prints every operator from your config; **`nlir step '<expr>'`** walks
 an expression one reduction at a time; **`nlir show '<expr>'`** draws its dataflow
 graph — every value and operation a node, bindings resolved into edges — as SVG, PNG,
-an animated PNG of the reduction, or live in a kitty terminal. The browser
-[workspace](https://a.skh.am/nlir/workspace/) uses the same renderer.
+an animated PNG of the reduction, or live in a kitty terminal. For whole programs,
+**`nlir show --statements -f lib.nlir -f program.nlir`** draws one node per statement
+instead — forms, data, computed values and the output, linked by the names they read
+(including inside form bodies), with model-call sites marked and bound data and
+prelude forms as inputs; `--text` prints the same outline for logs and prompts. The
+browser [workspace](https://a.skh.am/nlir/workspace/) uses the same renderers (Graph
+and Statements, with pan and zoom).
 
 ## CLI surface
 
@@ -339,6 +344,8 @@ nlir show 'EXPR' --png g.png              # rasterise the graph to a PNG
 nlir show 'EXPR' --frames DIR             # one graph SVG per evaluation step
 nlir show 'EXPR' --save-animation g.apng  # animated PNG of the step-by-step reduction
 nlir show 'EXPR' --kitty                  # force the in-terminal kitty display (e.g. through tmux)
+nlir show --statements -f lib.nlir -f prog.nlir --png g.png   # statement-level graph of a program
+nlir show --statements --text -f prog.nlir                   # the same outline as text (or --json)
 nlir show 'EXPR' --animate --kitty        # live kitty animation of the reduction
 
 # plumbing

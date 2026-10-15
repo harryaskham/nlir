@@ -36,6 +36,7 @@ pub mod index;
 pub mod lexer;
 pub mod llm;
 pub mod messages;
+pub mod outline;
 pub mod parser;
 pub mod realise;
 pub mod realiser;

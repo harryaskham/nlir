@@ -1640,6 +1640,15 @@ fn access_value(operands: &[Value], sep: &str) -> Result<Value, EvalError> {
 
 /// `builtin:` realisations that are pure functions of their operand values (no
 /// form application, no argument frame): safe to evaluate on the parallel path.
+/// Every `$name` the engine dispatches as a builtin when the context does not bind
+/// the name itself (value builtins, data builtins and the higher-order family).
+pub const BUILTIN_NAMES: &[&str] = &[
+    "access", "and", "ceil", "contains", "diff", "draw", "elem", "entries", "filter", "flat",
+    "floor", "fold", "get", "gt", "has", "if", "inter", "join", "json", "keys", "len", "lines",
+    "lower", "lt", "map", "match", "matches", "mod", "not", "nth", "or", "replace", "round",
+    "scan", "slice", "sort", "sqrt", "sub", "trim", "type", "union", "upper", "values", "zip",
+];
+
 const PURE_BUILTIN_OPS: &[&str] = &[
     "access", "union", "inter", "diff", "elem", "and", "or", "not", "sqrt",
 ];
