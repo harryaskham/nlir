@@ -28,10 +28,8 @@ target
 #.idea/
 nlir-work.yaml
 
-# showcase generator transient artifacts
 scripts/__pycache__/
 __pycache__/
-showcase/*.html
 
 # co-built into the site by pages.yml / local previews
 site/workspace/config.example.yaml

@@ -10,7 +10,7 @@ on:
       - README.md
       - SPEC.md
       - config.example.yaml
-      - showcase/**
+      - examples/**
       - site/**
       - src/**
       - crates/**

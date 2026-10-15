@@ -4,12 +4,10 @@
 # Renders GitHub-flavoured markdown to a small self-contained HTML site that
 # shares site/theme.css (tokens + base) and site/docs.css (document layout) with
 # the workspace and spec lab, PLUS:
-#   - copies showcase/*.png into the site so the README's image cards resolve;
-#   - generates a showcase.html gallery of every card;
+#   - renders examples/README.md plus each example script into examples.html;
 #   - copies site/workspace and site/spec-lab (the in-browser evaluator pages);
 #   - rewrites repo-relative links so the published Pages site never 404s
-#     (SPEC.md -> spec.html, ./showcase -> showcase.html, source files -> the
-#     GitHub blob URL).
+#     (SPEC.md -> spec.html, source files -> the GitHub blob URL).
 # Used by .github/workflows/pages.yml to publish to GitHub Pages, and runnable
 # locally: `scripts/build-docs.sh [OUT_DIR]` (default: ./_site). Requires pandoc.
 set -euo pipefail
@@ -41,10 +39,10 @@ done
 cat > "$out/.head.html" <<'HTML'
 <meta name="color-scheme" content="light dark">
 <meta property="og:title" content="nlir — natural-language IR">
-<meta property="og:description" content="Shorthand in, prose out: a small language that mixes exact data operations with model-backed text operators.">
-<meta property="og:image" content="showcase/nlir-showreel.png">
+<meta property="og:description" content="A small language for programs over data and meaning: exact structure and model-realised semantics in one evaluator — forwards and backwards.">
+<meta property="og:image" content="og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="showcase/nlir-showreel.png">
+<meta name="twitter:image" content="og.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121418'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' font-weight='700' fill='%235cc6a8' text-anchor='middle'%3En·%3C/text%3E%3C/svg%3E">
 HTML
 
@@ -52,7 +50,7 @@ HTML
 nav() {
   local cur="$1" link
   printf '<header class="bar"><a class="mark" href="index.html">nlir<i>·</i><small>natural-language IR</small></a>\n'
-  for link in "index.html|Guide" "spec.html|Spec" "workspace/|Workspace" "spec-lab/|Spec lab" "showcase.html|Showcase"; do
+  for link in "index.html|Guide" "spec.html|Spec" "workspace/|Workspace" "spec-lab/|Spec lab" "examples.html|Examples"; do
     local href="${link%%|*}" label="${link#*|}"
     case "$href" in workspace/|spec-lab/) [ "$has_wasm" = 1 ] || continue;; esac
     if [ "$href" = "$cur" ]; then
@@ -71,10 +69,10 @@ else
 <section class="hero">
   <div>
     <h1>Shorthand in.<br><em>Prose</em> out.</h1>
-    <p class="lede">A small language for the prompt window: exact data operations and model-backed text operators in one evaluator.</p>
-    <div class="actions"><a class="btn primary" href="spec.html">Read the spec</a><a class="btn" href="showcase.html">Showcase</a></div>
+    <p class="lede">A small language for programs over data and meaning: exact structure and model-realised semantics in one evaluator.</p>
+    <div class="actions"><a class="btn primary" href="spec.html">Read the spec</a><a class="btn" href="examples.html">Examples</a></div>
   </div>
-  <div class="console live"><div class="row"><input value="@'lmk if any Qs'" readonly aria-label="nlir expression"></div>
+  <div class="console live"><div class="row"><input value="'lmk if any Qs' :: formal" readonly aria-label="nlir expression"></div>
   <div class="out"><div class="prose-out"><span class="arrow">→</span><span>Please let me know if you have any questions.</span></div></div></div>
 </section>
 HTML
@@ -121,65 +119,30 @@ render() { # render <src.md> <title> <out.html> <page-href> [hero:0|1]
 render "$root/README.md" "nlir — natural-language IR" "$out/index.html" "index.html" 1
 render "$root/SPEC.md"   "nlir — spec"                "$out/spec.html"  "spec.html"  0
 
-# Showcase cards: copy so README image links + the gallery resolve on Pages.
-if [ -d "$root/showcase" ]; then
-  rm -rf "$out/showcase"
-  cp -a "$root/showcase" "$out/showcase"
-fi
-
-gen_gallery() {
-  printf '%s\n' '<!DOCTYPE html>' '<html lang="en"><head>' \
-    '<meta charset="utf-8">' \
-    '<meta name="viewport" content="width=device-width, initial-scale=1">' \
-    '<title>nlir — showcase</title>' \
-    '<link rel="stylesheet" href="theme.css"><link rel="stylesheet" href="docs.css">'
-  cat "$out/.head.html"
-  printf '%s\n' '</head><body>'
-  nav "showcase.html"
-  printf '%s\n' \
-    '<main class="wide">' \
-    '<h1>Showcase</h1>' \
-    '<p class="lead">Expressions and the prose they become. Deterministic outputs are exact; model outputs are real captures.</p>'
-  if [ -f "$out/showcase/nlir-showreel.png" ]; then
-    printf '%s\n' '<p><a href="showcase/nlir-showreel.png"><img src="showcase/nlir-showreel.png" alt="nlir showreel — a grid of expression-to-language cards"></a></p>'
-  fi
-  emit_fig() {
-    local base="$1" cap
-    [ -e "$out/showcase/$base" ] || return 0
-    cap="${base#nlir-}"; cap="${cap%.png}"; cap="${cap//-/ }"
-    printf '<figure><a href="showcase/%s"><img src="showcase/%s" alt="%s" loading="lazy"></a><figcaption>%s</figcaption></figure>\n' \
-      "$base" "$base" "$cap" "$cap"
-  }
-  # Featured: the language-of-thought moves, in curated order; every other card
-  # follows under "All cards" automatically.
-  featured="considered-reply honest-yes reasoned-no counter-offer weighed-decision pitch-check brain-dump grounded-counter self-summarizing-memo full-layered-reply composer-reply empathetic-redirect weighed-recommendation catchup exec-brief two-sides handoff tone-knob perspective-wheel deliberation"
-  printf '%s\n' '<h2>Reusable moves</h2>' '<div class="gallery">'
-  for name in $featured; do emit_fig "nlir-$name.png"; done
-  printf '%s\n' '</div>' '<h2>All cards</h2>' '<div class="gallery">'
-  if [ -d "$out/showcase" ]; then
-    for png in "$out"/showcase/*.png; do
-      [ -e "$png" ] || continue
-      base="$(basename "$png")"
-      [ "$base" = "nlir-showreel.png" ] && continue
-      nm="${base#nlir-}"; nm="${nm%.png}"
-      case " $featured " in *" $nm "*) continue;; esac
-      emit_fig "$base"
-    done
-  fi
-  printf '%s\n' '</div>' '</main>'
-  cat "$out/.foot.html"
-  printf '%s\n' '</body></html>'
-}
-gen_gallery > "$out/showcase.html"
+# Examples: the canonical v2 programs (examples/README.md) with each script inlined.
+cp "$root/site/og.png" "$out/og.png"
+{
+  sed 's#(\([a-z-]*\.sh\))#(\#\1)#g' "$root/examples/README.md"
+  for script in "$root"/examples/*.sh; do
+    name="$(basename "$script")"
+    printf '\n## %s {#%s}\n\n```sh\n' "$name" "$name"
+    cat "$script"
+    printf '```\n'
+  done
+} > "$out/.examples.md"
+render "$out/.examples.md" "nlir — examples" "$out/examples.html" "examples.html" 0
+rm -f "$out/.examples.md" "$out/showcase.html"
+rm -rf "$out/showcase"
 
 # Link hygiene: rewrite repo-relative links so the published site doesn't 404.
-for f in "$out/index.html" "$out/spec.html"; do
+for f in "$out/index.html" "$out/spec.html" "$out/examples.html"; do
   sed -i \
     -e 's#href="\./SPEC\.md"#href="spec.html"#g' \
     -e 's#href="SPEC\.md"#href="spec.html"#g' \
+    -e 's#href="\.\./SPEC\.md#href="spec.html#g' \
+    -e "s#href=\"\.\./#href=\"$repo/blob/main/#g" \
     -e 's#href="\./README\.md"#href="index.html"#g' \
     -e 's#href="README\.md"#href="index.html"#g' \
-    -e 's#href="\./showcase"#href="showcase.html"#g' \
     -e "s#href=\"\./#href=\"$repo/blob/main/#g" \
     -E -e "s#href=\"((examples|docs|src|scripts|crates|test|extensions)/[^\"]*)\"#href=\"$repo/blob/main/\\1\"#g" \
     -E -e "s#href=\"([A-Za-z0-9_.-]+\\.(yaml|yml|toml|nix|json))\"#href=\"$repo/blob/main/\\1\"#g" \
@@ -190,4 +153,4 @@ done
 touch "$out/.nojekyll"
 rm -f "$out/.nav.html" "$out/.foot.html" "$out/.head.html" "$out/.hero.html" "$out/.mainopen.html" "$out/.mainclose.html"
 
-echo "build-docs: wrote $out/{index,spec,showcase}.html + theme.css/docs.css + showcase/ ($(ls "$out/showcase" 2>/dev/null | wc -l | tr -d ' ') assets)"
+echo "build-docs: wrote $out/{index,spec,examples}.html + theme.css/docs.css + og.png"

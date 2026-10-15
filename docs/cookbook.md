@@ -587,9 +587,9 @@ One unary primitive, a whole geometry + statistics family — all exact, model-f
 
 The same forms compose over the language operators, where each step is a model
 realisation. Drop `--mode det` to run these live against your configured model;
-the operator lenses (`~` gist, `@` formal, `:` plain, `>` expand, `<` shorten,
-`#` subject, `&` weave, `?` question) are the building blocks. See the
-[showcase](../showcase/) for real captured outputs and
+the semantic core (`::` recast, `..` project, `!` dual, `&` product, `Δ`/`▷` change
+and apply, `=>` obey) and the prelude forms built from it (`$gist`, `$formal`,
+`$plain`, `$question`) are the building blocks. See the
 [examples](../examples/README.md) for the canonical programs.
 
 A form lets you name a reusable **tone** or **transform** and apply it to

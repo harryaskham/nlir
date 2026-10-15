@@ -448,8 +448,9 @@ cargo fmt --all --check
 ```
 
 CI (`.github/workflows/ci.yml`) runs on the self-hosted nix runners inside
-`nix develop`: fmt, clippy (deny-warnings), build, the showcase and SPEC↔config checks,
-`nlir test` over the example config, and `cargo test`. Pull requests also build the
+`nix develop`: fmt, clippy (deny-warnings), build, the SPEC↔config check, `nlir test`
+over the example config, the offline examples (`structure.sh`, `lens.sh`), and
+`cargo test`. Pull requests also build the
 site (`.github/workflows/site.yml`); pushes to `main` publish it through the shared
 `harryaskham.github.io` Pages workflow (`.github/workflows/pages.yml`), building with
 `nix develop .#site --command bash scripts/build-site.sh _site`. Build it locally the
