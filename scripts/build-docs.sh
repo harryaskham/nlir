@@ -24,6 +24,7 @@ fi
 mkdir -p "$out"
 cp "$root/site/theme.css" "$out/theme.css"
 cp "$root/site/docs.css" "$out/docs.css"
+cp "$root/site/panzoom.js" "$out/panzoom.js"
 rm -f "$out/style.css"
 
 # The evaluator pages (wasm pkg co-built into site/workspace/pkg by pages.yml).

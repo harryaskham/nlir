@@ -33,7 +33,7 @@ bash scripts/build-docs.sh "$out" >/dev/null
 
 # 3. Check the static tree: no symlinks, bounded size, every local link resolves.
 python3 - "$out" <<'PY'
-import html.parser, os, sys, urllib.parse
+import html.parser, os, re, sys, urllib.parse
 root = sys.argv[1]
 total, problems = 0, []
 class Links(html.parser.HTMLParser):
@@ -47,6 +47,13 @@ for dirpath, _, files in os.walk(root):
         if os.path.islink(p): problems.append(f"symlink {p}")
         size = os.path.getsize(p); total += size
         if size > 8 * 2**20: problems.append(f"{p} is {size >> 20} MiB")
+        if f.endswith(".js") and "/pkg/" not in p:
+            # Relative ES module imports (static and dynamic) must resolve too: a
+            # missing module breaks the whole page, and no HTML link points at it.
+            src = open(p, encoding="utf-8").read()
+            for ref in re.findall(r"""(?:\bfrom\s+|\bimport\s*\(\s*)['"](\.{1,2}/[^'"]+)['"]""", src):
+                if not os.path.exists(os.path.normpath(os.path.join(dirpath, ref))):
+                    problems.append(f"missing import {ref} in {os.path.relpath(p, root)}")
         if not f.endswith(".html"): continue
         parser = Links(); parser.feed(open(p, encoding="utf-8").read())
         for ref in parser.refs:
