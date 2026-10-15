@@ -104,6 +104,11 @@ results honour `_cache`.
 
 ---
 
+- **Literal types:** a bare literal written as a canonical number (`12`, `2.5`, `-3` —
+  it renders back to the same text) is a `number`, and bare `true` / `false` are
+  `bool`s; anything else, including `007` and `1.50`, is text. Quoted literals are
+  always text. So data built from literals stays typed (`$json%[1, true]` → `[1,true]`).
+
 ## Modes
 
 `det` (no network) or `llm`. Default `defaults.mode`, override `--mode`.

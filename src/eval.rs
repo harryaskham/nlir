@@ -596,7 +596,7 @@ pub enum Step {
 fn as_value(expr: &Expr) -> Option<Value> {
     match expr {
         Expr::Value(v) => Some(v.clone()),
-        Expr::Bare(s) => Some(Value::string(s.clone())),
+        Expr::Bare(s) => Some(bare_value(s)),
         Expr::Number(n) => Some(Value::number(*n)),
         Expr::Quoted {
             content,
@@ -808,7 +808,7 @@ impl<'a> Evaluator<'a> {
     /// `eval`, so runtime-built ASTs and parsed ASTs share one bound.
     fn eval_inner(&mut self, expr: &Expr) -> Result<Value, EvalError> {
         match expr {
-            Expr::Bare(text) => Ok(Value::string(text.clone())),
+            Expr::Bare(text) => Ok(bare_value(text)),
             Expr::Quoted {
                 content,
                 interpolate,
@@ -3130,7 +3130,7 @@ fn eval_parallel_safe(
     cache: &EvaluationCache,
 ) -> Result<Value, EvalError> {
     match expr {
-        Expr::Bare(text) => Ok(Value::string(text.clone())),
+        Expr::Bare(text) => Ok(bare_value(text)),
         Expr::Quoted {
             content,
             interpolate,
@@ -4157,6 +4157,25 @@ fn builtin_op_operands(name: &str, operands: &[Value]) -> Result<(Expr, Vec<Valu
 /// Build the per-run realisation cache key (bd-1d078c): the operator sigil,
 /// mode, model alias, grouping, and rendered operand texts uniquely identify a
 /// realisation result, so identical subcalls dedupe.
+/// A bare literal's value: a number when it is a number written canonically (it
+/// renders back to the same text — `12`, `2.5`, `-3`; not `007` or `1.50`, which
+/// stay text), `true`/`false` as Bools, otherwise text. Typed literals keep data
+/// faithful (`$json%[1, true]` → `[1,true]`); arithmetic coerces either way.
+fn bare_value(text: &str) -> Value {
+    match text {
+        "true" => return Value::bool(true),
+        "false" => return Value::bool(false),
+        _ => {}
+    }
+    if let Ok(n) = text.parse::<f64>() {
+        let value = Value::number(n);
+        if n.is_finite() && value.render("") == text {
+            return value;
+        }
+    }
+    Value::string(text.to_owned())
+}
+
 /// Whether list operands spread into a variadic operator (`&[a,b,c]` ≡ `a&b&c`).
 /// A polymorphic (`operands: any`) operator only spreads a LONE list — so
 /// `++[a,b,c]` is mconcat while `[a]++[b]` appends the two lists.

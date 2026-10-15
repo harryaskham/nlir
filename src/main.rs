@@ -88,6 +88,11 @@ struct Cli {
     #[arg(long, global = true, value_name = "N")]
     parallelism: Option<usize>,
 
+    /// Set `_seed` for this run (transient): the realisation-store namespace, so the
+    /// same seed replays recorded calls and a new seed draws fresh samples.
+    #[arg(long, global = true, value_name = "N", allow_hyphen_values = true)]
+    seed: Option<i64>,
+
     /// Persistent realisation store (JSON lines): model and command calls are
     /// recorded by content address and replayed on later runs, making evaluation
     /// deterministic and repeated calls free. Also `NLIR_CACHE_FILE`, or `_cache_file`
@@ -980,6 +985,9 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     }
     let mut ctx = open_eval_context(cli)?;
     let bound = apply_binds(cli, &mut ctx)?;
+    if let Some(seed) = cli.seed {
+        ctx.set_transient("_seed", serde_json::Value::from(seed));
+    }
     // Smart-pipe: expose piped stdin as the reserved `$_stdin` context key so
     // `cat foo.rs | nlir -e '<expr>'` works (Harry's agentic-coding direction).
     let piped_stdin = read_stdin_into_context(&mut ctx);

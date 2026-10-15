@@ -807,6 +807,7 @@ tests:
   map-parallel-closure:   { mode: det, expr: "_sep=\",\";{$0 ++ $join%({$0 ++ $$0}↦[1,2], '')}↦[a,b]", expected: "a1a2a,b1b2b" }
   data-zip:               { mode: det, expr: "_sep=\",\";{$0.0 ++ $0.1}↦($zip%([a,b,c], [1,2]))", expected: "a1,b2" }
   assign-generated:       { mode: det, expr: "brief==>'a note';$brief", expected: "response: a note" }
+  data-typed-literals: { mode: det, expr: "$json%[1, 2.5, -3, true, 007, 1.50, x]", expected: '[1,2.5,-3,true,"007","1.50","x"]' }
   draw-explicit-seeds:    { mode: det, expr: "_sep=\",\";_seed=10;$draw%({$0*2}, 3)", expected: "0,2,4" }
   call-then-access:       { mode: det, expr: "$get%({a={t=ok}}, a).t", expected: "ok" }
   outer-arg-closure:      { mode: det, expr: "_sep=\",\";{$filter%({$gt%($0,$$0)}, [1,5,9])}%4", expected: "5,9" }
