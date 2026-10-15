@@ -479,9 +479,9 @@ mod tests {
 
     #[test]
     fn binding_edges_link_assign_to_every_read() {
-        // k='x';[$k,~$k]: the Assign(k) node feeds BOTH $k reads (one bare in the
-        // list, one under ~). Two binding edges, both from the same source.
-        let g = graph("k='x';[$k,~$k]");
+        // k='x';[$k,!$k]: the Assign(k) node feeds BOTH $k reads (one bare in the
+        // list, one under !). Two binding edges, both from the same source.
+        let g = graph("k='x';[$k,!$k]");
         let bindings: Vec<&Edge> = g.edges_of(EdgeKind::Binding).collect();
         assert_eq!(bindings.len(), 2, "Assign(k) should feed both reads");
         let assign = g
@@ -533,7 +533,7 @@ mod tests {
     fn external_context_read_has_no_binding_edge() {
         // $user with no in-expression assignment (comes from the context file) →
         // a source node, no binding edge.
-        let g = graph("~$user");
+        let g = graph("!$user");
         assert_eq!(g.edges_of(EdgeKind::Binding).count(), 0);
         assert!(
             g.nodes
@@ -546,22 +546,22 @@ mod tests {
     fn handles_message_ranges_without_panicking() {
         // A whole-thread summary ~0^*-1: Apply(~) over a MessageRange node, whose
         // start/end indices are child nodes (real showcase move shape).
-        let g = graph("~0^*-1");
+        let g = graph("!0^*-1");
         assert!(g.nodes.iter().any(|n| n.kind == NodeKind::Message));
         assert!(
             g.nodes
                 .iter()
-                .any(|n| matches!(&n.kind, NodeKind::Apply(op) if op == "~"))
+                .any(|n| matches!(&n.kind, NodeKind::Apply(op) if op == "!"))
         );
         assert!(g.edges_of(EdgeKind::Operand).count() >= 1);
     }
 
     #[test]
     fn handoff_dossier_resolves_reused_binding_across_statements() {
-        // The fullest move — k=@~0^*-1;[$k,^_-1,~$k]: bind a formal brief, then a
+        // The fullest move — k=!0^*-1;[$k,^_-1,!$k]: bind a brief, then a
         // list reusing $k twice + the live ask. Assign(k) feeds BOTH $k reads
         // across the ;-statement boundary; message nodes for the range + ^_-1.
-        let g = graph("k=@~0^*-1;[$k,^_-1,~$k]");
+        let g = graph("k=!0^*-1;[$k,^_-1,!$k]");
         let bindings: Vec<&Edge> = g.edges_of(EdgeKind::Binding).collect();
         assert_eq!(bindings.len(), 2, "$k reused twice -> two binding edges");
         let assign = g

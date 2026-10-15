@@ -648,6 +648,7 @@ impl<'a> Evaluator<'a> {
         if let Some(json) = context.get("_stdin") {
             stack.push(json_to_value_forms(json, config));
         }
+        install_prelude(config, context);
         Self {
             parallelism: config.defaults.parallelism.max(1),
             config,
@@ -1573,6 +1574,19 @@ impl<'a> Evaluator<'a> {
         if name == "sqrt" {
             return sqrt_builtin(operands, &self.sep());
         }
+        if name == "len" {
+            let sep = self.sep();
+            return match operands {
+                [one] => Ok(Value::number(value_len(one, &sep))),
+                many => Ok(Value::number(value_len(&Value::list(many.to_vec()), &sep))),
+            };
+        }
+        if name == "mtimes" {
+            return mtimes(operands, &self.sep());
+        }
+        if name == "compose" {
+            return compose_forms(operands);
+        }
         let (body, items) = builtin_op_operands(name, operands)?;
         self.run_higher_order(name, &body, items)
     }
@@ -1862,7 +1876,7 @@ impl<'a> Evaluator<'a> {
             // A list operand spreads into a variadic op — `&[a,b,c]` ≡ `a&b&c`
             // (SPEC §Structure; bd-02a795). Non-variadic ops keep the list as one
             // value (it renders via `_sep`).
-            if op_cfg.arity == Arity::Variadic {
+            if spreads(op_cfg, operands.len()) {
                 spread_lists(operands, grouped)
             } else {
                 (operands, grouped)
@@ -2220,7 +2234,7 @@ impl<'a> Evaluator<'a> {
                 for expr in operand_exprs {
                     operands.push(self.eval_async(expr, realiser).await?);
                 }
-                if op_cfg.arity == Arity::Variadic {
+                if spreads(&op_cfg, operands.len()) {
                     spread_lists(operands, grouped)
                 } else {
                     (operands, grouped)
@@ -3216,7 +3230,7 @@ fn eval_parallel_safe(
             if let Some(result) = pre_realise(op, op_cfg, &values, &context.sep()) {
                 return result;
             }
-            let (values, grouped) = if op_cfg.arity == Arity::Variadic {
+            let (values, grouped) = if spreads(op_cfg, values.len()) {
                 spread_lists(values, grouped)
             } else {
                 (values, grouped)
@@ -3483,6 +3497,63 @@ fn as_items(v: Value) -> Vec<Value> {
 /// deterministic — the model-free counting primitive for the det-math family
 /// (e.g. set cardinality `$len%($inter%(a,b))`).
 #[allow(clippy::cast_precision_loss)]
+/// `f ∘ g ∘ h` — composition (v2 §B): a form applying `h`, then `g`, then `f`.
+/// Built from `Expr::Quote` nodes (like `{f}_n`) so a composed form round-trips
+/// through the context: `pipeline=$gist ∘ $formal; $pipeline%x`.
+fn compose_forms(operands: &[Value]) -> Result<Value, EvalError> {
+    if operands.is_empty() {
+        return Err(EvalError::Unsupported(
+            "`∘` needs at least one form".to_owned(),
+        ));
+    }
+    let mut body = Expr::StackIndex(0);
+    for (i, operand) in operands.iter().enumerate().rev() {
+        let Value::Form(inner) = operand else {
+            return Err(EvalError::Unsupported(format!(
+                "`∘` composes {{…}} forms; operand {} is a {} — apply after composing: ($f ∘ $g)%x",
+                i + 1,
+                operand.type_name()
+            )));
+        };
+        body = Expr::FormApply {
+            form: Box::new(Expr::Quote(inner.clone())),
+            args: vec![body],
+        };
+    }
+    Ok(Value::form(body))
+}
+
+/// `x _ n` — Monoid power (v2 §B): `n` copies of `x` appended with its own
+/// monoid: text repeats, lists repeat their items, dicts are idempotent. (A form
+/// composes with itself `n` times; that case is intercepted before dispatch.)
+fn mtimes(operands: &[Value], sep: &str) -> Result<Value, EvalError> {
+    let [value, count] = operands else {
+        return Err(EvalError::Unsupported(format!(
+            "`_` takes a value and a count, got {} operand(s)",
+            operands.len()
+        )));
+    };
+    let n = number_operand("_", count.clone(), sep)?;
+    if !(0.0..=10_000.0).contains(&n) || n.fract() != 0.0 {
+        return Err(EvalError::Unsupported(format!(
+            "`_` count must be a whole number from 0 to 10000, got {n}"
+        )));
+    }
+    let n = n as usize;
+    Ok(match value {
+        Value::List(items) => Value::list(
+            items
+                .iter()
+                .cloned()
+                .cycle()
+                .take(items.len() * n)
+                .collect(),
+        ),
+        Value::Dict(_) => value.clone(),
+        other => Value::string(other.render(sep).repeat(n)),
+    })
+}
+
 fn value_len(v: &Value, sep: &str) -> f64 {
     match v {
         Value::List(items) => items.len() as f64,
@@ -4077,6 +4148,104 @@ fn builtin_op_operands(name: &str, operands: &[Value]) -> Result<(Expr, Vec<Valu
 /// Build the per-run realisation cache key (bd-1d078c): the operator sigil,
 /// mode, model alias, grouping, and rendered operand texts uniquely identify a
 /// realisation result, so identical subcalls dedupe.
+/// Whether list operands spread into a variadic operator (`&[a,b,c]` ≡ `a&b&c`).
+/// A polymorphic (`operands: any`) operator only spreads a LONE list — so
+/// `++[a,b,c]` is mconcat while `[a]++[b]` appends the two lists.
+fn spreads(op_cfg: &OperatorConfig, count: usize) -> bool {
+    op_cfg.arity == Arity::Variadic && (op_cfg.operands != TypeName::Any || count == 1)
+}
+
+/// Named forms from the config `prelude:` (v2 §C), parsed once per (prelude,
+/// operator set) and installed as TRANSIENT context bindings — never persisted, and
+/// never over a name the context already binds (a user's own `$gist` wins).
+fn install_prelude(config: &Config, context: &mut Context) {
+    for (name, json) in prelude_bindings(config).iter() {
+        if context.get(name).is_none() {
+            context.set_transient(name.clone(), json.clone());
+        }
+    }
+}
+
+type PreludeMemo = std::collections::HashMap<String, std::sync::Arc<PreludeBindings>>;
+
+/// The prelude's `(name, form)` bindings, memoised: evaluators are created per
+/// run and per parallel branch, so the prelude must cost one parse, not one per
+/// branch.
+///
+/// # Errors
+/// [`prelude_errors`] reports what this skips: statements that are not
+/// `name={…}` / `name=literal`, and source that fails to lex or parse.
+fn prelude_bindings(config: &Config) -> std::sync::Arc<PreludeBindings> {
+    static MEMO: std::sync::OnceLock<std::sync::Mutex<PreludeMemo>> = std::sync::OnceLock::new();
+    let Some(src) = config.prelude.as_deref().filter(|s| !s.trim().is_empty()) else {
+        return std::sync::Arc::default();
+    };
+    let sigils = crate::config::operator_sigils(config);
+    let memo_key = format!("{src}\u{1f}{}", sigils.join("\u{1f}"));
+    let memo = MEMO.get_or_init(Default::default);
+    if let Some(hit) = memo.lock().expect("prelude memo").get(&memo_key) {
+        return hit.clone();
+    }
+    let bindings = std::sync::Arc::new(
+        parse_prelude(src, config)
+            .map(|(b, _)| b)
+            .unwrap_or_default(),
+    );
+    memo.lock()
+        .expect("prelude memo")
+        .insert(memo_key, bindings.clone());
+    bindings
+}
+
+/// `(name, value)` bindings a prelude defines.
+type PreludeBindings = Vec<(String, Json)>;
+
+/// Parse a prelude into bindings plus a list of skipped statements.
+fn parse_prelude(src: &str, config: &Config) -> Result<(PreludeBindings, Vec<String>), String> {
+    let source: String = src
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let sigils = crate::config::operator_sigils(config);
+    let tokens = lexer::tokenize(&source, &sigils).map_err(|error| format!("prelude: {error}"))?;
+    let program = parser::parse_program(&tokens, &config.operators)
+        .map_err(|error| format!("prelude: {error}"))?;
+    let mut bindings = Vec::new();
+    let mut skipped = Vec::new();
+    for statement in &program.statements {
+        match statement {
+            Expr::Assign { key, value } => match value.as_ref() {
+                Expr::Quote(body) => {
+                    bindings.push((key.clone(), value_to_json(&Value::Form(body.clone()))));
+                }
+                Expr::Quoted { content, .. } => {
+                    bindings.push((key.clone(), Json::String(content.clone())));
+                }
+                Expr::Number(n) => bindings.push((key.clone(), value_to_json(&Value::number(*n)))),
+                _ => skipped.push(format!("`{key}=…` is not a form or literal")),
+            },
+            other => skipped.push(format!(
+                "`{}` is not a `name={{…}}` binding",
+                other.render()
+            )),
+        }
+    }
+    Ok((bindings, skipped))
+}
+
+/// Problems with a config's `prelude:` (for `nlir config validate` / tests).
+#[must_use]
+pub fn prelude_errors(config: &Config) -> Vec<String> {
+    match config.prelude.as_deref() {
+        None => Vec::new(),
+        Some(src) => match parse_prelude(src, config) {
+            Ok((_, skipped)) => skipped,
+            Err(error) => vec![error],
+        },
+    }
+}
+
 /// The content address of one realisation: the operator's definition fingerprint,
 /// the operands (typed), grouping, separator and seed, hashed with SHA-256.
 fn realise_cache_key(
@@ -4271,6 +4440,69 @@ operators:
         let err = evaluate_with_cache("⚄b", &cfg, &mut ctx, Mode::Llm, &strict)
             .expect_err("strict replay must refuse an unrecorded call");
         assert!(format!("{err}").contains("unrecorded"), "{err}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn prelude_binds_transient_forms_that_the_context_can_override() {
+        let yaml = r##"
+prelude: |
+  -- a comment line
+  double={$0*2};
+  greeting='hi';
+  bad=1+1
+operators:
+  add: { op: "+", arity: ">0", fixity: mixfix, operands: number, result: number, reduce: add }
+  mul: { op: "*", arity: ">0", fixity: mixfix, operands: number, result: number, reduce: mul }
+"##;
+        let cfg = crate::config::parse_str(yaml, std::path::Path::new("p.yaml")).expect("config");
+        let mut ctx = Context::empty(&cfg.context);
+        assert_eq!(
+            evaluate("$double%21", &cfg, &mut ctx, Mode::Det)
+                .expect("eval")
+                .render(","),
+            "42"
+        );
+        assert_eq!(
+            evaluate("$greeting", &cfg, &mut ctx, Mode::Det)
+                .expect("eval")
+                .render(","),
+            "hi"
+        );
+        // A user binding of the same name wins over the prelude.
+        let mut ctx = Context::empty(&cfg.context);
+        let out = evaluate("double={$0*3};$double%2", &cfg, &mut ctx, Mode::Det).expect("eval");
+        assert_eq!(out.render(","), "6");
+        // Only `name={…}` / `name=literal` statements bind; others are reported.
+        let errors = prelude_errors(&cfg);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("bad"), "{errors:?}");
+    }
+
+    #[test]
+    fn prelude_bindings_are_never_persisted() {
+        let yaml = "prelude: \"double={$0*2}\"\noperators: {}\n";
+        let cfg = crate::config::parse_str(yaml, std::path::Path::new("p.yaml")).expect("config");
+        let path = crate::test_support::unique_temp_path("nlir-prelude-ctx", "json");
+        std::fs::write(&path, "{}").expect("seed context file");
+        let mut ctx = Context::load(
+            crate::context::LoadSources {
+                context_file: Some(&path),
+                ..crate::context::LoadSources::default()
+            },
+            &cfg.context,
+        )
+        .expect("context");
+        evaluate("k=1", &cfg, &mut ctx, Mode::Det).expect("eval");
+        let saved = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            saved.contains("\"k\""),
+            "the program's own binding persists: {saved}"
+        );
+        assert!(
+            !saved.contains("double"),
+            "prelude forms must stay transient: {saved}"
+        );
         let _ = std::fs::remove_file(&path);
     }
 

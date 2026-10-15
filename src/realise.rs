@@ -82,6 +82,14 @@ pub fn reduce(op: ReduceOp, operands: &[Value]) -> Result<Value, RealiseError> {
             let (a, b) = binary(op, &nums)?;
             return Ok(Value::bool(a >= b));
         }
+        ReduceOp::Lt => {
+            let (a, b) = binary(op, &nums)?;
+            return Ok(Value::bool(a < b));
+        }
+        ReduceOp::Gt => {
+            let (a, b) = binary(op, &nums)?;
+            return Ok(Value::bool(a > b));
+        }
         _ => {}
     }
     let result = match op {
@@ -113,7 +121,9 @@ pub fn reduce(op: ReduceOp, operands: &[Value]) -> Result<Value, RealiseError> {
         | ReduceOp::Eq
         | ReduceOp::Ne
         | ReduceOp::Le
-        | ReduceOp::Ge => unreachable!("string/comparison ops handled above"),
+        | ReduceOp::Ge
+        | ReduceOp::Lt
+        | ReduceOp::Gt => unreachable!("string/comparison ops handled above"),
     };
     Ok(Value::number(result))
 }
@@ -137,7 +147,33 @@ fn compare_eq(op: ReduceOp, operands: &[Value], negate: bool) -> Result<Value, R
 /// layer coerces operands to String, so `as_str` succeeds; the defensive
 /// fallback renders anything else with a space separator. Empty operand set
 /// yields the empty string.
+/// Monoid append (`++`, v2 §B): lists concatenate, dicts merge right-biased
+/// (a later key replaces an earlier one in place; new keys append), and anything
+/// else concatenates as text. Mixed shapes fall back to text.
 fn concat(operands: &[Value]) -> Value {
+    if !operands.is_empty() && operands.iter().all(|v| matches!(v, Value::List(_))) {
+        let mut items = Vec::new();
+        for value in operands {
+            if let Value::List(list) = value {
+                items.extend(list.iter().cloned());
+            }
+        }
+        return Value::list(items);
+    }
+    if !operands.is_empty() && operands.iter().all(|v| matches!(v, Value::Dict(_))) {
+        let mut merged: Vec<(String, Value)> = Vec::new();
+        for value in operands {
+            if let Value::Dict(pairs) = value {
+                for (key, val) in pairs {
+                    match merged.iter_mut().find(|(k, _)| k == key) {
+                        Some(slot) => slot.1 = val.clone(),
+                        None => merged.push((key.clone(), val.clone())),
+                    }
+                }
+            }
+        }
+        return Value::Dict(merged);
+    }
     let joined: String = operands.iter().map(operand_str).collect();
     Value::string(joined)
 }

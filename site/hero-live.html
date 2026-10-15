@@ -28,11 +28,11 @@
   const norm = v => (v instanceof Map ? Object.fromEntries(v) : v);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const EXAMPLES = [
-    { tab: 'ops gate', expr: "?%({$0+$1}⊘({$contains%($0,'ERROR')}↦['ok','ERROR: oom','ok','ERROR: disk full'])>=2,'page on-call','all clear')" },
+    { tab: 'ops gate', expr: "$if%(#($filter%({$contains%($0,'ERROR')}, ['ok','ERROR: oom','ok','ERROR: disk full'])) >= 2, 'page on-call', 'all clear')" },
     { tab: 'data', expr: "orders=[{who=ada, total=12.5},{who=bo, total=40},{who=cy, total=7}]; $join%({$0.who}↦($filter%({$0.total>=10}, $orders)), ', ')" },
     { tab: 'spec → prose', expr: "rule={id='R 1.1', force='must not', act='approve a change without evidence of tests'}; 'Rule ' ++ $rule.id ++ ': reviewers ' ++ $rule.force ++ ' ' ++ $rule.act ++ '.'" },
-    { tab: 'arithmetic', expr: "$fold%({$0+$1}, 1..100)" },
-    { tab: 'formal', expr: "@'lmk if any Qs'", captured: 'Please let me know if you have any questions.', model: 'model · captured' },
+    { tab: 'compose', expr: "inc={$0+1}; dbl={$0*2}; $join%(($dbl ∘ $inc) ↦ [1,2,3], ', ')" },
+    { tab: 'recast', expr: "'lmk if any Qs' :: formal", captured: 'Please let me know if you have any questions.', model: 'gpt-6-luna · captured' },
   ];
   let evaluate, stepFn, cfgJson = '{}', ready = false, current = EXAMPLES[0];
   const tabs = $('htabs');

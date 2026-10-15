@@ -34,6 +34,11 @@ pub struct Config {
     pub prompts: BTreeMap<String, PromptDef>,
     /// The operator vocabulary — the language proper.
     pub operators: BTreeMap<String, OperatorConfig>,
+    /// nlir source evaluated into every evaluation before the program (v2 §C):
+    /// `name={…}` named forms over the core operators — the everyday vocabulary
+    /// (`$gist`, `$formal`, …) as readable, overridable trains rather than glyphs.
+    /// `--` lines are comments; a context binding of the same name wins.
+    pub prelude: Option<String>,
     /// Context namespace configuration (env var, file, messages, defaults).
     pub context: ContextConfig,
     /// Named session importers (e.g. a Pi session → context messages).
@@ -318,12 +323,14 @@ impl OperatorConfig {
                 ReduceOp::Mul => "product of the numeric operands",
                 ReduceOp::Div => "quotient, a ÷ b",
                 ReduceOp::Pow => "a to the power b",
-                ReduceOp::Concat => "concatenation of the string operands",
                 ReduceOp::Split => "split a string by a separator into a list",
                 ReduceOp::Eq => "true if the two operands are equal",
                 ReduceOp::Ne => "true if the two operands differ",
                 ReduceOp::Le => "true if the first is ≤ the second (numeric)",
                 ReduceOp::Ge => "true if the first is ≥ the second (numeric)",
+                ReduceOp::Lt => "true if the first is < the second (numeric)",
+                ReduceOp::Gt => "true if the first is > the second (numeric)",
+                ReduceOp::Concat => "append: text, lists, or dicts (right-biased merge)",
             }
             .to_string();
         }
@@ -484,6 +491,9 @@ pub enum TypeName {
     /// (code-as-data). Only the application operator (`%`) consumes a form as
     /// *callable*; every other operator sees its rendered inner source (op×Form).
     Form,
+    /// Any value, uncoerced — for polymorphic operators (`++` appends text, lists
+    /// or dicts by the shape it receives).
+    Any,
 }
 
 impl TypeName {
@@ -499,6 +509,7 @@ impl TypeName {
             TypeName::List => "list",
             TypeName::Dict => "dict",
             TypeName::Form => "form",
+            TypeName::Any => "any",
         }
     }
 }
@@ -530,6 +541,10 @@ pub enum ReduceOp {
     Le,
     /// Numeric greater-than-or-equal (`>=`, binary) → bool.
     Ge,
+    /// Numeric less-than (`<`, binary) → bool.
+    Lt,
+    /// Numeric greater-than (`>`, binary) → bool.
+    Gt,
 }
 
 /// Operator arity: a fixed count, or `>0` (one-or-more, variadic).
@@ -1306,10 +1321,13 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
                     | "or"
                     | "not"
                     | "sqrt"
+                    | "len"
+                    | "mtimes"
+                    | "compose"
             ) {
                 errs.push(ValidationError::new(
                     &loc,
-                    format!("builtin {builtin:?} is unknown (expected `map`, `fold`, `access`, `union`, `inter`, `diff`, `elem`, `and`, `or`, `not`, or `sqrt`)"),
+                    format!("builtin {builtin:?} is unknown (expected `map`, `fold`, `access`, `union`, `inter`, `diff`, `elem`, `and`, `or`, `not`, `sqrt`, `len`, `mtimes`, or `compose`)"),
                 ));
             }
         }
@@ -2058,7 +2076,10 @@ context:
             "browser fallback must carry the full operator set, got {}",
             refs.len()
         );
-        for sig in ["\u{0394}", "~>", "~>?"] {
+        // The v2 semantic core (docs/design/v2.md §A) must all be present.
+        for sig in [
+            "=>", "::", "..", "!", "&", "|", "\u{0394}", "▷", "~>", "≈", "∘", "++",
+        ] {
             assert!(
                 refs.iter().any(|r| r.op == sig),
                 "operator {sig} must be present in the browser fallback config"
@@ -2084,15 +2105,15 @@ context:
         assert!(pow.det, "pow has a reduce realisation -> offline in det");
         assert!(!pow.description.is_empty());
 
-        let subject = refs
+        let dual = refs
             .iter()
-            .find(|r| r.name == "subject")
-            .expect("subject present");
-        assert_eq!(subject.op, "#");
-        assert_eq!(subject.fixity, "prefix");
+            .find(|r| r.name == "dual")
+            .expect("dual present");
+        assert_eq!(dual.op, "!");
+        assert_eq!(dual.fixity, "prefix");
         assert!(
-            !subject.det,
-            "subject is llm-PRIMARY (model+prompt); its det template is a test-mode stub for \
+            !dual.det,
+            "dual is llm-PRIMARY (model+prompt); its det template is a test-mode stub for \
              det-coverage, not its identity, so it displays llm (det = has_det && model.is_none())"
         );
 

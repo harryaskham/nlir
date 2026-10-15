@@ -26,78 +26,80 @@ const LS_KEY = 'nlir.workspace.v1';
 // workspace fetches the full config.example.yaml (which also seeds prompts+types).
 // `demo` is a placeholder model so det-mode + the ops list work offline; llm mode
 // uses the fetched config or the Settings BYO endpoint.
-const DEFAULT_CONFIG = `# nlir config (workspace default) — the full operator set, offline-parseable.
-# Reset restores this; the live site uses the evaluator's own bundled config.
+const DEFAULT_CONFIG = `# nlir config (workspace fallback) — the v2 core, offline-parseable.
+# The live site uses the evaluator's own bundled config (config.example.yaml).
 models:
   demo: { type: command, format: text, command: "echo %" }
 defaults:
   mode: det
   model: { small: demo, medium: demo, large: demo }
+prelude: |
+  gist={$0 .. 'its gist, in one short sentence'};
+  formal={$0 :: 'a formal, professional register'};
+  plain={$0 :: 'plain language a child could follow'};
+  question={$0 :: 'a question with the same subject and meaning'}
 operators:
-  subject:  { op: "#",  fixity: prefix,  arity: 1,   model: medium, prompt: "Subject of: %", description: "topic label — folds a list to its shared category" }
-  summary:  { op: "~",  fixity: prefix,  arity: 1,   model: medium, prompt: "Summarise: %", description: "the gist/essence — saturates, folds to consensus" }
-  formal:   { op: "@",  fixity: prefix,  arity: 1,   model: medium, prompt: "Formal register: %", description: "formal register — saturates, distributes over &" }
-  simplify: { op: ":",  fixity: prefix,  arity: 1,   model: medium, prompt: "Plain language: %", description: "plain language — reliably maps over a list" }
-  expand:   { op: ">",  fixity: prefix,  arity: 1,   model: medium, prompt: "Elaborate: %", description: "expand — forks over |, integrates over &" }
-  shorten:  { op: "<",  fixity: prefix,  arity: 1,   model: medium, prompt: "Shorten, keep every fact: %", description: "shorten to the info floor (vs ~ = the gist)" }
-  diff:     { op: "Δ",  fixity: infix,   arity: 2,   model: medium, prompt: "What changed, first to second: %", description: "directional diff — non-commutative" }
-  implies:  { op: "~>", fixity: infix,   arity: 2,   model: medium, prompt: "Does the first imply the second? %", description: "implication check — integrates over &" }
-  imply:    { op: "~>?",fixity: mixfix,  arity: ">0",model: medium, prompt: "What do these imply? %", description: "implication inference — integrates over &" }
-  not:      { op: "!",  fixity: prefix,  arity: 1,   template: "not (%)", description: "negate, clause-wise (involution: !!a = a)" }
-  question: { op: "?",  fixity: postfix, arity: 1,   priority: 40, template: "%?", description: "turn into a question (postfix)" }
-  and:      { op: "&",  fixity: mixfix,  arity: ">0", join: " and ", description: "join as a plan (nullary & folds the stack)" }
-  or:       { op: "|",  fixity: mixfix,  arity: ">0", join: " or ", description: "a genuine choice between options" }
-  add:      { op: "+",  fixity: mixfix,  arity: ">0", priority: 11, operands: number, result: number, reduce: add, description: "numeric addition (variadic)" }
-  subtract: { op: "-",  fixity: infix,   arity: 2,   priority: 11, operands: number, result: number, reduce: sub, description: "numeric subtract (left-assoc: 2-3-4 = -5)" }
-  multiply: { op: "*",  fixity: mixfix,  arity: ">0", priority: 12, operands: number, result: number, reduce: mul, description: "numeric multiply (variadic)" }
-  divide:   { op: "/",  fixity: infix,   arity: 2,   priority: 12, operands: number, result: number, reduce: div, description: "numeric divide (guards /0)" }
-  power:    { op: "**", fixity: infix,   arity: 2,   priority: 13, assoc: right, operands: number, result: number, reduce: pow, description: "power (right-assoc: 2**3**2 = 512)" }
-  echo:     { op: "_",  fixity: infix,   arity: 2,   priority: 14, command: "for i in $(seq \${NLIR_ARGS[1]}); do echo \${NLIR_ARGS[0]}; done", description: "repeat N times (shell-realised)" }
+  respond:  { op: "=>", fixity: prefix, arity: 1, model: medium, template: "response: %", prompt: "%", description: "obey an instruction and return only the result" }
+  recast:   { op: "::", fixity: infix, arity: 2, priority: 15, model: medium, det: "{$1++': '++$0}", prompt: "Re-express the first text as the kind named by the second: %", description: "x :: kind — re-express x as a register, form or format" }
+  project:  { op: "..", fixity: infix, arity: 2, priority: 16, model: medium, det: "{$1++' of: '++$0}", prompt: "The part of the first text the second describes: %", description: "x .. aspect — the part of x the aspect describes" }
+  dual:     { op: "!",  fixity: prefix, arity: 1, model: medium, template: "not %", prompt: "The opposite of: %", description: "the opposite — an involution" }
+  and:      { op: "&",  fixity: mixfix, arity: ">0", join: " and ", description: "product — one 'X and Y' statement" }
+  or:       { op: "|",  fixity: mixfix, arity: ">0", join: " or ", description: "coproduct — one 'X or Y' choice" }
+  change:   { op: "Δ",  fixity: infix, arity: 2, model: medium, template: "change: %0 -> %1", prompt: "What changed, first to second: %", description: "how the first text becomes the second" }
+  apply:    { op: "▷",  fixity: infix, arity: 2, model: medium, template: "%0 (changed: %1)", prompt: "Apply the described change: %", description: "x ▷ change — a ▷ (a Δ b) ≈ b" }
+  entails:  { op: "~>", fixity: infix, arity: 2, result: bool, model: medium, det: "{$contains%($0,$1)}", prompt: "Does the first imply the second? %", description: "does the first text imply the second" }
+  concat:   { op: "++", fixity: mixfix, arity: ">0", priority: 10, operands: any, reduce: concat, description: "monoid append — text, lists, dicts" }
+  compose:  { op: "∘",  fixity: mixfix, arity: ">0", priority: 17, builtin: compose, description: "(f ∘ g) % x = f % (g % x)" }
+  mtimes:   { op: "_",  fixity: infix, arity: 2, priority: 17, builtin: mtimes, description: "n copies appended; a form composes n times" }
+  length:   { op: "#",  fixity: prefix, arity: 1, priority: 14, builtin: len, description: "length of a list, dict or text" }
+  mapop:    { op: "↦",  fixity: infix, arity: 2, priority: 8, builtin: map, description: "map a form over a list" }
+  foldop:   { op: "⊘",  fixity: infix, arity: 2, priority: 8, builtin: fold, description: "fold a list with a binary form" }
+  access:   { op: ".",  fixity: infix, arity: 2, priority: 19, builtin: access, description: "index, key or character" }
+  add:      { op: "+",  fixity: mixfix, arity: ">0", priority: 11, operands: number, result: number, reduce: add, description: "sum" }
+  sub:      { op: "-",  fixity: infix, arity: 2, priority: 12, operands: number, result: number, reduce: sub, description: "difference" }
+  mul:      { op: "*",  fixity: mixfix, arity: ">0", priority: 11, operands: number, result: number, reduce: mul, description: "product" }
+  div:      { op: "/",  fixity: infix, arity: 2, priority: 11, operands: number, result: number, reduce: div, description: "quotient" }
+  pow:      { op: "**", fixity: infix, arity: 2, priority: 13, operands: number, result: number, reduce: pow, description: "power (right-assoc)" }
+  at-least: { op: ">=", fixity: infix, arity: 2, priority: 5, operands: number, result: bool, reduce: ge, description: "numeric ≥" }
 `;
 
 // operators() mock — mirrors nlir help (aur-2's summary()/is_deterministic()).
 const MOCK_OPERATORS = [
-  ['#','subject','topic label — folds a list to its shared category', false],
-  ['~','summary','the gist/essence — saturates, folds to consensus', false],
-  ['@','formal','formal register — saturates, distributes over &', false],
-  [':','simplify','strip jargon — reliably maps over a list', false],
-  ['>','expand','elaborate — forks over |, integrates over &', false],
-  ['<','shorten','shorten but keep every fact (info floor)', false],
-  ['Δ','diff','directional diff — what changed, first → second (non-commutative)', false],
-  ['~>','implication-check','does the first imply the second? — integrates over &', false],
-  ['~>?','implication-infer','the implication of its arguments — integrates over &', false],
-  ['!','not','negate, clause-wise (involution: !!a = a)', true],
-  ['?','question','turn into a question (postfix)', true],
-  ['&','and','join as a plan (nullary & folds the stack)', true],
-  ['|','or','a genuine choice between options', true],
-  ['_','echo','repeat N times (shell-realised)', true],
-  ['+','add','numeric addition', true],
-  ['*','multiply','numeric multiply', true],
-  ['-','subtract','numeric subtract (left-assoc: 2-3-4 = -5)', true],
-  ['/','divide','numeric divide (guards /0)', true],
-  ['**','power','power (right-assoc: 2**3**2 = 512)', true],
+  ['=>','respond','obey an instruction and return only the result', false],
+  ['::','recast','x :: kind — re-express x as a register, form or format', false],
+  ['..','project','x .. aspect — the part of x the aspect describes', false],
+  ['!','dual','the opposite — an involution', false],
+  ['&','and','product — one "X and Y" statement', true],
+  ['|','or','coproduct — one "X or Y" choice', true],
+  ['Δ','change','how the first text becomes the second', false],
+  ['▷','apply','x ▷ change — a ▷ (a Δ b) ≈ b', false],
+  ['~>','entails','does the first text imply the second', false],
+  ['≈','similarity','how fully the second keeps the meaning of the first', false],
+  ['++','concat','monoid append — text, lists, dicts', true],
+  ['∘','compose','(f ∘ g) % x = f % (g % x)', true],
+  ['_','mtimes','n copies appended; a form composes n times', true],
+  ['#','length','length of a list, dict or text', true],
+  ['↦','map','map a form over a list', true],
+  ['⊘','fold','fold a list with a binary form', true],
+  ['+','add','sum', true],
+  ['**','pow','power (right-assoc: 2**3**2 = 512)', true],
 ].map(([op,name,description,det]) => ({op,name,description,det,arity:1,priority:0,fixity:''}));
 
 // Known-example outputs so the demo reads real (still badged "mock" for llm ops).
 const EXAMPLES = [
-  { expr: "2**3**2",           mode:'det' },
-  { expr: "2-3-4",             mode:'det' },
-  // Det-math (key-free, exact, model-free) — the mathy-round payoff, playable in
-  // the browser with no LLM key: exact arithmetic, statistics, and programming.
-  // NB (per Harry): this is the exact SUBSTRATE (array programming) — nlir's
-  // differentiator is the FUSION below, semantic MEANING over this exact structure.
+  // Exact structure — key-free, in the browser.
   { expr: "{$0+$1}⊘(1..100)", mode:'det', out:"5050" },
-  { expr: "$fold%({$0+$1},1..100)/$len%(1..100)", mode:'det', out:"50.5" },
-  { expr: "$map%({$if%($not%($mod%($0,15)),'FizzBuzz',$if%($not%($mod%($0,3)),'Fizz',$if%($not%($mod%($0,5)),'Buzz',$0)))},1..15)", mode:'det', out:"1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz" },
-  // ★ THE FUSION — exact structure over FUZZY MEANING, the distinctive "why nlir":
-  // fuzzy-extract each count from words + sum them EXACTLY. numpy can't read "3 apples";
-  // a raw prompt can't be trusted to add. nlir does both in one line (needs a key/realiser).
+  { expr: "orders=[{who=ada,total=12.5},{who=bo,total=40},{who=cy,total=7}];$join%({$0.who}↦($filter%({$0.total>=10},$orders)),', ')", mode:'det', out:"ada, bo" },
+  { expr: "inc={$0+1};dbl={$0*2};($dbl ∘ $inc)↦[1,2,3]", mode:'det' },
+  { expr: "_sep=', ';[1,2]++[3] ++ ({a=1,b=2}++{b=3})", mode:'det' },
+  // Meaning — the semantic core (captured on gpt-6-luna; badged mock without a key).
+  { expr: "'lmk if any Qs' :: formal", mode:'llm', out:"Please let me know if you have any questions." },
+  { expr: "$gist%'the mobile team is blocked on the shared auth library, which is late, so the launch slips a week'", mode:'llm', out:"A late shared auth library delays the mobile launch by a week." },
+  { expr: "'the planets from the sun'..3", mode:'llm', out:"Earth" },
+  { expr: "a='Ship on Friday.';b='Ship on Friday, after the security review.';$a ▷ ($a Δ $b)", mode:'llm', out:"Ship on Friday after the security review." },
+  // Exact over fuzzy — the model reads, the evaluator counts.
   { expr: "{$0+$1}⊘['3 apples','5 oranges','2 pears']", mode:'llm', out:"10" },
-  { expr: "$len%($filter%({$0~>'is a complaint'},['love the app','it keeps crashing','when is dark mode','checkout is totally broken']))", mode:'llm', out:"2" },
-  { expr: "@'lmk if any Qs'",  mode:'llm', out:"Please let me know if you have any questions." },
-  { expr: "~'the mobile team is blocked on the shared auth library, which is late'", mode:'llm', out:"The mobile team is blocked by the late shared auth library." },
-  { expr: "'too many steps';'users drop off';&;~$", mode:'llm', out:"Users drop off because there are too many steps." },
-  { expr: "#['login broken','OAuth 500s','reset fails']", mode:'llm', out:"Authentication." },
+  { expr: "#($filter%({$0~>'a complaint'},['love the app','it keeps crashing','when is dark mode','checkout is totally broken']))", mode:'llm', out:"2" },
 ];
 
 // ---- MOCK evaluator (swap for real wasm at P1) ----
@@ -171,7 +173,10 @@ let wasmReal = false;
     $('verBadge').textContent = 'wasm: ' + (v.crate || 'live') + (v.git && v.git!=='unknown' ? ' · '+String(v.git).slice(0,7) : '');
     // Anti-drift (bd-ca518b): the config is the wasm's own include_str! copy of config.example.yaml
     // (single source of truth, always in lockstep with the parser). Adopt it as the default.
-    try { const cfg = nlir.defaultConfigYaml(); if (cfg && state.config === DEFAULT_CONFIG){ state.config = cfg; if ($('config')) $('config').value = cfg; save(); } } catch {}
+    // A saved v1 config (instance glyphs like @ formal, ~>? infer; no prelude) is
+    // upgraded to the bundled v2 config — the v1 vocabulary no longer parses.
+    const isV1 = c => typeof c === 'string' && !/\nprelude:/.test(c) && /op: "(@|~>\?|~)"/.test(c);
+    try { const cfg = nlir.defaultConfigYaml(); if (cfg && (state.config === DEFAULT_CONFIG || isV1(state.config))){ const upgraded = isV1(state.config); state.config = cfg; if ($('config')) $('config').value = cfg; save(); if (upgraded && $('cfgNote')) $('cfgNote').textContent = 'Updated your saved config to the v2 core (::, .., ▷, ∘ and the prelude).'; } } catch {}
     renderOps();
     // Real wasm is now live: re-run the det preview so a restored expression shows
     // the true evaluator's result-so-far (not the mock it may have shown at init).
@@ -279,11 +284,11 @@ const SPECIAL_FORMS = [
   ['( )', 'group', 'override precedence; preserved in output'],
   ['[ ]', 'list', 'a list; spreads into variadic ops or joins to text'],
   ['^', 'messages', 'chat views: ^ assistant, ^_ user, ^* thread, ^/ system; ^-1 last, ranges'],
-  ['({f}_N)', 'do-N', 'compose a form N times: ({~$0}_3) over text distils it three times'],
+  ['({f}_N)', 'do-N', 'compose a form N times: ({$0+1}_3)%5 gives 8'],
   ['$map $fold', 'map / fold', 'higher-order: $map%({f},list) maps f over each item; $fold%({f},list) reduces'],
   ['$scan $filter', 'scan / filter', '$scan%({f},list) is a running fold ([1,3,6,10]); $filter keeps items that pass'],
-  ['(f g)', 'train — atop', 'tacit compose, no $0: (~ @)%x = distil(formal(x)) — point-free'],
-  ['(f g h)', 'train — fork', 'two lenses on one input: (# & ~)%x = subject x & gist x, combined'],
+  ['f ∘ g', 'compose', 'pipelines from named forms: ($gist ∘ $formal)%x = gist of the formal x'],
+  ['prelude', 'named forms', '$gist $formal $plain $question … are forms over :: and .., redefinable'],
   ['strings', 'quoting', 'double-quotes interpolate $name; single-quotes are literal'],
   ['backtick', 'serial', 'forces its right-hand subtree to evaluate serially'],
 ];

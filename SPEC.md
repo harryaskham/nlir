@@ -83,7 +83,7 @@ Every value has a type: **`string`** (default), **`number`**, **`bool`**,
 accessors below), **`form`** (a quoted `{…}` expression — see metaprogramming below).
 
 - Operators declare `operands:` / `result:` types (default `string`). `^` indices
-  and arithmetic want `number`; `#`/`!`/`&` want `string`.
+  and arithmetic want `number`; `!`/`&`/`::` want `string`; `++` takes `any`.
 - A **`form`** coerces to `string` as its **inner source** (no braces), so an op over
   a form reads its code as text (`@{a+b}` → "a+b"); `%`-application takes `operands:[form]`.
 - Before an operator runs, each operand is **coerced** to the required type:
@@ -130,18 +130,17 @@ transformations differ by mode.
 - **nullary-fallback (parser)** — a prefix operator with **no available operand**
   (next token is a terminator `) , ] ;` / EOF, or an infix/postfix op that can't
   start an operand) parses as a **nullary Apply** instead of erroring, then uses
-  nullary-pop to take its operand(s) from the stack. So the prefix-erroring ops
-  (`? Δ ~>`) become stack-pullable. *Zero-regression:* this only converts a former
+  nullary-pop to take its operand(s) from the stack. So infix ops (`Δ ~> ::`)
+  become stack-pullable. *Zero-regression:* this only converts a former
   parse **error** (op with no operand) — every operand-bearing prefix parse
-  (`~foo`, `@(~x)`, trains) is byte-identical. **Loud** stack-underflow error if the
+  (`!foo`, `=>(!x)`, trains) is byte-identical. **Loud** stack-underflow error if the
   stack lacks the operand (never silent-empty).
 - **`$_stdin` on the stack** — when input is piped (`… | nlir`), the evaluator seeds
   the premise stack at position 0 with the piped `_stdin` value, so a bare operator
-  pulls it: `echo "the login page is broken" | nlir -e '~'` → its summary,
-  `| nlir -e '#'` → its subject, `| nlir -e '?'` → it turned into a question. A bare
-  **form/train** is a first-class *value*, so it evaluates to itself (not
-  auto-applied) — apply it to piped input explicitly with `%$_stdin`
-  (`… | nlir -e '(: & #)%$_stdin'`). Nullary-fallback is scoped to *operators*; a
+  pulls it: `echo "ship it Friday" | nlir -e '=>'` obeys it,
+  `| nlir -e '!'` → its opposite. A bare **form/train** is a first-class *value*, so
+  it evaluates to itself (not auto-applied) — apply it to piped input explicitly
+  with `%$_stdin` (`… | nlir -e '($gist ∘ $plain)%$_stdin'`). Nullary-fallback is scoped to *operators*; a
   form is a value, not an operator.
 
 ### Context: read & assign
@@ -152,7 +151,7 @@ transformations differ by mode.
   `p='the planets from the sun'; $p..3` → Earth (bd-6995d9).
 - **`key=RHS`** — assign. `key` is a **literal key string** (identifier;
   `_`-prefixed = system key), `RHS` an expression. Yields the value; **writes
-  immediately**. E.g. `_sep=\ `, `_cache=false`, `_seed=42`, `k=#^-1`.
+  immediately**. E.g. `_sep=\ `, `_cache=off`, `_seed=42`, `k=$subject%^-1`.
 
 ### Message indexing (role-filtered views of `_messages`)
 - **`^N`** — assistant; **`^_N`** — user; **`^*N`** — all; **`^/N`** — system.
@@ -192,8 +191,9 @@ transformations differ by mode.
   `parent={$filter%({$elem%($$0, $0.kids)}, $nodes)}`. Loud when no such frame or
   argument exists.
 - **Named macros** — assign a form to a name and call it by name (forms persist in
-  context): `steelman={~(>@$0)}; $steelman%'we should rewrite it in Rust'`. The whole
-  idiom phrasebook becomes a named, reusable library.
+  context): `steelman={($0 :: 'its strongest, most charitable form') .. 'the gist'};
+  $steelman%'we should rewrite it in Rust'`. The prelude (§Prelude) is exactly such a
+  library, loaded into every run.
 - **Do-N composition `{form}_N`** — builds a form that applies `form` repeatedly,
   then `%` runs it: `({$0+1}_3)%5` → `8`. Runtime construction is capped at
   **64 applications**; larger counts error before allocating a deep AST. Evaluation
@@ -395,7 +395,7 @@ convention is what makes number theory compose cleanly: even/odd (`$mod%(n,2)` �
 evens in 1..10: `$len%($filter%({$not%($mod%($0,2))},1..10))` → 5.
 
 Reserved builtin sigils: `; $ ^ = [ ] , ( ) { } % \` `` ` `` , the quote chars `" '`,
-the escape `\`. Configured operator sigils (`# ! & | ? + - * / ** …`) add to this.
+the escape `\`. Configured operator sigils (`# ! & | :: .. + - * / ** …`) add to this.
 After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
 
 ---
@@ -429,7 +429,7 @@ After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
 
 - The program is a **DAG**; independent LLM calls / `command:` subprocesses run
   **concurrently**, bounded by `--parallelism` (default `8`). Fan-out points: an
-  operator's operands, the items of a list literal (`[~a, ~b, ~c]`), the values of a
+  operator's operands, the items of a list literal (`[!a, !b, !c]`), the values of a
   dict literal, and `$map`/`↦` over a list — each item is bound into the form body
   (`$0` → the item) and the bound bodies run side by side when parallel-safe. A body
   that writes context, reads the stack or applies a named form runs item by item.
@@ -477,34 +477,48 @@ After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
 
 ## Config operators (the language proper)
 
-The **canonical operator vocabulary** — each realised via `template` / `reduce` /
-`command` (det) or `prompt` (llm). These descriptions are the authoritative
-semantics, mirrored by `nlir help` and the
-[phrasebook](examples/phrasebook.md).
+The **canonical operator vocabulary** — each realised via `template` / `det` /
+`reduce` / `builtin` / `command` (deterministic) or `prompt` (llm). These
+descriptions are the authoritative semantics, mirrored by `nlir help`.
 
-**String / text operators** (llm-realised unless a `template`/`command` is given):
+Glyphs are reserved for **generic transforms**: operations recognisable from
+category theory and functional programming, polymorphic over the values they act on.
+Task-specific rewrites (formal, plain, question, gist, …) are not glyphs; they are
+**prelude** forms built from the core (§Prelude), readable and overridable.
+
+**Semantic core** (model-realised; each has a deterministic stub for `--mode det`).
+Values are texts read as concepts.
 
 | op | name | fixity · arity | what it does |
 |---|---|---|---|
-| `#` | subject | prefix · 1 | The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category when the items share one; otherwise lists them per-item. |
-| `!` | not | prefix · 1 | Negates the claim, clause-wise (`!(a&b)` = neither); on a lone concept-word, its antonym. Involution: `!!x ≈ x`. |
-| `~` | summary | prefix · 1 | The essence in one short sentence — drops specifics for the gist. Saturates (`~~x ≈ ~x`); folds a list to its consensus. |
-| `@` | formal | prefix · 1 | Rewrites in a formal, professional register, meaning preserved. Saturates after one pass; distributes over `&`. |
-| `:` | simplify | prefix · 1 | Rewrites in plain, simple language (strips jargon). The one op that reliably maps per-item over a list. |
-| `>` | expand | prefix · 1 | Adds detail and explanation (lengthens). Forks over `or` (keeps paths distinct), integrates over `&`. |
-| `<` | shorten | prefix · 1 | Tightens to the information floor — fewest words, but keeps every fact and figure (vs `~` = the gist). |
-| `?` | question | postfix · 1 | Turns the text into a question. A yes/no question is polarity-neutral (`!x? ≈ x?`). |
-| `&` | and | mixfix · >0 | Joins operands into one "X and Y" statement (a plan, not boolean ∧); nullary `&` folds the premise stack. |
-| `\|` | or | mixfix · >0 | Joins operands into one "X or Y" choice, kept as genuine alternatives. |
-| `_` | echo | infix · 2 | Repeats the text N times, space-joined (`x_2` = "x x"). The one shell-`command`-realised op. |
-| `.` | access | infix · 2 | Polymorphic structural accessor (deterministic): `[a,b,c].1`→`b` (0-based, negative from end), `{k=v}.k`→`v`, `"the".2`→`e`. Loud on out-of-range / missing key. Binds tighter than `%` (`$lib.f%x` = `($lib.f)%x`); snake_case keys stay whole (`$row.first_name`). |
-| `..` | access-semantic | infix · 2 | The LLM twin of `.`: reads element N from the sequence *described* by the text (`"planets from the sun"..3`→"earth"), generalizing to descriptors. det-stub keeps det-total. **Numeric `a..b`** (both integer operands) short-circuits to a deterministic inclusive range list: `1..5`→`[1,2,3,4,5]`, `5..1`→`[5,4,3,2,1]` (descending), repurposing the useless numeric-index case. |
-| `++` | concat | mixfix · >0 | Concatenate the string operands (deterministic): `"foo"++"bar"` → "foobar". |
-| `//` | split | infix · 2 | Split a string by a separator into a list (deterministic): `"a,b,c"//","` → `[a,b,c]`. |
-| `Δ` | diff | infix · 2 | Directional diff — what changed from the first text to the second (added / removed / shifted). Non-commutative (`aΔb ≠ bΔa`); powers before/after, drift, changelog. |
-| `~>` | implication-check | infix · 2 | Does the LHS imply the RHS? Integrates over `&`. |
-| `~>?` | implication-infer | mixfix · >0 | Infers the implication (the consequent) of its arguments. Integrates over `&`. |
-| `≈` | similarity | infix · 2 | Semantic similarity in [0,1]: how closely the second text reproduces the *meaning* of the first (reference). det = word-set Jaccard; llm = judged equivalence of claims, conditions and criteria (`$gen ≈ $gold >= 0.8`). |
+| `=>` | respond | prefix · 1 | Obey: treat the operand as an INSTRUCTION and return only the result of following it (length/format constraints included). Generative rather than transformative; carries the `generative` system frame, so it obeys on any tier. A bare `=>` on a pipe obeys the piped text. |
+| `::` | recast | infix · 2 | `x :: kind` re-expresses x as the kind of text named on the right — a register, form, genre, format or length (`'formal'`, `'a question'`, `'plain language'`, `'a haiku'`, `'JSON'`) — keeping its meaning. Saturates: `x::k::k ≈ x::k`. |
+| `..` | project | infix · 2 | `x .. aspect` returns the part of x the right operand describes — an aspect (`'its subject'`, `'the gist'`, `'the risks'`) or a position (`3`, `'the last item'`). The semantic twin of `.`; two integers give the deterministic range `a..b`. |
+| `!` | dual | prefix · 1 | The opposite: a claim negated clause-wise (`!(a&b)` = neither), a concept-word's antonym. An involution: `!!x ≈ x`. |
+| `&` | and | mixfix · >0 | Product: joins operands into one "X and Y" statement (not boolean ∧); nullary `&` folds the premise stack. |
+| `\|` | or | mixfix · >0 | Coproduct: joins operands into one "X or Y" choice, kept as genuine alternatives. |
+| `Δ` | change | infix · 2 | How the first text becomes the second — added, removed, shifted. Directional (`aΔb ≠ bΔa`). |
+| `▷` | apply | infix · 2 | `x ▷ change` returns x changed as described, and nothing else. The partner of `Δ`: `a ▷ (a Δ b) ≈ b`. |
+| `~>` | entails | infix · 2 | Bool: does the first text imply the second? The preorder on meanings. det = substring containment. |
+| `≈` | similarity | infix · 2 | Number in [0,1]: how fully the second text keeps the *meaning* of the first (reference). det = word-set Jaccard; llm = judged equivalence of claims, conditions and criteria (`$gen ≈ $gold >= 0.8`). |
+
+**Structural core** (deterministic, polymorphic — the typeclass-shaped layer):
+
+| op | name | fixity · arity | what it does |
+|---|---|---|---|
+| `.` | access | infix · 2 | Lens get: `[a,b,c].1`→`b` (0-based, negative from end), `{k=v}.k`→`v`, `"the".2`→`e`. Missing → loud error. Binds above `%`. |
+| `++` | concat | mixfix · >0 | Monoid append: text concatenates, lists concatenate, dicts merge right-biased (`{a=1}++{a=2,b=3}` → `{a=2,b=3}`). A lone list operand mconcats its items (`++[a,b,c]` → `abc`). |
+| `_` | mtimes | infix · 2 | Monoid power: `x _ n` = n copies appended — `'ab'_3` → `ababab`, a list repeats its items, and a `{form}` composes with itself n times (`{$0+1}_3 % 5` → 8). |
+| `∘` | compose | mixfix · >0 | Composition: `(f ∘ g) % x` = `f % (g % x)`; variadic, right to left. Builds pipelines from named forms: `($gist ∘ $formal) % notes`. |
+| `#` | length | prefix · 1 | Foldable length: list items, dict keys, text characters. Alias for `$len`. |
+| `//` | split | infix · 2 | Split text by a separator into a list: `"a,b,c"//","` → `[a,b,c]`. |
+| `<$>` | mapascii | infix · 2 | Functor map: apply the left form to each item of the right list: `{$0*$0}<$>[1,2,3]` → `[1,4,9]`. Alias for `$map%`. |
+| `↦` | mapop | infix · 2 | Visual map alias with the same `builtin: map` semantics as `<$>`. |
+| `⊘` | foldop | infix · 2 | Fold the right list with the left binary form: `{$0+$1}⊘[1,2,3,4]` → `10`. Alias for `$fold%`. |
+| `∪` | setunion | infix · 2 | Set union — order-preserving, deduped; dict operands → their keys. Alias for `$union%`. |
+| `∩` | setinter | infix · 2 | Set intersection — items of `a` also in `b`. Alias for `$inter%`; binds tighter than `∪`/`∖`. |
+| `∖` | setdiff | infix · 2 | Set difference — items of `a` not in `b`. Alias for `$diff%` (U+2216). |
+| `∈` | setelem | infix · 2 | Membership → Bool: list element, dict key, or substring. Alias for `$elem%`. |
 
 **Numeric operators** (`operands: number`, `result: number`, `reduce:`):
 
@@ -514,59 +528,46 @@ semantics, mirrored by `nlir help` and the
 | `*` | mul | mixfix · >0 | Product of the operands. |
 | `-` | sub | infix · 2 | Difference, a − b (left-associative). |
 | `/` | div | infix · 2 | Quotient, a ÷ b (guards divide-by-zero). |
-| `**` | pow | infix · 2 | a to the power b — right-associative, so `2**3**2` = `2**(3**2)` = 512 (matches math / Python). |
+| `**` | pow | infix · 2 | a to the power b — right-associative (`2**3**2` = 512). |
+| `√` | sqrtop | prefix · 1 | Non-negative square root. |
 
-**Comparison operators** (`result: bool`, `reduce:`-realised, deterministic):
-
-| op | name | fixity · arity | what it does |
-|---|---|---|---|
-| `==` | equals | infix · 2 | True when the operands are equal (by rendered value): `5==5` → true, `3==4` → false. |
-| `!=` | not-equals | infix · 2 | True when the operands differ: `3!=4` → true. |
-| `<=` | at-most | infix · 2 | True when the first operand is numerically ≤ the second: `3<=5` → true. |
-| `>=` | at-least | infix · 2 | True when the first operand is numerically ≥ the second: `5>=3` → true. |
-
-**Higher-order (list) operators** (deterministic; configured aliases for the `$map` / `$fold` builtins):
+**Comparison and boolean operators** (`result: bool`, deterministic):
 
 | op | name | fixity · arity | what it does |
 |---|---|---|---|
-| `<$>` | mapascii | infix · 2 | Keyboard-typable map: apply the left form to each item of the right list: `{$0*$0}<$>[1,2,3]` → `[1,4,9]`. Alias for `$map%`; `↦` is its visual twin. |
-| `↦` | mapop | infix · 2 | Visual map alias with the same configured `builtin: map` semantics as `<$>`. |
-| `⊘` | foldop | infix · 2 | Reduce the right list with the left binary form: `{$0+$1}⊘[1,2,3,4]` → `10`. Alias for `$fold%`. |
-| `∪` | setunion | infix · 2 | Set union: `a ∪ b` — order-preserving, deduped. Deterministic alias for `$union%` (binary case). Dict operands → their keys. |
-| `∩` | setinter | infix · 2 | Set intersection: `a ∩ b` — items of `a` also in `b` (deduped, a-order). Alias for `$inter%`. Binds tighter than `∪`/`∖`. |
-| `∖` | setdiff | infix · 2 | Set difference: `a ∖ b` — items of `a` not in `b` (deduped, a-order). Alias for `$diff%`. (`∖` = U+2216 SET MINUS.) |
-| `∈` | setelem | infix · 2 | Membership: `x ∈ coll` → Bool — list element, dict key, or string substring. Alias for `$elem%` (`item ∈ collection`). |
-| `∧` | booland | infix · 2 | Logical AND: `a ∧ b` → Bool, true iff both operands are truthy. First-class conjunction, distinct from compose-`&` (string weave). Binds tighter than `∨`; evaluates both operands (use `$if` for short-circuit). |
-| `∨` | boolor | infix · 2 | Logical OR: `a ∨ b` → Bool, true iff either operand is truthy. Distinct from compose-`\|` (string choice). |
-| `¬` | boolnot | prefix · 1 | Logical NOT: `¬a` → Bool, true iff `a` is falsy. Negates any Bool (incl. a fuzzy `~>` result); the boolean twin of `!` (textual negation). Binds tighter than `∧ ∨`; composes in fold-fusion count-if-NOT. Glyph alias for `$not`. |
-| `√` | sqrtop | prefix · 1 | Square root: `√x` → the non-negative square root as a Number (deterministic). Enables terse stddev (`√variance`), Pythagoras `√(3*3+4*4)`→5, Euclidean distance, geometric mean. Glyph alias for `$sqrt`. |
+| `==` | equals | infix · 2 | Equal by rendered value: `5==5` → true. |
+| `!=` | not-equals | infix · 2 | The operands differ. |
+| `<` | less | infix · 2 | Numeric less-than: `3<5` → true. |
+| `>` | greater | infix · 2 | Numeric greater-than. |
+| `<=` | at-most | infix · 2 | Numeric ≤. |
+| `>=` | at-least | infix · 2 | Numeric ≥. |
+| `∧` | booland | infix · 2 | Logical AND (truthiness) — distinct from the semantic product `&`. |
+| `∨` | boolor | infix · 2 | Logical OR — distinct from the semantic coproduct `\|`. |
+| `¬` | boolnot | prefix · 1 | Logical NOT; negates any Bool, including a fuzzy `~>` result. The boolean twin of `!`. |
 
-**Instruction-following (generation)** — the third category. Here the operand is
-an *instruction to obey*, not text to reshape. This is the generative direction of
-the language: it expresses *new* thoughts — replies, drafts, answers, "do X" —
-rather than transforming existing text, and because it composes under `&`/`|` like
-any string op it can *build* structured generated thoughts, not just emit a single
-prompt (`(=>a)&(=>b)` joins two generated sentences). It carries its own generative
-system frame (operand = instruction), so it obeys instead of describing, even on
-weaker models — the reason `>"write one word"` merely expands the request while
-`=>"write one word"` writes the word. The frame is an operator property
-(`system: generative`, naming a `prompts:` entry), not a model alias, so `=>` keeps it
-on any tier: `nlir --model haiku -e '=>…'` obeys on the fast model.
+### Prelude
 
-| op | name | fixity · arity | what it does |
-|---|---|---|---|
-| `=>` | respond | prefix · 1 | Obeys the instruction in the operand and returns only the result (length/format constraints included). Generative, not transformative; composes under `&`/`\|`; a bare `=>` on a pipe obeys the piped text as the instruction. |
+Config `prelude:` is nlir source evaluated into every run before the program: `name={…}`
+named forms (and literals), `--` comment lines. Bindings are transient (never written
+to the context file), and a context binding of the same name wins, so a project can
+redefine or extend the vocabulary. The shipped prelude:
 
-Operands follow the usual quoting rule (§Interpolation): double-quoted operands
-interpolate context, so `=>"one-sentence reply to: $_stdin"` folds a piped message
-into the instruction; single-quoted operands stay literal. This is the
-reply-generation idiom — pipe a message in, `=>` writes the reply — and because
-`=>` composes, `(=>"warm ack: $_stdin") & (=>"gentle counter: $_stdin")` joins two
-generated sentences.
+| form | definition |
+|---|---|
+| `$gist` | `{$0 .. 'its gist, in one short sentence'}` |
+| `$subject` | `{$0 .. 'its primary subject, as a short noun phrase'}` |
+| `$formal` / `$casual` | `{$0 :: 'a formal, professional register'}` / `… 'a casual, conversational register'` |
+| `$plain` | `{$0 :: 'plain language a child could follow'}` |
+| `$question` | `{$0 :: 'a question with the same subject and meaning'}` |
+| `$expand` / `$shorten` | `{$0 :: 'a fuller version …'}` / `{$0 :: 'the fewest words that keep every fact and figure'}` |
+| `$implies` | `{=>('State, in one sentence, what follows from: ' ++ $0)}` |
 
-The algebraic laws above (involution, saturation, `?`-absorption, list-folds) are
+Prelude forms compose like any form: `($gist ∘ $formal) % notes`,
+`$formal ↦ [a, b]`, `$draw%({$question%$q}, 3)`.
+
+The algebraic laws (`!!x ≈ x`, `x::k::k ≈ x::k`, `a ▷ (a Δ b) ≈ b`) are
 **realised-semantics**: they hold in llm realisation — the user-facing output —
-while det mode applies the literal template (`!!a` → "not not a").
+while det mode applies the literal stubs (`!!a` → "not not a").
 
 ---
 
@@ -588,9 +589,9 @@ default `9`), `assoc` (`left`/`right`, default `left`; only meaningful for
 
 **Precedence (config-tunable):** `^` indexing is tightest; **prefix unary**
 (`# ! ¬ √`) binds above **all binary**; binary follows normal math — `**` > `* /` >
-`+ -` — then string `& |`; the postfix `?` is the deliberate loose exception
-(binds everything to its left); `=` is loosest. Concretely: `^` 20 · `. ..` 16 · `# ! ¬ √` 14 ·
-`** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 · `& |` 9 · `<$> ↦ ⊘` 8 · `∩` 7 · `∪ ∖` 6 · `∈ == != <= >=` 5 · `∧` 4 · `∨` 3 · `?` 1 · `=` 0
+`+ -` — then string `& |`; `=` is loosest. Concretely: `^` 20 · `.` 19 · `%` 18 ·
+`∘ _` 17 · `..` 16 · `::` 15 · `# ! ¬ √` 14 · `** //` 13 · `* /` 12 · `+ -` 11 · `++` 10 ·
+`& | Δ ▷` 9 · `<$> ↦ ⊘` 8 · `∩` 7 · `∪ ∖` 6 · `∈ == != < > <= >= ≈` 5 · `∧` 4 · `∨` 3 · `=` 0
 (`nlir help` lists the exhaustive per-op priority; this prose summarises the tiers). prefix takes one right
 operand; postfix takes leftward to its priority; variadic flattens; mixfix unifies
 infix/list/nullary; ties → prefix > infix > postfix. **Associativity:** infix
@@ -613,15 +614,16 @@ Assume the last assistant message (`^-1`) is about *a rust-rewrite*.
 | `^_-1` / `^/-1` | last user / last system message |
 | `(1+1)^(5+5)` | assistant messages 2..10, joined with `_sep` |
 | `1+1` | "2" (number, stringified on output) |
-| `#^-1` | "a rust-rewrite" |
-| `!#^-1` | "not a rust-rewrite" |
-| `#0^3;#^-1;&` | "subject(0..3), and a rust-rewrite" |
+| `$subject%^-1` | "a rust-rewrite" |
+| `!($subject%^-1)` | "not a rust-rewrite" |
+| `^-1 :: 'one line'` | the last message, recast as one line |
+| `#(0^*-1 // "\n")` | how many lines the whole thread spans |
 | `&[a,b,c]` | "a, b, and c" |
 | `!(a&b)` | "not (a and b)" — parens preserved |
 | `'one two'` | "one two" |
 | `"the subject is $k"` | interpolates `$k` at eval time |
 | `_sep=\ ;[a,b]` | "a b" |
-| `` `k=#^-1;$k `` | serial: store subject as `k`, then read it |
+| `` `k=$subject%^-1;$k `` | serial: store the subject as `k`, then read it |
 
 ---
 
@@ -662,143 +664,11 @@ first; the plugin `append-message`s each turn and pipes shorthand into a long-li
 
 ## Example `~/.config/nlir/config.yaml`
 
-```yaml
-defaults:
-  mode: llm
-  model: haiku
-  parallelism: 8
-
-context:
-  env: NLIR_CONTEXT
-  file_default: ~/.config/nlir/context.json
-  messages:
-    key: _messages
-    role_field: role
-    content_field: content
-    views:                      # ^ / ^_ / ^* / ^/
-      default: [assistant]
-      user:    [user]
-      all:     [user, assistant, system]
-      system:  [system]
-  defaults:
-    _sep: "\n"                  # list & message-range → text separator
-    _cache: true
-
-types:                          # coercion targets (deterministic parse first, LLM fallback)
-  number:
-    model: haiku
-    prompt: |
-      Interpret the text inside <text> as a single number. Return only the number.
-
-      %
-    schema: { type: object, properties: { result: { type: number } }, required: [result] }
-  bool:
-    model: haiku
-    prompt: |
-      Interpret the text inside <text> as true or false.
-
-      %
-    schema: { type: object, properties: { result: { type: boolean } }, required: [result] }
-  # string: numbers/bools/lists stringify deterministically (lists join with _sep)
-
-sessions:
-  pi:
-    format: pi
-    keep_roles: [user, assistant]
-    drop_tool_messages: true
-    role_field: role
-    content_field: content
-
-models:
-  haiku:
-    type: anthropic_messages
-    base_url: https://api.anthropic.com/v1
-    api_key: $ANTHROPIC_API_KEY
-    model: claude-haiku-4-5
-    format: json
-    result_field: result
-    messages:
-      - role: system
-        content: |
-          ${NLIR_SYSTEM_PROMPT}
-          ${NLIR_STRUCTURED_PROMPT}
-      - role: user
-        content: |
-          ${NLIR_PROMPT}
-    output_config:
-      format:
-        type: json_schema
-        schema:
-          type: object
-          properties: { result: { type: string } }
-          required: [result]
-          additionalProperties: false
-  sonnet:
-    type: command
-    format: json
-    result_field: result
-    command: >
-      claude --model claude-sonnet-5
-        --system-prompt "${NLIR_SYSTEM_PROMPT}"
-        --append-system-prompt "${NLIR_STRUCTURED_PROMPT}"
-        --output-format json --json-schema '{"result": "string"}'
-        --print "${NLIR_PROMPT}"
-  gpt-5.5:
-    type: command
-    format: text
-    command: >
-      pi --no-extensions --no-session --model github_copilot/gpt-5.5
-        --system-prompt "${NLIR_SYSTEM_PROMPT}"
-        --append-system-prompt "${NLIR_UNSTRUCTURED_PROMPT}"
-        --print "${NLIR_PROMPT}"
-
-prompts:
-  system:      { env: NLIR_SYSTEM_PROMPT, text: "Perform the following text transformation task.\nRespond with the transformed text in plain language.\nDo not include <text> tags in your output." }
-  structured:  { env: NLIR_STRUCTURED_PROMPT, text: "Format your response as JSON containing only a \"result\" field with the transformation, no preamble." }
-  unstructured:{ env: NLIR_UNSTRUCTURED_PROMPT, text: "Output only the text result of your transformation with no preamble." }
-
-operators:  # `%` = operand under replacement; `%%` = literal %
-  subject:  { op: "#", arity: 1,   fixity: prefix,  model: haiku, prompt: "Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.\n\n%" }
-  not:      { op: "!", arity: 1,   fixity: prefix,  template: "not %", model: haiku, prompt: "Negate the text inside <text>...</text>, changing nothing else.\n\n%" }
-  and:      { op: "&", arity: ">0", fixity: mixfix, join: " and ", model: sonnet, prompt: "Combine the <text> items with an \"and\" connective into one text meaning \"t_0 and t_1 and ...\".\n\n%" }
-  or:       { op: "|", arity: ">0", fixity: mixfix, join: " or ",  model: sonnet, prompt: "Combine the <text> items with an \"or\" connective into one text meaning \"t_0 or t_1 or ...\".\n\n%" }
-  question: { op: "?", arity: 1,   fixity: postfix, priority: 0, template: "is it the case that %?", model: gpt-5.5, prompt: "Convert the text inside <text> into a question, preserving subject and meaning.\n\n%" }
-  echo:
-    op: "_"
-    arity: 2
-    fixity: infix
-    command: |
-      t="${NLIR_ARGS[0]}"; n="${NLIR_ARGS[1]}"; out="$t"
-      for i in $(seq 1 $((n-1))); do out="$out $t"; done
-      printf '%s' "$out"
-  add: { op: "+",  arity: ">0", fixity: mixfix, priority: 11, operands: number, result: number, reduce: add }
-  mul: { op: "*",  arity: ">0", fixity: mixfix, priority: 12, operands: number, result: number, reduce: mul }
-  sub: { op: "-",  arity: 2,   fixity: infix,  priority: 11, operands: number, result: number, reduce: sub }
-  div: { op: "/",  arity: 2,   fixity: infix,  priority: 12, operands: number, result: number, reduce: div }
-  pow: { op: "**", arity: 2,   fixity: infix,  priority: 13, assoc: right, operands: number, result: number, reduce: pow }
-
-tests:
-  det-echo:   { mode: det, expr: "xxx_2",         expected: "xxx xxx" }
-  det-not:    { mode: det, expr: "!foo",           expected: "not foo" }
-  det-and:    { mode: det, expr: "a&b&c",          expected: "a and b and c" }
-  det-group:  { mode: det, expr: "!(a&b)",         expected: "not (a and b)" }
-  det-quote:  { mode: det, expr: "'one two'",      expected: "one two" }
-  det-sep:    { mode: det, expr: "_sep=\\ ;[a,b]", expected: "a b" }
-  det-assign: { mode: det, expr: "k=foo;$k",       expected: "foo" }
-  num-add:    { mode: det, expr: "1+2+3",          expected: "6" }
-  num-index:  { mode: det, expr: "(1+1)**3",       expected: "8" }
-  num-powassoc:{ mode: det, expr: "2**3**2",        expected: "512" }
-  msg:
-    mode: det
-    context:
-      _messages:
-        - { role: user,      content: "hi" }
-        - { role: assistant, content: "in rust" }
-    expr: "^-1"
-    expected: "in rust"
-```
-
----
+The shipped [`config.example.yaml`](config.example.yaml) is the reference config: the
+v2 operator set (§Config operators), the prelude, models, prompts, types, sessions and
+the `tests:` suite `nlir test` runs. nlir writes it to `~/.config/nlir/config.yaml` on
+first run; `include_str!` embeds the same file in the binary and the browser build,
+so the CLI, the docs and the workspace never drift apart.
 
 ## Implementation / project shape
 

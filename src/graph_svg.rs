@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn binding_edges_render_dashed() {
-        let svg = render(&graph("k='x';[$k,~$k]"));
+        let svg = render(&graph("k='x';[$k,!$k]"));
         // Two binding edges (Assign(k) → both $k reads).
         assert_eq!(svg.matches("marker-end=\"url(#bind)\"").count(), 2);
         assert!(svg.contains("stroke-dasharray"));
@@ -296,9 +296,9 @@ mod tests {
 
     #[test]
     fn labels_are_escaped() {
-        // '<' shorten op sigil must be XML-escaped in the label.
-        let svg = render(&graph("<'hello world this is'"));
-        assert!(!svg.contains("><'"));
+        // The '<' comparison sigil must be XML-escaped in its node label.
+        let svg = render(&graph("2<3"));
+        assert!(!svg.contains("><<"));
         assert!(svg.contains("&lt;"));
     }
 }

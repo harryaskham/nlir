@@ -1,204 +1,73 @@
 # nlir — natural-language IR
 
-`nlir` transpiles a terse, sigil-laden **shorthand** into fluent **English**. The
-shorthand is an intermediate representation: it is *tokenised*, *parsed* into a
-DAG using a config-defined grammar, and *evaluated* over a small **stack machine**
-with a **tiny type system**, where each operator is realised either
-**deterministically** (mechanical string/number expansion) or via an **LLM** call
-(a structured text transformation).
-
-Typically invoked from a coding agent's prompt window:
+`nlir` is a small language for programs over **data and meaning**. Exact structure —
+lists, dicts, folds, regexes, arithmetic — and model-realised semantics — recast,
+project, change, entailment, similarity — share one expression language, evaluated
+by a stack machine whose whole vocabulary lives in config.
 
 ```sh
-nlir -e '#^-1'        # "the subject of the last assistant message"
+nlir -e "'lmk if any Qs' :: formal"                                  # Please let me know if you have any questions.
+nlir -e "'the planets from the sun' .. 3"                             # Earth
+nlir -e "{\$0+\$1} ⊘ ['3 apples','5 oranges','2 pears']"               # 10 — the model reads, + adds
+nlir -e "a='Ship on Friday.'; b='Ship on Friday, after the security review.'; \$a ▷ (\$a Δ \$b)"
+                                                                      # Ship on Friday after the security review.
+nlir --mode det -e "inc={\$0+1}; dbl={\$0*2}; (\$dbl ∘ \$inc) ↦ [1,2,3]"  # 4 6 8
 ```
 
-The engine ships only a tiny set of **builtins** (stack / context / indexing /
-assignment / arithmetic / coercion / list plumbing). Everything else — the
-operator vocabulary, their fixity / priority / arity / types, the models, the
-prompts, the coercions, the tests — lives in `~/.config/nlir/config.yaml`. **The
-binary is a small VM; the language is config.**
+The engine ships a tiny set of builtins (stack, context, indexing, assignment,
+arithmetic, coercion, list and data plumbing). Everything else — operators, their
+fixity / priority / arity / types, the prelude, models, prompts, coercions and tests —
+lives in `~/.config/nlir/config.yaml`. **The binary is a small VM; the language is
+config.** See [`SPEC.md`](./SPEC.md) for the normative contract and
+[`docs/design/v2.md`](docs/design/v2.md) for where the language is heading.
 
-See [`SPEC.md`](./SPEC.md) for the full normative contract; this README is the
-usage-oriented tour.
+## The core
 
-## Showreel
+Glyphs are reserved for **generic transforms** — operations you would recognise from
+category theory or functional programming, polymorphic over what they act on.
 
-Terse shorthand in, fluent English out. A few of the moves (deterministic outputs
-are exact; LLM outputs are real `claude-sonnet-5` captures):
+**Semantic core** (model-realised; deterministic stubs in `--mode det`):
 
-![nlir showreel — a grid of expression-to-language cards](showcase/nlir-showreel.png)
-
-One claim, refracted along every axis of meaning — `[#x, ~x, >x, !x, @x, x?]`:
-
-![the perspective wheel — one claim through six lenses](showcase/nlir-perspective-wheel.png)
-
-A whole *layered reply* in ONE expression — answer the agent, fold in your modification,
-reference an earlier point, add a caveat, restyle it formal, then addendum a reflection on
-your own summary. Six communicative moves, a handful of sigils, reading your live chat
-(`^-1` their last message, `^_-1` an earlier one, `$k`/`~$k` your draft and its own gist):
-
-![the full layered reply — a whole considered response in one expression](showcase/nlir-full-layered-reply.png)
-
-| | |
-|---|---|
-| ![formalise](showcase/nlir-formalize.png) | ![words become math](showcase/nlir-tip.png) |
-| `@'lmk if any Qs'` → a polished professional line | `'sixty'+'sixty'*'a fifth'` → `72` (a $60 bill + a 20% tip) |
-| ![right-associative pow](showcase/nlir-pow.png) | ![the executive summary](showcase/nlir-exec-summary.png) |
-| `2**3**2` → `512` (exponentiation, done right) | `@~x` → a rambling update becomes one crisp line |
-| ![the review pipe](showcase/nlir-review-pipe.png) | ![the debug pipe](showcase/nlir-debug-pipe.png) |
-| `cat foo.rs \| nlir -e '[~$_stdin, $_stdin~>"production-ready"]'` → a code diagnosis + a hard verdict | `cat err.txt \| nlir -e '[~$_stdin, ~(>"fix for: $_stdin")]'` → the root cause + the actual fix |
-
-The smart pipe distils whatever you feed it — a git diff, a compiler error, or a stack trace — all through one sigil:
-
-![the distiller — one sigil (~$_stdin) distils any pipe to a single line](showcase/nlir-distiller.png)
-
-And with quoted forms, nlir is now *programmable* — quote an expression with numbered holes (`$0`, `$1`) to make a function, bind it to a name, and reuse it on any input:
-
-![named lambda — define a communicative function once, reuse it on any update](showcase/nlir-named-lambda.png)
-
-### Why nlir, not a prompt?
-
-The moves above shine — but a chatbot can draft prose too. What a plain prompt *can't*
-do cleanly is nlir's signature: **mix exact computation with fuzzy judgment**, reach a
-precise **semantic** target in a few sigils, and do it **mid-pipe**.
-
-![fuzzy-sum — the model reads each fuzzily-worded count, the exact + sums them](showcase/nlir-fuzzy-sum.png)
-
-`{$0+$1}⊘(['3 apples','5 oranges','2 pears'])` → `10`. The model fuzzy-reads each count;
-the exact `+` sums them. No single tool does "sum these fuzzily-worded lines," and a raw
-prompt can't be trusted to add. As a pipe stage: `cat items | nlir -e '{$0+$1}⊘($_stdin//"\n")'`.
-
-Its sibling counts instead of sums — `~>` judges each line, the exact `+` totals the trues:
-
-![fuzzy-count — fuzzy filter then exact count](showcase/nlir-fuzzy-count.png)
-
-`{$0+$1}⊘({$0~>'a complaint'}<$>['love it','it crashed on save','billing charged me twice'])` → `2`.
-grep can't judge tone; a raw model can't be trusted to count. Together the two are what
-neither a pipe filter nor a prompt does alone.
-
-And routing decides on a fuzzy test — the *same* expression forks two ways by mode:
-
-![fuzzy-decide — route on a fuzzy implication](showcase/nlir-fuzzy-decide.png)
-
-`$if%('the server keeps crashing'~>'urgent','escalate','queue')` → `escalate` in llm
-(crashing *is* urgent) but `queue` in det (no literal "urgent" to keyword-match). The gap
-between the two outputs is exactly what the fuzzy `~>` buys — why nlir, not grep.
-
-The `.`↔`..` duality — **structural** access (exact, offline) vs **semantic** access (the
-LLM twin) — reaches the same target two ways:
-
-| | |
-|---|---|
-| ![structural access](showcase/nlir-structural-access.png) | ![semantic access](showcase/nlir-semantic-access.png) |
-| `[Mercury,Venus,Earth,Mars].2` → `Earth` — count a real list | `'the planets from the sun'..3` → `Earth` — index a *described* one (golfs to `sol..3`, six chars) |
-
-And the sharpest dogfood — the golf judge is *itself* nlir. `=>` regenerates a target,
-`~>` scores whether the output means the same:
-
-![nlir grades nlir — the golf judge is itself an nlir expression](showcase/nlir-self-judge.png)
-
-`(=>'first line of 1984')~>'It was a bright cold day in April, and the clocks were striking thirteen'` → `true`.
-The honest gate is mutual — `$if%((sol)~>T, T~>(sol), 'false')` — so a too-vague output
-can't cheat. nlir grading nlir, no exact-match needed.
-
-But that famous 1984 target is a **judge demonstration, not a compression metric**:
-pretraining already contains the sentence. A short lookup key measures the target's fame, not
-how much information nlir carries. The honest comparison separates four regimes:
-
-![honest compression — recall versus derivation, novel facts, and instruction-density](showcase/nlir-honest-ratio.png)
-
-- **Recall** can look like 20–70× because the model supplies memorised facts. Reject that ratio.
-- **Derivation** from a novel seed is typically about 7–10×: the seed carries the facts and the
-  model adds form. Count it only when a semantic `~>` fact-survival check passes.
-- **Novel dense facts** approach 1×. Names, numbers, and random bits still have to be encoded.
-- **Instruction-density is the honest headline:** `{(@~$0)?}` is 9 bytes encoding the same
-  transform as “rephrase this professionally and turn it into a single clarifying question”
-  (74 bytes) — **8.2×**, applied to live input the model cannot have memorised.
-
-Run the proof with [`examples/move-msm0-honest-golf.sh`](examples/move-msm0-honest-golf.sh).
-It computes the 8.2× ratio offline, then uses nlir itself to semantically check that a novel
-fact survives expansion — avoiding false failures from harmless formatting changes such as
-`1340` → `1,340`.
-
-And parts compose into a *pyramid* — name a thought-unit once, reuse it in a train:
-
-![reusable part → train — a named fuzzy part drives a full decision train](showcase/nlir-reusable-part.png)
-
-`urgent={$0~>'urgent'}; $if%($fold%({$0+$1},$urgent<$>['server is down','lunch plans','payments failing'])>=2,'page the on-call engineer','queue for morning')` → `page the on-call engineer`
-live (2 urgent) but `queue for morning` in det. One reusable part (`urgent`) drives
-map → count → threshold → route — build a part once, and every later train is cheaper.
-
-At the peak, a train *checks its own work* — generate, then verify it means what you asked:
-
-![self-verifying generator — nlir generates a thought and checks it covers the intent](showcase/nlir-self-verify.png)
-
-`sat={$0~>$1}; brief={>@~$0}; $sat%($brief%'mobile onboarding spike next sprint','a plan to run a mobile onboarding feasibility spike next sprint')` → `true`
-— `brief` expands the terse seed into a full plan, then `sat` checks the generation
-*covers* the intent (one-directional, so a thorough answer passes; mutual equivalence
-is golf's job). Swap the seed and `sat` catches the mismatch → `false`. Two reusable
-parts compose into a self-verifying generative train.
-
-The vocabulary of *concept-level* moves grows the same way — and composes:
-
-![vocab-compose — define a synonyms op, compose it with the opposite operator](showcase/nlir-vocab-compose.png)
-
-`syn={=>('reply with ONLY a comma-list of synonyms of: '++$0)}; $syn%(!'sad')` → `joyful, cheerful, delighted`
-— define a *synonyms* op as a form, then compose it with the hardened `!` (opposite):
-synonyms of the **opposite** of "sad" → synonyms of "happy". Two concept moves — antonym,
-then synonyms — in one line. numpy has no notion of opposite or synonym; a prompt won't
-compose them cleanly. (Example output — the structure is exact, the meaning is the model's.)
-
-The full set lives in [`showcase/`](./showcase). Regenerate or add cards with
-[`scripts/build-showcase.py`](./scripts/build-showcase.py) (headless-chromium
-HTML→PNG at the 1200×630 social/OG size; pass `--scale 2` for retina):
-
-```sh
-python3 scripts/build-showcase.py --out showcase
-```
-
-## The language of thought
-
-nlir is small enough to *speak back*. Learn a handful of moves and you can express
-rich, real intent — reply to a suggestion with your amendment, close a debate with a
-decision, decline something on your grounds and offer an alternative — in a few sigils,
-right inside your chat with an agent.
-
-Every move is the same shape: **`COMPOSE(TRANSFORM(SELECT))`** — **select** a slice of the
-conversation, **transform** it, and optionally **compose** several into one. Three dials
-steer it:
-
-- **tone** — `@` formal · `:` plain · `~` terse
-- **role** — `^_` what *you* said · `^` what the *agent* said (`^*` either · `^/` system)
-- **time** — `^-1` the last turn · `0^*-1` the whole thread · `^_0` the first
-
-![the tone knob — one thought, three registers](showcase/nlir-tone-knob.png)
-
-A few moves to start with:
-
-| move | say it | what it does |
+| op | name | meaning |
 |---|---|---|
-| considered reply | `@(^-1 & 'but scope it to mobile first')` | reply to an agent's suggestion, folding in your amendment, made formal |
-| reasoned no | `@(!^-1 & 'it doubles our on-call')` | decline a proposal, on your grounds, professionally |
-| decisive close | `@(~0^*-1 & 'decision: ship Friday')` | end a whole debate with your call, grounded in what was said |
-| brain-dump | `'too many steps'; 'users drop off'; &; ~$` | jot scattered thoughts, fold them, get the one takeaway |
-| theme-finder | `#['login broken', 'OAuth 500s', 'reset fails']` | fold a pile of items down to the one category they share |
+| `=>x` | obey | treat `x` as an instruction; return only the result |
+| `x :: kind` | recast | `x` re-expressed as a kind of text — `formal`, `'a question'`, `'one sentence'`, `JSON` |
+| `x .. aspect` | project | the part of `x` an aspect describes — `'its gist'`, `'the risks'`, `3`, `'the last item'` |
+| `!x` | dual | the opposite; `!!x ≈ x` |
+| `a & b` / `a \| b` | product / coproduct | both / either, as one statement |
+| `a Δ b` | change | how `a` becomes `b` |
+| `a ▷ d` | apply | `a` changed as `d` describes; `a ▷ (a Δ b) ≈ b` |
+| `a ~> b` | entails | Bool: does `a` imply `b` |
+| `a ≈ b` | similarity | Number in [0,1]: how fully `b` keeps the meaning of `a` |
 
-The full phrasebook — every move, its shape, and a copy-paste template, across all four
-lanes — lives in **[`examples/phrasebook.md`](examples/phrasebook.md)**.
+**Structural core** (deterministic, polymorphic):
 
-And three ways to learn it live: **`nlir help`** prints every operator — sigil, name,
-and what it does — derived straight from your config; **`nlir step '<expr>'`** (or
-**`:step <expr>`** in the repl, pressing Tab to advance) walks an expression through
-evaluation one reduction at a time, so you can watch the sigils unfold into English
-step by step; and **`nlir show '<expr>'`** draws the expression's computational
-**dataflow graph** — every value and operation a node, with variable bindings
-resolved into edges — as SVG, a PNG (`--png`), an animated PNG of the reduction
-(`--save-animation`), or live in a kitty terminal (`--kitty` / `--animate`). It uses
-the same renderer as the in-browser workspace, so the terminal and the web draw
-byte-identical graphs.
+| op | class | meaning |
+|---|---|---|
+| `f ↦ xs` / `f <$> xs` | Functor | map a form over a list |
+| `f ⊘ xs` | Foldable | fold a list with a binary form |
+| `f ∘ g` | composition | `(f ∘ g)%x = f%(g%x)` |
+| `a ++ b` | Monoid | append text, lists, or dicts (right-biased merge); `++[a,b,c]` mconcats |
+| `x _ n` | Monoid power | `n` copies appended; a form composes with itself `n` times |
+| `x . k` | lens get | index, key, or character |
+| `#x` | length | items, keys, or characters |
+| `∪ ∩ ∖ ∈` | lattice | set operations, membership |
 
-![nlir :step — evaluation unfolds one redex per Tab, deterministic ops instantly and each LLM op one realisation at a time](showcase/nlir-step-through.png)
+Plus arithmetic (`+ - * / ** √`), comparisons (`== != < > <= >=`), booleans
+(`∧ ∨ ¬`) and the `$…` builtins (`$map $fold $scan $filter $if $sort $keys $get
+$join $match $sub $draw …`).
+
+**The prelude** — the everyday vocabulary as named forms over the core, loaded into
+every run and redefinable per project:
+
+```
+gist={$0 .. 'its gist, in one short sentence'};   formal={$0 :: 'a formal, professional register'};
+subject={$0 .. 'its primary subject, …'};         plain={$0 :: 'plain language a child could follow'};
+question={$0 :: 'a question with …'};             casual / expand / shorten / implies
+```
+
+So `($gist ∘ $formal)%notes`, `$plain ↦ items` and `$draw%({$question%$q}, 3)` are
+ordinary programs, not special syntax.
 
 ## Mental model
 
@@ -225,10 +94,12 @@ toolchain** (no nix dev shell required — glibc provides iconv):
 cargo build --release        # binary at target/release/nlir
 ```
 
-On macOS, the flake dev shell provides `libiconv`:
+On macOS, either use the flake dev shell, or rustup with Apple's linker (a nix-profile
+`cc`/`ld` on PATH links binaries whose panics cannot unwind):
 
 ```sh
 nix develop --command cargo build --release
+CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build --release
 ```
 
 The ecosystem crate dependencies are public and fetched over https, so no tokens
@@ -249,7 +120,8 @@ nlir --mode det -e '!(a&b)'     # "not (a and b)"   (parens preserved)
 
 # LLM mode calls the configured models (set ANTHROPIC_API_KEY for the `haiku`
 # model in the example config):
-nlir -e '#^-1'                  # extract the subject of the last assistant message
+nlir -e '$subject%^-1'          # the subject of the last assistant message
+nlir -e "^-1 :: 'one line'"     # the last assistant message, recast as one line
 ```
 
 ## The config *is* the language
@@ -263,6 +135,7 @@ validated file):
 | `defaults` | default `mode` (`det`/`llm`), `model`, `parallelism` |
 | `models` | named model backends — `anthropic_messages` (direct HTTP) or `command` (subprocess) |
 | `prompts` | reusable prompt fragments exposed as `${NLIR_*}` env vars |
+| `prelude` | named forms over the core (`$gist`, `$formal`, …), loaded into every run |
 | `operators` | the operator vocabulary: `op` sigil, `arity`, `fixity`, `priority`, operand/result `types`, and a realisation (`template` / `join` / `command` / `reduce` for `det`, or `model` + `prompt` for `llm`) |
 | `types` | coercion targets — how to interpret text as `number` / `bool` / … (deterministic parse first, LLM fallback) |
 | `context` | the `context.json` store, `_messages` role views (`^`), and system-key defaults (`_sep`, `_cache`) |
@@ -292,7 +165,8 @@ Default from `defaults.mode`; override per run with `--mode det|llm`.
 
 ## Types & coercion
 
-Every value is one of `string` (default), `number`, `bool`, or `list`. Before an
+Every value is one of `string` (default), `number`, `bool`, `list`, `dict`, or
+`form`; an operator may also declare `operands: any` to receive values uncoerced. Before an
 operator runs, each operand is coerced to the required type:
 
 1. already that type → used as-is;
@@ -350,7 +224,7 @@ nlir --mode det -e 'orders=[{who=ada, total=12.5},{who=bo, total=40}];
 ```
 
 `$keys` `$get` `$join` `$flat` `$zip` `$json` `$match` `$sub` and friends do the exact
-structural work; `=>`, `~`, `≈` and the other model operators do the semantic work; a
+structural work; `=>`, `::`, `..`, `≈` and the other model operators do the semantic work; a
 nested form reads its enclosing form's arguments as `$$0`. The
 [spec lab](https://a.skh.am/nlir/spec-lab/) runs this in the browser: a
 spec tree projected into prose and parsed back exactly, with edits to the prose
@@ -400,28 +274,49 @@ nlir -e '$if%(3<=5,"yes","no")'                       # → yes
 nlir -e '$fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))'   # → 2          count how many ≥5, no loop
 ```
 
-**Trains** — a parenthesised group of *operators* (no operands) is a **tacit**
-(point-free) composition, no `$0` spelled: an all-prefix group composes (*atop*),
-and a prefix–infix–prefix group is a **fork** — two lenses on one input:
+**Composition** — `∘` builds pipelines from named forms, and a parenthesised group
+of prefix operators is a **train** (atop or fork):
 
 ```sh
-nlir -e "(~ @)%'hey can u take a look thx'"           # atop: distil∘formal → a polished ask
-nlir -e "(# & ~)%'the login page is broken'"         # fork: subject & gist, in one pass
+nlir -e "(\$gist ∘ \$formal)%'hey can u take a look thx'"   # formalise, then distil
+nlir -e "(! & =>)%'ship it Friday'"                         # fork: the opposite AND the obeyed
 ```
 
-Mix in the LLM lenses and the core becomes a language for **algorithms on
-meaning**: `$if%('prod is down'~>'an incident','page on-call','all clear')` routes
-by an AI judgment with deterministic control flow. And because a bare operator
-pulls its input from the stack, nlir is **pipeline-native** — `echo "the login page
-is broken" | nlir -e '~'` summarises the piped text, `| nlir -e '#'` gives its
-subject, `| nlir -e '?'` turns it into a question: a Unix filter for meaning, not
-just numbers. See
-[composable-core.md](docs/design/composable-core.md) for the full design.
+Mix in the semantic core and the structural core becomes a language for
+**algorithms on meaning**: `$if%('prod is down'~>'an incident','page on-call','all clear')`
+routes by a model judgment with deterministic control flow. Because a bare operator
+pulls its input from the stack, nlir is **pipeline-native** — `echo "ship it Friday" |
+nlir -e '!'` gives the opposite, `| nlir -e "(\$gist ∘ \$plain)%\$_stdin"` the plain gist.
+
+## Learning programs — spec ⇄ prose
+
+nlir programs are small enough to search over. The [spec lab](https://a.skh.am/nlir/spec-lab/)
+loads an invented rule spec as native data, projects each rule into prose with an nlir
+library, parses the prose back exactly, and replays a hill-climb in which a large model
+rewrites the projection program while a fast model runs it and a judge scores the
+output with `≈`. The design for the next step — a meta-policy judge, a complexity
+term, deterministic replay through the realisation store, and lenses for editing prose
+back into the spec — is in [`docs/design/v2.md`](docs/design/v2.md).
+
+## Seeing programs
+
+**`nlir help`** prints every operator from your config; **`nlir step '<expr>'`** walks
+an expression one reduction at a time; **`nlir show '<expr>'`** draws its dataflow
+graph — every value and operation a node, bindings resolved into edges — as SVG, PNG,
+an animated PNG of the reduction, or live in a kitty terminal. The browser
+[workspace](https://a.skh.am/nlir/workspace/) uses the same renderer.
 
 ## CLI surface
 
 ```sh
 nlir -e 'EXPR' [--quiet] [--mode det|llm] [--model haiku] [--parallelism N] [--dry-run]
+nlir -f lib.nlir -f program.nlir                 # program files (`--` comments)
+nlir --bind spec=spec.json -e '$len%$spec.nodes'  # load JSON/YAML as data, other files as text
+nlir --model 'small=luna,large=sol' -e '…'        # remap model tiers (or one name for all)
+
+# realisation store: deterministic replay of model/command calls
+nlir --cache-file store.jsonl -e '…'             # record, then replay identical calls
+nlir --cache-file store.jsonl --replay strict …  # fail on any unrecorded call
 
 # context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
 nlir … --context-file PATH
@@ -502,7 +397,7 @@ to override the path).
 
 - **`|EXPR`** — prefix a message with `|` and the rest is expanded as an nlir
   expression before it reaches the model: `|1+2*3` → `7`, `|a&b&c` → `a and b and
-  c`, `|@'the meeting is at 3'` → a formal rewrite (llm mode).
+  c`, `|'the meeting is at 3' :: formal` → a formal rewrite (llm mode).
 - **`/nlir EXPR`** — preview an expansion inline without sending it.
 
 The expression evaluates against your `~/.config/nlir/config.yaml` (det or llm
@@ -516,10 +411,10 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-CI (`.github/workflows/ci.yml`) runs fmt, clippy (deny-warnings), build, and test
-on every push/PR; a `v*` tag triggers `.github/workflows/release.yml` to build and
-publish per-target binaries. Both use the system Rust toolchain.
-
-`.github/workflows/pages.yml` builds the docs site (`scripts/build-docs.sh` renders
-this README + `SPEC.md` to HTML with pandoc) and publishes it to GitHub Pages on
-push to `main`. Build it locally with `scripts/build-docs.sh ./site`.
+CI (`.github/workflows/ci.yml`) runs on the self-hosted nix runners inside
+`nix develop`: fmt, clippy (deny-warnings), build, the showcase and SPEC↔config checks,
+`nlir test` over the example config, and `cargo test`. Pull requests also build the
+site (`.github/workflows/site.yml`); pushes to `main` publish it through the shared
+`harryaskham.github.io` Pages workflow (`.github/workflows/pages.yml`), building with
+`nix develop .#site --command bash scripts/build-site.sh _site`. Build it locally the
+same way. A `v*` tag triggers `.github/workflows/release.yml`.

@@ -156,9 +156,9 @@ $map%({$fold%({$0+$1},$0)},[[1,2],[3,4]])            -> 3 / 7  (sum each sub-lis
 ```
 
 Because the mapping form can be *any* form, in `--mode llm` you run a language
-transform over every item at once — `$map%({~$0},[…])` distils each element,
-`$map%({@$0},[…])` formalises each. That's the payoff: one expression over a
-whole list.
+transform over every item at once — `$gist ↦ […]` distils each element,
+`$formal ↦ […]` formalises each (both prelude forms over `..` and `::`). That's the
+payoff: one expression over a whole list.
 
 Don't confuse `$map` with the argument frame: `{$0+1}%[1,2,3]` is **not** a map —
 there the list binds as arguments (`$0=1, $1=2, $2=3`), returning `2`. Use
@@ -176,7 +176,7 @@ reduction are pure), while each per-step form can be a **fuzzy language
 transform**. That's a small, repeatable algorithm for operating on thoughts and
 concepts — the structure is code, the judgement is the model. Run these with
 `--mode llm`. The language-transform outputs below are real captures
-(claude-sonnet-5); the fuzzy-arithmetic result is the exact sum of the numbers
+(gpt-6-luna); the fuzzy-arithmetic result is the exact sum of the numbers
 the model extracts (its det-mode error, shown below, is the captured proof of
 the split).
 
@@ -184,18 +184,18 @@ the split).
 element:
 
 ```
-$map%({~$0}, ['the meeting ran long relitigating the roadmap',
-              'the deploy failed twice on a flaky integration test'])
-  -> The meeting ran over time due to repeated debate over the roadmap.
+$gist ↦ ['the meeting ran long relitigating the roadmap',
+         'the deploy failed twice on a flaky integration test']
+  -> The meeting ran long as the roadmap was debated again.
      The deploy failed twice due to a flaky integration test.
 
-$map%({@$0}, ['lmk if any Qs','pls advise'])          # formalise each
+$formal ↦ ['lmk if any Qs','pls advise']              # recast each
   -> Please let me know if you have any questions.
-     Please advise at your earliest convenience.
+     Please provide your advice.
 
-$map%({#$0}, […two thoughts…])                        # topic-label each
-  -> the roadmap
-     deploy failure
+$subject ↦ […two thoughts…]                          # project each
+  -> the meeting
+     the deploy
 ```
 
 **Fuzzy in, exact out** — the sharpest mix: a *deterministic* reduce folding over
@@ -216,15 +216,14 @@ coerces to 1/0:
 **Distil a list into a running consensus** — each fold step weaves then gists:
 
 ```
-$fold%({~($0&$1)}, ['we should ship Friday',
-                    'the auth change needs more testing',
-                    'QA is worried about the migration'])
-  -> Shipping Friday is at risk because the auth change needs more testing
-     and QA has concerns about the migration.
+$fold%({$gist%($0&$1)}, ['we should ship Friday',
+                         'the auth change needs more testing',
+                         'QA is worried about the migration'])
+  -> Shipping is planned for Friday, but auth testing and migration concerns remain.
 ```
 
-Three opinions fold into one balanced sentence. Swap `~` for `@` for a formal
-synthesis, or wrap the whole thing in `#` to tag the theme. That's the north
+Three opinions fold into one balanced sentence. Swap `$gist` for `$formal ∘ $gist`
+for a formal synthesis, or project the result with `.. 'the theme'` to tag it. That's the north
 star: terse programs that reason over ideas — structure you can trust, judgement
 where you want it.
 
@@ -240,7 +239,7 @@ symbols: each is an ordinary `config.yaml` entry. Multibyte sigils lex for free
 
 ```yaml
 square:   { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }
-steelman: { op: "⇑", arity: 1, fixity: prefix, form: "{~(>@$0)}" }
+steelman: { op: "⇑", arity: 1, fixity: prefix, form: "{($0 :: 'its strongest, most charitable form') .. 'the gist, in one sentence'}" }
 mapascii: { op: "<$>", arity: 2, fixity: infix, builtin: map }
 mapop:    { op: "↦", arity: 2, fixity: infix, builtin: map }
 foldop:   { op: "⊘", arity: 2, fixity: infix, builtin: fold }
@@ -257,19 +256,18 @@ configured operator to the map/fold engine. Verified:
 {$0+$1}⊘[1,2,3,4]      -> 10          (⊘ = fold)
 ```
 
-The payoff is a **personal terse vocabulary**. `⇑` bundles the steelman chain
-`{~(>@$0)}` (formalise → expand → distil) into one symbol — in `--mode llm`:
+The payoff is a **personal vocabulary**. `⇑` bundles the steelman chain — recast
+into its strongest form, then project the gist — into one symbol (in `--mode llm`):
 
 ```
 ⇑'we should just ship it friday'
-  -> Based on review status and testing outcomes, the team recommends
-     proceeding with the planned Friday release as scheduled, with no
-     significant issues warranting delay.
+  -> I recommend proceeding with the Friday release.
 ```
 
-And map runs a lens over a list — `{~$0}<$>[…]` is fully typable, while
-`{~$0}↦[…]` is the same configured builtin with a visual sigil. Both summarise
-each item. Your recipes stop being long chains you retype and become verbs you own.
+A named form does the same without a glyph — `steelman={…}; $steelman%x` — which is
+how the prelude ships `$gist`, `$formal` and friends. Map runs any of them over a
+list: `$gist <$> […]` is fully typable, `$gist ↦ […]` is the same builtin with a
+visual sigil. Your recipes stop being long chains you retype and become verbs you own.
 
 ---
 
@@ -299,31 +297,31 @@ $fold%({$0+$1}, $map%({$0*$0}, $filter%({$0},[1,2,3,0,4])))  -> 30
 ```
 (keep truthy `[1,2,3,4]` -> square `[1,4,9,16]` -> sum `30`.)
 
-### Trains — point-free composition
+### Composition and trains — point-free pipelines
 
-A parenthesised chain of *operators* (no arguments) is a **train**, applied with
-`%` — tacit composition, no `$0` plumbing:
-
-- **atop** `(f g)` = compose, `(f g)x = f(g x)`:
+`∘` composes forms right to left — `(f ∘ g)%x = f%(g%x)` — so named forms become
+pipelines without `$0` plumbing:
 
 ```
-(~ @)%'thanks'      -> summary: formal: thanks     (formalise, then summarise)
+inc={$0+1};dbl={$0*2};($dbl ∘ $inc)%5           -> 12     (increment, then double)
+({$0..gist} ∘ {$0::formal})%'thanks'            -> gist of: formal: thanks   (det stubs)
 ```
 
-- **fork** `(f g h)` = run TWO lenses on ONE input and combine, `(f g h)x = (f x) g (h x)`:
+In `--mode llm`, `($gist ∘ $formal)%notes` formalises then distils; the prelude forms
+are ordinary forms, so they compose, map (`$gist ↦ xs`) and fold like any other.
+
+A parenthesised chain of prefix *operators* is a **train**: an all-prefix group
+composes (*atop*), and prefix–infix–prefix is a **fork** — two lenses on one input,
+combined:
 
 ```
-(# & ~)%'x'         -> subject: x and summary: x    (subject AND gist, woven)
-(: & #)%'foo'       -> simple: foo and subject: foo  (explain AND name)
+(! =>)%'x'          -> not response: x                  (atop: obey, then take the opposite)
+(! & =>)%'x'        -> not x and response: x            (fork: the opposite AND the obeyed)
 ```
 
-The fork is the multiplier: every pair of lenses becomes a "both, combined" move
-in three glyphs. That's the seed-of-a-few-words → powerful-concept idea — the
-structure is code, and it composes.
-
+The fork is the multiplier: every pair of lenses becomes a "both, combined" move.
 (These det examples use the operators' det stubs; in `--mode llm` each lens is a
-real transform — `(~ & @)text` gives the gist *and* the formal rewrite of one
-input, woven.)
+real transform.)
 
 ---
 
@@ -466,8 +464,9 @@ Definition order does not matter (apply-time resolution), and generative (llm)
 parts compose the same way
 (`def={=>('a definition of: '++$0)}; entry={($0++': '++($def%$0))}`).
 
-Runnable end-to-end: `examples/move-msm3-persistent-parts.sh` (persistence +
-composition) and `examples/move-msm3-composable-library.sh` (a 3-level pyramid).
+Runnable end-to-end: [`examples/structure.sh`](../examples/structure.sh) (the
+structural core, every output checked) and [`examples/meaning.sh`](../examples/meaning.sh)
+(the semantic core and the prelude).
 Note that persisting a part with embedded prompt text relies on forms
 round-tripping through context with their string literals intact.
 
@@ -591,7 +590,7 @@ realisation. Drop `--mode det` to run these live against your configured model;
 the operator lenses (`~` gist, `@` formal, `:` plain, `>` expand, `<` shorten,
 `#` subject, `&` weave, `?` question) are the building blocks. See the
 [showcase](../showcase/) for real captured outputs and
-[phrasebook](../examples/phrasebook.md) for the curated one-liners.
+[examples](../examples/README.md) for the canonical programs.
 
 A form lets you name a reusable **tone** or **transform** and apply it to
 different inputs — for example a "make it a courteous one-liner" form, or a

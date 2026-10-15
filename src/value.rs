@@ -123,6 +123,7 @@ impl Value {
                 | (Value::List(_), TypeName::List)
                 | (Value::Dict(_), TypeName::Dict)
                 | (Value::Form(_), TypeName::Form)
+                | (_, TypeName::Any)
         )
     }
 
@@ -282,6 +283,8 @@ impl Value {
         // Step 2: deterministic parses/renders. Anything not handled here is
         // `None` (defer to the LLM fallback / loud-error layers).
         match target {
+            // `any` never coerces (is_type already accepted the value above).
+            TypeName::Any => Some(self.clone()),
             // Every value has a deterministic string form.
             TypeName::String => Some(Value::String(self.render(sep))),
             TypeName::Number => match self {

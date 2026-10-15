@@ -138,32 +138,50 @@ prompts:
   # stays robust on weaker models.
   generative:  { env: NLIR_GENERATIVE_SYSTEM_PROMPT, text: "Treat the text inside <text> as an INSTRUCTION and return ONLY the result of following it. No preamble, no explanation, and do not restate the instruction; never describe what you would produce — produce it. Obey any length or format constraint in the instruction exactly. Do not include <text> tags in your output." }
 
-operators: # `%` = operand under replacement; `%%` = literal %
-  subject:
-    op: "#"
-    template: "subject: %"  # det-stub (det mode); model+prompt below realise llm mode
-    description: |
-      The text's primary subject as a short noun phrase — a topic label, not a definition. Over a list, folds to the common category when the items share one; otherwise lists them per-item.
-    arity: 1
-    fixity: prefix
-    model: medium
-    prompt: |
-      Extract the primary subject of the text inside <text> as a short noun phrase. Return only that noun phrase.
+# The everyday vocabulary as named forms over the semantic core (v2 §C). Evaluated
+# into every run before the program; a context binding of the same name wins, so
+# any of these can be redefined or extended per project.
+prelude: |
+  gist={$0 .. 'its gist, in one short sentence'};
+  subject={$0 .. 'its primary subject, as a short noun phrase'};
+  formal={$0 :: 'a formal, professional register'};
+  casual={$0 :: 'a casual, conversational register'};
+  plain={$0 :: 'plain language a child could follow'};
+  question={$0 :: 'a question with the same subject and meaning'};
+  expand={$0 :: 'a fuller version with more detail and explanation'};
+  shorten={$0 :: 'the fewest words that keep every fact and figure'};
+  implies={=>('State, in one sentence, what follows from: ' ++ $0)}
 
-      %
-  not:
+operators: # `%` = operand under replacement; `%%` = literal %
+  dual:
     op: "!"
     description: |
-      Negates the claim, clause-wise (so !(a&b)=neither); on a lone concept-word, its antonym. Involution: !!x=x.
+      The opposite: a claim negated clause-wise (so !(a&b) = neither), a concept-word's antonym. An involution — !!x ≈ x.
     arity: 1
     fixity: prefix
     template: "not %"
     model: medium
     prompt: |
-      Look at the text inside <text>...</text>.
-      If it is a single concept-word (adjective, noun, or verb like "hot", "happy", "increase"), reply with its one-word ANTONYM: a DIFFERENT word of opposite meaning (hot->cold, happy->sad, fast->slow, rich->poor, increase->decrease). NEVER a negation or prefixed form -- not "not X", not "un-X", not "in-X", and never the input word itself.
-      Otherwise (a full clause or sentence), negate it clause-wise, changing nothing else.
-      Reply with only the result, no explanation.
+      Return the opposite of the text inside <text>.
+      If it is a single concept-word (adjective, noun or verb such as "hot", "happy", "increase"), reply with its one-word ANTONYM — a different word of opposite meaning (hot->cold, increase->decrease), never "not X", "un-X" or the word itself.
+      Otherwise negate it clause-wise, changing nothing else.
+      Reply with only the result.
+
+      %
+  # The semantic core (v2 §A). `::` recasts a text as a kind of text; `..` projects a
+  # part or aspect out of one; `▷` applies a described change. The everyday
+  # vocabulary — formal, gist, question, … — is built from these in `prelude:`.
+  recast:
+    op: "::"
+    det: "{$1++': '++$0}"  # det stub: "formal: hello"
+    description: |
+      Recast: `x :: kind` re-expresses x as the kind of text named on the right — a register, form, genre, format or length ('formal', 'a question', 'plain language', 'one sentence', 'a haiku', 'JSON') — keeping its meaning. The everyday rewrites ($formal, $plain, $question, …) are prelude forms over this one operator.
+    arity: 2
+    fixity: infix
+    priority: 15
+    model: medium
+    prompt: |
+      Re-express the first <text> as the kind of text described by the second <text> (a register, form, genre, format or length), keeping its meaning and every fact it states unless the kind itself demands brevity. Return only the result.
 
       %
   and:
@@ -190,81 +208,6 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Combine the <text> items with an "or" connective into one text meaning "t_0 or t_1 or ...".
 
       %
-  question:
-    op: "?"
-    description: |
-      Turns text into a question when it FOLLOWS an operand (postfix): `'the sky is blue'?`.
-      At operand-START it is instead `if` (see prefix_builtin): `?%(cond,then,else)`.
-      A yes/no question is polarity-neutral (!x? is approximately x?).
-    arity: 1
-    fixity: postfix
-    priority: 0
-    prefix_builtin: "if"  # operand-start `?%(cond,then,else)` = if (bd-2f4d5e, Harry's call); postfix `x?` stays the question
-    template: "is it the case that %?"
-    model: opus
-    prompt: |
-      Convert the text inside <text> into a question, preserving subject and meaning.
-
-      %
-  summary:
-    op: "~"
-    template: "summary: %"  # det-stub (det mode); model+prompt below realise llm mode
-    description: |
-      The essence in one short sentence — drops specifics for the gist. Saturates (~~x is approximately ~x); folds a list to its consensus.
-    arity: 1
-    fixity: prefix
-    model: medium
-    prompt: |
-      Summarise the text inside <text> in one short sentence. Return only the summary.
-
-      %
-  formal:
-    op: "@"
-    template: "formal: %"  # det-stub (det mode); model+prompt below realise llm mode
-    description: |
-      Rewrites in a formal, professional register, meaning preserved. Saturates after one pass; distributes over &.
-    arity: 1
-    fixity: prefix
-    model: medium
-    prompt: |
-      Rewrite the text inside <text> in a formal, professional tone, preserving meaning. Return only the rewritten text.
-
-      %
-  simplify:
-    op: ":"
-    template: "simple: %"  # det-stub (det mode); model+prompt below realise llm mode
-    description: |
-      Rewrites in plain, simple language (strips jargon). The one op that reliably maps per-item over a list.
-    arity: 1
-    fixity: prefix
-    model: medium
-    prompt: |
-      Rewrite the text inside <text> in plain, simple language a child could understand. Return only the rewritten text.
-
-      %
-  expand:
-    op: ">"
-    template: "expanded: %"  # det-stub (det mode); model+prompt below realise llm mode
-    description: |
-      Adds detail and explanation (lengthens). Forks over | (keeps paths distinct), integrates over &.
-    arity: 1
-    fixity: prefix
-    model: medium
-    prompt: |
-      Expand the text inside <text> with more detail and explanation, preserving meaning. Return only the expanded text.
-
-      %
-  shorten:
-    op: "<"
-    description: |
-      Tightens to the information floor — fewest words, but keeps EVERY fact and figure (vs ~ = the gist).
-    arity: 1
-    fixity: prefix
-    model: medium
-    prompt: |
-      Make the text inside <text> more concise while preserving meaning. Return only the shortened text.
-
-      %
   # Instruction-following / generation (bd-d18743) — the THIRD operator category
   # alongside TRANSFORM (reshape text) and NUMERIC. The operand is an INSTRUCTION
   # to obey, not text to reshape, so => expresses NEW thoughts (replies, drafts,
@@ -284,11 +227,11 @@ operators: # `%` = operand under replacement; `%%` = literal %
     system: generative
     prompt: |
       %
-  diff:
+  change:
     op: "Δ"
-    template: "diff: %0 -> %1"  # trivial det-stub (det mode); model realises llm mode. TODO det: field for meaningful bool/diff (msm-0)
+    template: "change: %0 -> %1"  # det stub
     description: |
-      Directional diff: what changed from the first text to the second — added, removed, or shifted. Non-commutative (aΔb ≠ bΔa); powers before/after, drift, changelog.
+      Change: how the first text becomes the second — what was added, removed or shifted. Directional (aΔb ≠ bΔa). Its partner is ▷: a ▷ (a Δ b) ≈ b.
     arity: 2
     fixity: infix
     model: medium
@@ -296,29 +239,29 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Describe what changed from the first <text> to the second <text>: what was added, removed, or shifted. This is directional (first → second), not a symmetric comparison. Return only the description.
 
       %
-  implication-check:
-    op: "~>"
-    det: "{$contains%($0,$1)}"  # det mode: does LHS contain RHS -> real Bool (bd-6f9c1d, msm-0); model realises llm mode
+  apply:
+    op: "▷"
+    template: "%0 (changed: %1)"  # det stub
     description: |
-      Does the LHS imply the RHS? Integrates over &
+      Apply: `x ▷ change` returns x changed as the right operand describes, and nothing else — the partner of Δ, so a ▷ (a Δ b) ≈ b. Turns edits, feedback and diffs into new text.
     arity: 2
     fixity: infix
-    result: bool  # llm replies are typed to a real Bool, like the det: realisation
+    model: medium
+    prompt: |
+      Apply the change described by the second <text> to the first <text>. Change only what the description requires and keep everything else exactly as written. Return only the changed text.
+
+      %
+  entails:
+    op: "~>"
+    det: "{$contains%($0,$1)}"  # det mode: does the first contain the second
+    description: |
+      Entails: does the first text imply the second? A Bool — the preorder on meanings.
+    arity: 2
+    fixity: infix
+    result: bool
     model: medium
     prompt: |
       Return 'true' if the content of the first <text> implies the content of the second <text>, otherwise return 'false'.
-
-      %
-  implication-infer:
-    op: "~>?"
-    template: "%"  # trivial det-stub (det mode); model realises llm mode. TODO det: field for meaningful bool/diff (msm-0)
-    description: |
-      Returns the implication of its arguments. Integrates over &.
-    arity: ">0"
-    fixity: mixfix
-    model: medium
-    prompt: |
-      Return the primary implication of the pieces of information contained inside <text> tags, preserving style and no extraneous information.
 
       %
   # Semantic similarity (data-trees slice): how closely the SECOND text
@@ -345,15 +288,22 @@ operators: # `%` = operand under replacement; `%%` = literal %
       Penalise contradictions more than omissions; ignore extra harmless detail. Return only the number with two decimals.
 
       %
-  echo:
+  compose:
+    op: "∘"
+    description: |
+      Composition: (f ∘ g) % x = f % (g % x). Variadic and right-to-left — f ∘ g ∘ h applies h first. Builds pipelines from named forms: ($gist ∘ $formal) % notes. Parenthesise before applying.
+    arity: ">0"
+    fixity: mixfix
+    priority: 17
+    builtin: compose
+  mtimes:
     op: "_"
+    description: |
+      Monoid power: `x _ n` is n copies of x appended — text repeats ('ab'_3 → 'ababab'), a list repeats its items, and a {form} composes with itself n times ({$0+1}_3 % 5 → 8).
     arity: 2
     fixity: infix
-    description: "Repeats the text N times, space-joined (x_2 = 'x x'). The one shell-command-realised operator — not LLM, not arithmetic."
-    command: |
-      t="${NLIR_ARGS[0]}"; n="${NLIR_ARGS[1]}"; out="$t"
-      for i in $(seq 1 $((n-1))); do out="$out $t"; done
-      printf '%s' "$out"
+    priority: 17
+    builtin: mtimes
   add:
     op: "+"
     description: |
@@ -408,12 +358,11 @@ operators: # `%` = operand under replacement; `%%` = literal %
   concat:
     op: "++"
     description: |
-      Concatenate the string operands (variadic): "foo"++"bar" -> "foobar".
+      Append (the Monoid op): text concatenates ("foo"++"bar" → "foobar"), lists concatenate, dicts merge with the right side winning. Variadic.
     arity: ">0"
     fixity: mixfix
     priority: 10
-    operands: string
-    result: string
+    operands: any
     reduce: concat
   split:
     op: "//"
@@ -467,6 +416,34 @@ operators: # `%` = operand under replacement; `%%` = literal %
     result: bool
     reduce: ge
 
+  less:
+    op: "<"
+    description: |
+      True when the first operand is less than the second (numeric): 3 < 5 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: number
+    result: bool
+    reduce: lt
+  greater:
+    op: ">"
+    description: |
+      True when the first operand is greater than the second (numeric): 5 > 3 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: number
+    result: bool
+    reduce: gt
+  length:
+    op: "#"
+    description: |
+      Length (Foldable): the item count of a list, the key count of a dict, the character count of text. Glyph alias for $len.
+    arity: 1
+    fixity: prefix
+    priority: 14
+    builtin: len
   # Glyph operators (bd-44c294): bind ANY sigil (a word, or a multibyte glyph —
   # no ASCII-scarcity cost, like Δ) to a FORM or a BUILTIN, as an alt to
   # command:/prompt:. Uncomment to try; the user owns their config's sigil space.
@@ -515,20 +492,19 @@ operators: # `%` = operand under replacement; `%%` = literal %
     result: string
     builtin: access
   # Semantic access `..` (bd-27739b) — the LLM twin of the deterministic `.` (config: @aur-2's lane).
-  access-semantic:
+  project:
     op: ".."
-    det: "{'item '++$1++' of: '++$0}"  # det-mode structural placeholder (keeps det-total green); model realises llm mode
+    det: "{$1++' of: '++$0}"  # det stub; two integers give the deterministic range a..b
     description: |
-      Semantic access — the LLM twin of `.`. Reads the first operand as a described ordered collection and the second as a position or descriptor, returning only that element ("the planets from the sun"..3 → "earth"). Non-commutative. Terse descriptors can be ambiguous (sol = the Sun vs the solfège note), so prefer an unambiguous seed for anything you'll re-run.
+      Project: `x .. aspect` returns the part of x that the right operand describes — an aspect ('its subject', 'the gist in one sentence', 'the risks') or a position ('3', 'the last item', 'the largest'). The semantic twin of `.`; two integers give the range a..b instead. The prelude's $gist and $subject are projections.
     arity: 2
     fixity: infix
     priority: 16
     model: medium
     prompt: |
-      The first <text> names or describes an ordered collection; the second <text> is a position or descriptor into it (a number like "3", or "the last", "the largest", "the first that ..."). Return ONLY the single element it addresses — no preamble, no explanation, and do not restate the query or the collection.
+      Return only the part of the first <text> that the second <text> describes — an aspect of it (such as "its subject", "the gist in one sentence", "the risks it mentions") or an element of a described collection (such as "3", "the last", "the largest"). No preamble, no explanation, and do not restate the query.
 
       %
-
   # Set-notation sigil operators (bd-4e72c3) — terse DETERMINISTIC aliases for the
   # $union/$inter/$diff/$elem value builtins (bd-49d65a), delegating via builtin: like <$> / ↦ / ⊘.
   # Priority: ∩ (7) binds tighter than ∪/∖ (6) [mirrors × over +]; ∈ (5) sits with the
@@ -604,7 +580,8 @@ operators: # `%` = operand under replacement; `%%` = literal %
     builtin: sqrt
 
 tests:
-  det-echo: { mode: det, expr: "xxx_2", expected: "xxx xxx" }
+  det-mtimes: { mode: det, expr: "xxx_2", expected: "xxxxxx" }
+  det-mtimes-list: { mode: det, expr: "_sep=',';[a,b]_2", expected: "a,b,a,b" }
   det-not: { mode: det, expr: "!foo", expected: "not foo" }
   det-and: { mode: det, expr: "a&b&c", expected: "a and b and c" }
   det-or: { mode: det, expr: "a|b", expected: "a or b" }
@@ -626,15 +603,18 @@ tests:
   det-ge:       { mode: det, expr: "5 >= 3", expected: "true" }
   # det coverage for the formerly-llm-only text lenses + semantic ops (their
   # trivial template det-stubs, so `nlir test` covers EVERY operator offline).
-  det-subject:     { mode: det, expr: "#'x'",      expected: "subject: x" }
-  det-summary:     { mode: det, expr: "~'x'",      expected: "summary: x" }
-  det-formal:      { mode: det, expr: "@'x'",      expected: "formal: x" }
-  det-simple:      { mode: det, expr: ":'x'",      expected: "simple: x" }
-  det-expanded:    { mode: det, expr: ">'x'",      expected: "expanded: x" }
-  det-question:    { mode: det, expr: "'x'?",      expected: "is it the case that x?" }
-  det-diff:        { mode: det, expr: "'a'Δ'b'",   expected: "diff: a -> b" }
+  det-recast:      { mode: det, expr: "'x'::formal", expected: "formal: x" }
+  det-project:     { mode: det, expr: "'x'..gist",   expected: "gist of: x" }
+  det-apply:       { mode: det, expr: "'a'▷'b'",     expected: "a (changed: b)" }
+  det-length:      { mode: det, expr: "#[a,b,c] + #'abcd' + #{k=v}", expected: "8" }
+  det-less-greater: { mode: det, expr: "_sep=',';[2<3, 2>3, 3>2]", expected: "true,false,true" }
+  det-prelude-form: { mode: det, expr: "$formal%'x'", expected: "a formal, professional register: x" }
+  det-prelude-override: { mode: det, expr: "formal={$0::stiff};$formal%'x'", expected: "stiff: x" }
+  det-change:      { mode: det, expr: "'a'Δ'b'",   expected: "change: a -> b" }
   det-implies:     { mode: det, expr: "'the code is correct'~>'correct'",  expected: "true" }
-  det-implication: { mode: det, expr: "'a'~>?'b'", expected: "a" }
+  det-append-lists: { mode: det, expr: "_sep=',';[1,2]++[3]++[]", expected: "1,2,3" }
+  det-append-dicts: { mode: det, expr: "_sep=',';{a=1,b=2}++{b=3,c=4}", expected: "a=1,b=3,c=4" }
+  det-mconcat:      { mode: det, expr: "++[a,b,c]", expected: "abc" }
   det-group: { mode: det, expr: "!(a&b)", expected: "not (a and b)" }
   det-quote: { mode: det, expr: "'one two'", expected: "one two" }
   det-sep: { mode: det, expr: "_sep=\\ ;[a,b]", expected: "a b" }
@@ -653,7 +633,7 @@ tests:
   str-split-chars: { mode: det, expr: '_sep=\ ;"abc"//""', expected: "a b c" }
   str-split-map: { mode: det, expr: '_sep=\ ;$map%({$0++$0},"a,b"//",")', expected: "aa bb" }
   pipe-fold-sum: { mode: det, expr: '{$0+$1}⊘("3,5,2"//",")', expected: "10" }
-  pipe-count-branch: { mode: det, expr: '?%({$0+$1}⊘({$contains%($0,"ERR")}<$>["ok","ERR a","ok","ERR b"])>=2,"page","clear")', expected: "page" }
+  pipe-count-branch: { mode: det, expr: '$if%({$0+$1}⊘({$contains%($0,"ERR")}<$>["ok","ERR a","ok","ERR b"])>=2,"page","clear")', expected: "page" }
   part-named-form-reuse: { mode: det, expr: '_sep=" ";sq={$0*$0};$sq<$>[1,2,3,4]', expected: "1 4 9 16" }
   gen-obeys: { mode: det, expr: "=>'x'", expected: "response: x" }  # det stub for the => generation op (bd-d18743)
   # quote-eval (bd-5dd86f): `{…}` quotes a form — evaluation is INERT (the form is
@@ -714,8 +694,9 @@ tests:
   cookbook-scan:    { mode: det, expr: "$scan%({$0+$1},[1,2,3,4])", expected: "1\n3\n6\n10" }
   cookbook-filter:  { mode: det, expr: "$filter%({$0},[1,0,2,0,3])", expected: "1\n2\n3" }
   cookbook-trio:    { mode: det, expr: "$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3,0,4])))", expected: "30" }
-  cookbook-train-atop: { mode: det, expr: "(~ @)%'thanks'", expected: "summary: formal: thanks" }
-  cookbook-train-fork: { mode: det, expr: "(# & ~)%'x'", expected: "subject: x and summary: x" }
+  cookbook-compose-semantic: { mode: det, expr: "({$0..gist} ∘ {$0::formal})%'thanks'", expected: "gist of: formal: thanks" }
+  cookbook-compose-named: { mode: det, expr: "double={$0*2};inc={$0+1};f=$double ∘ $inc;$f%5", expected: "12" }
+  cookbook-train-fork: { mode: det, expr: "(! & =>)%'x'", expected: "not x and response: x" }
   # value builtins (docs/cookbook.md §9): branch ($if), index ($nth), reorder ($sort).
   cookbook-if-then: { mode: det, expr: "$if%(1,'yes','no')", expected: "yes" }
   cookbook-if-else: { mode: det, expr: "$if%(0,'yes','no')", expected: "no" }
@@ -808,10 +789,9 @@ tests:
   map-body-string:     { mode: det, expr: "$map%({$if%(1,'a','b')},1..3)", expected: "a\na\na" }
   map-body-mod-string: { mode: det, expr: "$map%({$if%($not%($mod%($0,3)),'Fizz',$0)},1..5)", expected: "1\n2\nFizz\n4\n5" }
   # `?` dual-role (bd-2f4d5e, Harry): postfix `x?` = question; operand-start `?%(c,t,e)` = if (reuses the $if engine, short-circuits).
-  q-if-then:            { mode: det, expr: "?%(2>=2,'yes','no')", expected: "yes" }
-  q-if-else:            { mode: det, expr: "?%(1>=2,'yes','no')", expected: "no" }
-  q-if-shortcircuit:    { mode: det, expr: "?%(1>=2,$nth%(99,[a]),'safe')", expected: "safe" }
-  q-postfix:            { mode: det, expr: "'the sky is blue'?", expected: "is it the case that the sky is blue?" }
+  q-if-then:            { mode: det, expr: "$if%(2>=2,'yes','no')", expected: "yes" }
+  q-if-else:            { mode: det, expr: "$if%(1>=2,'yes','no')", expected: "no" }
+  q-if-shortcircuit:    { mode: det, expr: "$if%(1>=2,$nth%(99,[a]),'safe')", expected: "safe" }
   # Configured map/fold aliases + the operator-form hero (bd-44c294 + bd-2f4d5e + bd-80e76f).
   # `<$>` is typable; ↦ is visual. Both dispatch the same configured builtin: map.
   # Existing train tests above prove this infix alias does not perturb train parsing.
@@ -834,7 +814,7 @@ tests:
   map-ascii:            { mode: det, expr: "{$0*$0}<$>[1,2,3]", expected: "1\n4\n9" }
   map-glyph:            { mode: det, expr: "{$0*$0}↦[1,2,3]", expected: "1\n4\n9" }
   fold-glyph:           { mode: det, expr: "{$0+$1}⊘[1,2,3,4]", expected: "10" }
-  hero-ops-gate-glyph:  { mode: det, expr: "?%({$0+$1}⊘({$contains%($0,'ERROR')}↦['ok','ERROR: oom','ok','ERROR: disk full'])>=2,'page on-call','all clear')", expected: "page on-call" }
+  hero-ops-gate-glyph:  { mode: det, expr: "$if%({$0+$1}⊘({$contains%($0,'ERROR')}↦['ok','ERROR: oom','ok','ERROR: disk full'])>=2,'page on-call','all clear')", expected: "page on-call" }
   # dicts + polymorphic `.` accessor + semantic `..` det stub (bd-27739b).
   dict-lit:             { mode: det, expr: "{k=v}", expected: "k=v" }
   dict-access:          { mode: det, expr: "{a=1, b=2}.b", expected: "2" }
@@ -842,7 +822,7 @@ tests:
   list-access:          { mode: det, expr: "[a,b,c].1", expected: "b" }
   list-access-neg:      { mode: det, expr: "[a,b,c].-1", expected: "c" }
   string-access:        { mode: det, expr: "'the'.2", expected: "e" }
-  semantic-access-stub: { mode: det, expr: "'the planets from the sun'..3", expected: "item 3 of: the planets from the sun" }
+  semantic-access-stub: { mode: det, expr: "'the planets from the sun'..3", expected: "3 of: the planets from the sun" }
   numeric-range-asc:    { mode: det, expr: "_sep=\\ ;1..5", expected: "1 2 3 4 5" }
   numeric-range-desc:   { mode: det, expr: "_sep=\\ ;5..1", expected: "5 4 3 2 1" }
   numeric-range-single: { mode: det, expr: "3..3", expected: "3" }
