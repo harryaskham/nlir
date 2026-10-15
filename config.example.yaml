@@ -809,6 +809,8 @@ tests:
   assign-generated:       { mode: det, expr: "brief==>'a note';$brief", expected: "response: a note" }
   data-parse: { mode: det, expr: "x=$parse%'Sure! ```json\n{\"a\": [1, 2], \"b\": \"t\"}\n```';$x.a.1 + #$x.a", expected: "4" }
   data-parse-roundtrip: { mode: det, expr: "$json%($parse%($json%{k=[1,true]}))", expected: '{"k":[1,true]}' }
+  data-dict-from-pairs: { mode: det, expr: "_sep=',';d=$dict%({[$0, #$0]}↦[a, bb]);[$d.bb] ++ $keys%($dict%($entries%{x=1, y=2}))", expected: "2,x,y" }
+  data-dict-computed-keys: { mode: det, expr: "$json%($dict%[[k1, 1], [k2, [true]], [k1, 3]])", expected: '{"k1":3,"k2":[true]}' }
   data-typed-literals: { mode: det, expr: "$json%[1, 2.5, -3, true, 007, 1.50, x]", expected: '[1,2.5,-3,true,"007","1.50","x"]' }
   draw-explicit-seeds:    { mode: det, expr: "_sep=\",\";_seed=10;$draw%({$0*2}, 3)", expected: "0,2,4" }
   call-then-access:       { mode: det, expr: "$get%({a={t=ok}}, a).t", expected: "ok" }

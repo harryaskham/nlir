@@ -284,6 +284,7 @@ shadows them):
 |---|---|
 | `$keys%d` / `$values%d` | a dict's keys / values (a list's indices / items) |
 | `$entries%d` | `[{key=k, value=v}, …]` — map a dict like a list of records |
+| `$dict%pairs` | a dict from `[key, value]` pairs or `{key, value}` records — the inverse of `$entries`, and the way to build a dict with computed keys |
 | `$get%(c, k)` / `$get%(c, k, default)` | dynamic `.`: dict key or list/string index (`$get%($nodes, $id)` for keys with spaces); missing → default, else loud |
 | `$has%(c, k)` | Bool: is `k` a key / valid index |
 | `$join%(list, sep)` | items rendered and joined with `sep` |

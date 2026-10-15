@@ -1701,11 +1701,11 @@ fn access_value(operands: &[Value], sep: &str) -> Result<Value, EvalError> {
 /// Every `$name` the engine dispatches as a builtin when the context does not bind
 /// the name itself (value builtins, data builtins and the higher-order family).
 pub const BUILTIN_NAMES: &[&str] = &[
-    "access", "and", "ceil", "contains", "diff", "draw", "elem", "entries", "filter", "flat",
-    "floor", "fold", "get", "gt", "has", "if", "inter", "join", "json", "keys", "len", "lines",
-    "lower", "lt", "map", "match", "matches", "mod", "not", "nth", "or", "parse", "replace",
-    "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "type", "union", "upper", "values",
-    "zip",
+    "access", "and", "ceil", "contains", "dict", "diff", "draw", "elem", "entries", "filter",
+    "flat", "floor", "fold", "get", "gt", "has", "if", "inter", "join", "json", "keys", "len",
+    "lines", "lower", "lt", "map", "match", "matches", "mod", "not", "nth", "or", "parse",
+    "replace", "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "type", "union", "upper",
+    "values", "zip",
 ];
 
 const PURE_BUILTIN_OPS: &[&str] = &[
@@ -3785,7 +3785,7 @@ fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usi
 /// when the context does not shadow the name — like `$len`/`$sort`.
 pub(crate) const DATA_BUILTINS: &[&str] = &[
     "keys", "values", "get", "join", "json", "parse", "type", "trim", "replace", "match",
-    "matches", "sub", "lines", "slice", "has", "flat", "entries", "lower", "upper", "zip",
+    "matches", "sub", "lines", "slice", "has", "flat", "entries", "dict", "lower", "upper", "zip",
 ];
 
 /// Parse JSON from model-style text: the whole text, else the span from the first
@@ -4007,6 +4007,48 @@ fn data_builtin(name: &str, mut args: Vec<Value>, sep: &str) -> Result<Value, Ev
             ))
         }
         // `$entries%d` → `[{key=k, value=v}, …]`, so a dict maps like a list of records.
+        // `$dict%pairs` — a dict from `[key, value]` pairs or `{key, value}` records
+        // (the inverse of `$entries`); a later key replaces an earlier one in place.
+        "dict" => {
+            let Value::List(items) = unary_operand(args) else {
+                return Err(EvalError::Unsupported(
+                    "`$dict` takes a list of [key, value] pairs or {key, value} records".to_owned(),
+                ));
+            };
+            let mut pairs: Vec<(String, Value)> = Vec::with_capacity(items.len());
+            for item in items {
+                let (key, value) = match item {
+                    Value::List(kv) if kv.len() == 2 => (kv[0].render(sep), kv[1].clone()),
+                    Value::Dict(fields) => {
+                        let get = |name: &str| {
+                            fields
+                                .iter()
+                                .find(|(k, _)| k == name)
+                                .map(|(_, v)| v.clone())
+                        };
+                        match (get("key"), get("value")) {
+                            (Some(k), Some(v)) => (k.render(sep), v),
+                            _ => {
+                                return Err(EvalError::Unsupported(
+                                    "`$dict` records need `key` and `value` fields".to_owned(),
+                                ));
+                            }
+                        }
+                    }
+                    other => {
+                        return Err(EvalError::Unsupported(format!(
+                            "`$dict` items are [key, value] pairs or {{key, value}} records, got a {}",
+                            other.type_name()
+                        )));
+                    }
+                };
+                match pairs.iter_mut().find(|(k, _)| *k == key) {
+                    Some(slot) => slot.1 = value,
+                    None => pairs.push((key, value)),
+                }
+            }
+            Ok(Value::Dict(pairs))
+        }
         "entries" => match unary_operand(args) {
             Value::Dict(pairs) => Ok(Value::list(
                 pairs
