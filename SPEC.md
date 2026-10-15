@@ -439,10 +439,10 @@ an instruction built with `++` lands in the data it was built from, e.g. a field
 packet rendered with `$json`. An operator may carry an authored backward instruction
 (`put:` in its config), folded into the request. The request is an ordinary
 content-addressed realisation, so it replays from the store. In llm mode PutGet is
-judged: `put_get_similarity` is `≈` between the edited output and the re-run; and when
-the edits touch two or more input leaves, `tensions` lists pairs that pull in opposite
-directions (edits can merge textually — text edits to one value merge three-way when
-their regions do not overlap — and still contradict each other).
+judged: `put_get_similarity` is `≈` between the edited output and the re-run; and
+`tensions` lists input changes that contradict each other — across fields, or within
+one edited text (edits can merge textually — text edits to one value merge three-way
+when their regions do not overlap — and still contradict each other).
 
 ## Whitespace, escapes & quoting
 

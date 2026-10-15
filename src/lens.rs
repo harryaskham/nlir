@@ -94,8 +94,9 @@ pub struct PutReport {
     /// The output of that re-evaluation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub put_get_output: Option<String>,
-    /// In llm mode, pairs of input changes that pull against each other (a merged
-    /// set of edits can be textually clean and still contradict itself).
+    /// In llm mode, input changes that pull against each other — across fields, or
+    /// within one edited text (merged edits can be textually clean and still
+    /// contradict each other).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tensions: Vec<String>,
     /// In llm mode, how fully the re-evaluated output keeps the edited output's
@@ -1176,10 +1177,11 @@ fn check_tensions(
     leaves: &[(String, &Change)],
 ) -> Vec<String> {
     let mut request = String::from(
-        "These edits were derived from one set of changes to a document. Check whether any two of them pull in \
-opposite directions — one permits or includes what another forbids or excludes, or they make incompatible \
-claims — so that the edited source contradicts itself. Ignore edits that merely overlap or repeat each other.\n\n\
-Reply with JSON only: {\"tensions\": [{\"a\": \"<path>\", \"b\": \"<path>\", \"why\": \"<one sentence>\"}]} \
+        "These edits were derived from one set of changes to a document. Check whether the edited source now \
+contradicts itself: two edits that pull in opposite directions (one permits or includes what another forbids \
+or excludes, or they make incompatible claims), or a single edited text whose AFTER version says incompatible \
+things where its BEFORE version did not. Ignore edits that merely overlap, refine or repeat each other.\n\n\
+Reply with JSON only: {\"tensions\": [{\"a\": \"<path>\", \"b\": \"<path, the same path for a text that contradicts itself>\", \"why\": \"<one sentence>\"}]} \
 (an empty list when there are none).\n",
     );
     for (path, change) in leaves {
@@ -1504,7 +1506,7 @@ pub fn put_program_with(
                 .map(move |c| (format!("{}/{}", e.target, c.path), c))
         })
         .collect();
-    let tensions = if mode == crate::Mode::Llm && leaves.len() >= 2 {
+    let tensions = if mode == crate::Mode::Llm && !leaves.is_empty() {
         check_tensions(config, context, cache, &leaves)
     } else {
         Vec::new()
