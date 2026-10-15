@@ -43,6 +43,7 @@ pub mod realise;
 pub mod realiser;
 pub mod session;
 pub mod stack;
+pub mod tikz;
 pub mod value;
 
 #[cfg(test)]

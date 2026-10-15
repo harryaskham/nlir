@@ -697,7 +697,8 @@ nlir repl [--context-file F] [--raw]     # :set/:get/:append-message inside repl
 
 # graphs: the expression DAG, or one node per top-level statement
 nlir show 'EXPR' [--png F | --out F | --kitty | --frames | --save-animation F | --animate]
-nlir show --statements [-f FILE…] ['EXPR'] [--png F | --out F | --text | --json]
+nlir show --statements [-f FILE…] ['EXPR'] [--png F | --out F | --text | --json | --tikz]
+nlir show --tikz [-f FILE…] ['EXPR']   # each statement's expression tree as a LaTeX forest tree
 
 # plumbing (CLI template stack)
 nlir parse 'EXPR'

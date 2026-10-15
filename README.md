@@ -339,7 +339,9 @@ an animated PNG of the reduction, or live in a kitty terminal. For whole program
 **`nlir show --statements -f lib.nlir -f program.nlir`** draws one node per statement
 instead — forms, data, computed values and the output, linked by the names they read
 (including inside form bodies), with model-call sites marked and bound data and
-prelude forms as inputs; `--text` prints the same outline for logs and prompts. The
+prelude forms as inputs; `--text` prints the same outline for logs and prompts, and
+`--tikz` emits it (or, without `--statements`, each statement's expression tree as a
+`forest` tree) as vector TikZ for LaTeX papers. The
 browser [workspace](https://a.skh.am/nlir/workspace/) uses the same renderers (Graph
 and Statements, with pan and zoom).
 

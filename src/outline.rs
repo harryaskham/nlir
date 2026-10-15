@@ -357,15 +357,29 @@ impl Outline {
                 .unwrap_or(0);
             layer[i] = deepest;
         }
-        // Statements with no dependencies sit in column 0 beside the inputs only
-        // when something reads them; an isolated final output still goes right.
+        // Each input sits one column before its first reader, so a name read only
+        // late in the program (a library form used by the output) does not draw an
+        // edge across the whole graph.
+        for i in 0..n {
+            if self.statements[i].kind == Kind::Input {
+                let first = self
+                    .edges
+                    .iter()
+                    .filter(|e| e.0 == i)
+                    .map(|e| layer[e.1])
+                    .min();
+                layer[i] = first.map_or(0, |l| l.saturating_sub(1));
+            }
+        }
         let max_layer = layer.iter().copied().max().unwrap_or(0);
         let mut columns: Vec<Vec<usize>> = vec![Vec::new(); max_layer + 1];
         for i in 0..n {
             columns[layer[i]].push(i);
         }
-        // Inputs first in column 0, then statements in source order.
-        columns[0].sort_by_key(|&i| (self.statements[i].kind != Kind::Input, i));
+        // Inputs first in each column, then statements in source order.
+        for column in &mut columns {
+            column.sort_by_key(|&i| (self.statements[i].kind != Kind::Input, i));
+        }
         let mut row = vec![0f64; n];
         for column in &columns {
             for (r, &i) in column.iter().enumerate() {

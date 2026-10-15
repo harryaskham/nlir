@@ -217,6 +217,11 @@ struct ShowArgs {
     /// With --statements: print the outline as JSON.
     #[arg(long)]
     json: bool,
+    /// Emit TikZ for a LaTeX document instead of SVG: the statement graph as a
+    /// tikzpicture (with --statements), else each statement's expression tree as a
+    /// `forest` tree with model operators highlighted. Writes to --out or stdout.
+    #[arg(long)]
+    tikz: bool,
     /// Write the SVG to a file instead of stdout.
     #[arg(long, value_name = "PATH")]
     out: Option<PathBuf>,
@@ -1448,6 +1453,17 @@ fn run_show(cli: &Cli, args: &ShowArgs) -> Result<(), i32> {
         expr: Some(source),
         ..args.clone()
     };
+    if args.tikz && !args.statements {
+        let program = parse_for_show(&cfg, args.expr.as_deref().unwrap_or(""))?;
+        let model: std::collections::HashSet<String> = cfg
+            .operators
+            .values()
+            .filter(|o| !o.is_deterministic())
+            .map(|o| o.op.clone())
+            .collect();
+        let tex = nlir::tikz::graph_forest(&nlir::graph::Graph::from_program(&program), &model);
+        return emit_text(cli, args, &tex);
+    }
     if args.statements {
         return run_show_statements(cli, &cfg, args);
     }
@@ -1557,6 +1573,9 @@ fn run_show_statements(cli: &Cli, cfg: &nlir::config::Config, args: &ShowArgs) -
         .filter_map(|spec| spec.split_once('=').map(|(name, _)| name.trim().to_owned()))
         .collect();
     let outline = nlir::outline::outline(&program, cfg, &bound);
+    if args.tikz {
+        return emit_text(cli, args, &nlir::tikz::outline_tikz(&outline));
+    }
     if args.text {
         print!("{}", outline.to_text());
         return Ok(());
@@ -1573,6 +1592,27 @@ fn run_show_statements(cli: &Cli, cfg: &nlir::config::Config, args: &ShowArgs) -
     }
     let svg = nlir::outline::render_svg(&outline);
     emit_show_svg(cli, args, &svg)
+}
+
+/// Write text output to `--out`, else stdout.
+fn emit_text(cli: &Cli, args: &ShowArgs, text: &str) -> Result<(), i32> {
+    match &args.out {
+        Some(path) => {
+            std::fs::write(path, text).map_err(|error| {
+                eprintln!("nlir show: writing {}: {error}", path.display());
+                1
+            })?;
+            if !cli.quiet {
+                eprintln!(
+                    "nlir show: wrote {} bytes to {}",
+                    text.len(),
+                    path.display()
+                );
+            }
+        }
+        None => print!("{text}"),
+    }
+    Ok(())
 }
 
 /// Write a rendered graph SVG per `--png` / `--out`, else show it in kitty or print it.
