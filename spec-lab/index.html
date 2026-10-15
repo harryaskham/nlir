@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>nlir · spec lab</title>
+<link rel="stylesheet" href="../theme.css">
+<link rel="stylesheet" href="spec-lab.css">
+</head>
+<body>
+<header class="bar">
+  <a class="mark" href="../index.html">nlir<i>·</i><small>spec lab</small></a>
+  <span id="trip" class="badge">loading…</span>
+  <a class="nav hide-sm" href="../index.html">Guide</a>
+  <a class="nav hide-sm" href="../spec.html">Spec</a>
+  <a class="nav" href="../workspace/">Workspace</a>
+  <a class="nav" href="./" aria-current="page">Spec lab</a>
+  <a class="nav hide-sm" href="https://github.com/harryaskham/nlir">GitHub ↗</a>
+</header>
+
+<div class="lab">
+  <nav class="rail" id="rail" aria-label="Spec tree"></nav>
+
+  <main class="stage">
+    <header class="rule-head">
+      <div>
+        <div class="crumbs" id="crumbs"></div>
+        <h1 id="title">—</h1>
+      </div>
+      <div class="seg" role="tablist" id="view">
+        <button role="tab" data-view="rule" aria-selected="true">Profile</button>
+        <button role="tab" data-view="policy" aria-selected="false">Policy</button>
+        <button role="tab" data-view="loop" aria-selected="false">Learning loop</button>
+        <button role="tab" data-view="back" aria-selected="false">Backward pass</button>
+      </div>
+    </header>
+
+    <section class="panes" id="pane-rule">
+      <article class="pane">
+        <h2>Spec <span class="seg mini" id="specMode"><button data-m="node" class="on">node</button><button data-m="packet">packet</button></span></h2>
+        <pre class="console code" id="spec"></pre>
+        <code class="expr" id="specExpr"></code>
+      </article>
+      <article class="pane">
+        <h2>Prose <button class="ghost" id="reset" title="Regenerate the prose from the spec">Reset</button></h2>
+        <textarea id="prose" spellcheck="true" aria-label="Profile prose (editable)"></textarea>
+        <code class="expr">$render%(($node%$id).profile)</code>
+      </article>
+      <article class="pane">
+        <h2>Back to spec <span class="state" id="state"></span></h2>
+        <div id="fields" class="fields"></div>
+        <code class="expr">nlir put — the edit pushed back through $render</code>
+      </article>
+    </section>
+
+    <section class="doc-pane" id="pane-policy" hidden>
+      <div class="policy" id="policy"></div>
+      <code class="expr">$policymd</code>
+    </section>
+
+    <section class="doc-pane" id="pane-loop" hidden>
+      <div id="loop"></div>
+    </section>
+
+    <section class="doc-pane" id="pane-back" hidden>
+      <div id="back"></div>
+    </section>
+
+    <details class="source">
+      <summary>spec.nlir · profile.nlir — the projections, in nlir</summary>
+      <pre class="console code" id="libsrc"></pre>
+    </details>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script type="module" src="spec-lab.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const defaultConfigYaml: () => [number, number];
+export const evaluate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => any;
+export const graph: (a: number, b: number, c: number, d: number) => any;
+export const graphFrames: (a: number, b: number, c: number, d: number, e: number, f: number) => any;
+export const graphFramesAsync: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => any;
+export const graphFramesStreaming: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any, j: any) => any;
+export const operators: (a: number, b: number) => any;
+export const outline: (a: number, b: number, c: number, d: number) => any;
+export const parse: (a: number, b: number, c: number, d: number) => any;
+export const put: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => any;
+export const step: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => any;
+export const stepStream: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any, j: any) => any;
+export const version: () => any;
+export const clearEvaluationCache: () => void;
+export const wasm_bindgen__closure__destroy__h81ee272d4a435a11: (a: number, b: number) => void;
+export const wasm_bindgen__convert__closures_____invoke__h0d35f2fc21e938b7: (a: number, b: number, c: any, d: any) => void;
+export const wasm_bindgen__convert__closures_____invoke__h823762d347a85e75: (a: number, b: number, c: any) => void;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_exn_store: (a: number) => void;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>nlir · workspace</title>
+<!-- CodeMirror 5 (CDN) powers the multiline expression editor + optional vim mode (bd-98c6cc); degrades to the raw <textarea>. Loaded before our CSS so the theme overrides its defaults. -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.css">
+<link rel="stylesheet" href="../theme.css">
+<link rel="stylesheet" href="workspace.css">
+</head>
+<body>
+<header class="bar">
+  <a class="mark" href="../index.html">nlir<i>·</i><small>workspace</small></a>
+  <span id="modeBadge" class="badge live">det · key-free</span>
+  <span id="verBadge" class="badge hide-sm" title="co-build stamp">wasm</span>
+  <a class="nav hide-sm" href="../index.html">Guide</a>
+  <a class="nav hide-sm" href="../spec.html">Spec</a>
+  <a class="nav" href="./" aria-current="page">Workspace</a>
+  <a class="nav" href="../spec-lab/">Spec lab</a>
+  <a class="nav hide-sm" href="https://github.com/harryaskham/nlir">GitHub ↗</a>
+</header>
+
+<div class="ws">
+  <main class="main">
+    <section class="editor">
+      <div class="expreditor">
+        <textarea id="expr" spellcheck="false" autocomplete="off" placeholder="2**3**2   ·   'lmk if any Qs' :: formal   ·   ($gist ∘ $plain)%notes"></textarea>
+      </div>
+      <!-- Live det preview (bd-970e05): debounced, speculative, non-persisting; llm realisation stays behind Run. -->
+      <div class="livepreview" id="livePreview" hidden></div>
+      <div class="exprctl">
+        <div class="seg" id="modeSeg" role="group" aria-label="Evaluation mode">
+          <button data-mode="det" class="on">det</button>
+          <button data-mode="llm">llm</button>
+          <button data-mode="ondevice">on-device</button>
+        </div>
+        <button class="run primary" id="runBtn" title="Run (⌘/Ctrl+Enter)">Run ▸</button>
+        <button class="step" id="stepBtn">Step</button>
+        <button class="graph" id="graphBtn">Graph</button>
+        <button class="graph" id="outlineBtn" title="One node per statement — legible for long programs">Statements</button>
+        <button class="graph" id="animBtn">Animate</button>
+        <span class="spacer"></span>
+        <button class="ghost vimtoggle" id="vimToggle" type="button" title="Toggle vim keybindings" aria-pressed="false">vim: off</button>
+      </div>
+    </section>
+
+    <section class="result-pane">
+      <div class="output" id="output"><span class="placeholder">Run an expression, or pick one below.</span></div>
+      <div class="steps" id="steps"></div>
+      <div class="graphview" id="graphview" hidden>
+        <div class="graphsvg" id="graphsvg"></div>
+        <div class="animctl"><input type="range" id="scrub" min="0" value="0" hidden><span class="framecap" id="framecap"></span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Examples</h2>
+      <div class="chips" id="examples"></div>
+    </section>
+
+    <section>
+      <h2>Operators</h2>
+      <div class="ops" id="ops"></div>
+    </section>
+
+    <section>
+      <h2>Grammar</h2>
+      <div class="ops" id="forms"></div>
+    </section>
+  </main>
+
+  <aside class="inspector">
+    <section>
+      <h2>Config <span class="aside-actions"><button class="ghost" id="applyCfg">Apply</button><button class="ghost" id="resetCfg">Reset</button></span></h2>
+      <textarea id="config" spellcheck="false" aria-label="config YAML"></textarea>
+      <small class="note" id="cfgNote"></small>
+    </section>
+
+    <section>
+      <h2>Messages <span class="hint">^ ^_ ^*</span></h2>
+      <div id="messages"></div>
+      <div class="row">
+        <select class="role" id="newRole" aria-label="role"><option>user</option><option>assistant</option><option>system</option></select>
+        <input class="txt" id="newMsg" placeholder="message" spellcheck="false">
+        <button class="ghost" id="addMsg" aria-label="Add message">+</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Bindings <span class="hint">$name</span></h2>
+      <div id="kvs"></div>
+      <div class="row">
+        <input class="k" id="newKey" placeholder="name" spellcheck="false">
+        <input class="v" id="newVal" placeholder="value or JSON" spellcheck="false">
+        <button class="ghost" id="addKv" aria-label="Add binding">+</button>
+      </div>
+    </section>
+
+    <section id="odPanel" hidden>
+      <h2>On-device</h2>
+      <div class="od-status" id="odStatus">checking availability…</div>
+      <small class="note">Gemini Nano in Chrome: no key, no network egress. The first run may download the model.</small>
+    </section>
+
+    <section id="llmPanel" hidden>
+      <h2>Model endpoint</h2>
+      <div class="row"><input class="v" id="baseUrl" placeholder="base URL (OpenAI-compatible)" spellcheck="false"></div>
+      <div class="row"><input class="v" id="apiKey" placeholder="API key" type="password"></div>
+      <div class="row"><input class="v" id="model" placeholder="model id (optional)" spellcheck="false"></div>
+      <small class="note">Kept in this browser's localStorage and sent only to your endpoint.</small>
+    </section>
+  </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<!-- CodeMirror core + addons + vim keymap (bd-98c6cc). Order matters. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/display/placeholder.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/keymap/vim.min.js"></script>
+<script src="workspace.js"></script>
+</body>
+</html>

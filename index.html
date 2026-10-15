@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>nlir ��� natural-language IR</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="theme.css" />
+  <link rel="stylesheet" href="docs.css" />
+  <meta name="color-scheme" content="light dark">
+  <meta property="og:title" content="nlir — natural-language IR">
+  <meta property="og:description" content="A small language for programs over data and meaning: exact structure and model-realised semantics in one evaluator — forwards and backwards.">
+  <meta property="og:image" content="og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="og.png">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121418'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' font-weight='700' fill='%235cc6a8' text-anchor='middle'%3En·%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<header class="bar"><a class="mark" href="index.html">nlir<i>·</i><small>natural-language IR</small></a>
+<a class="nav" href="index.html" aria-current="page">Guide</a>
+<a class="nav" href="spec.html">Spec</a>
+<a class="nav" href="workspace/">Workspace</a>
+<a class="nav" href="spec-lab/">Spec lab</a>
+<a class="nav" href="examples.html">Examples</a>
+<a class="nav hide-sm" href="https://github.com/harryaskham/nlir">GitHub ↗</a></header>
+<section class="hero">
+  <div>
+    <h1>Shorthand in.<br><em>Prose</em> out.</h1>
+    <p class="lede">A small language for the prompt window. Exact data operations and model-backed text operators share one evaluator, so a program can be part code and part judgement.</p>
+    <div class="actions">
+      <a class="btn primary" href="workspace/">Open the workspace</a>
+      <a class="btn" href="spec-lab/">Spec lab</a>
+      <a class="btn" href="spec.html">Read the spec</a>
+    </div>
+  </div>
+  <div>
+    <div class="console live">
+      <div class="row">
+        <input id="hx" spellcheck="false" autocomplete="off" aria-label="nlir expression">
+        <button id="hstep" type="button" title="Show each reduction">Step</button>
+        <button id="hgo" class="go" type="button" title="Evaluate (Enter)">Run ▸</button>
+      </div>
+      <div class="out" id="hout" aria-live="polite"><span class="ph">Loading the evaluator…</span></div>
+      <div class="tabs" role="tablist" id="htabs"></div>
+    </div>
+    <div class="live-meta"><span id="hmeta">wasm · det mode · in your browser</span></div>
+  </div>
+</section>
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script type="module">
+  const $ = id => document.getElementById(id);
+  const out = $('hout'), hx = $('hx'), meta = $('hmeta');
+  const norm = v => (v instanceof Map ? Object.fromEntries(v) : v);
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const EXAMPLES = [
+    { tab: 'ops gate', expr: "$if%(#($filter%({$contains%($0,'ERROR')}, ['ok','ERROR: oom','ok','ERROR: disk full'])) >= 2, 'page on-call', 'all clear')" },
+    { tab: 'data', expr: "orders=[{who=ada, total=12.5},{who=bo, total=40},{who=cy, total=7}]; $join%({$0.who}↦($filter%({$0.total>=10}, $orders)), ', ')" },
+    { tab: 'spec → prose', expr: "rule={id='R 1.1', force='must not', act='approve a change without evidence of tests'}; 'Rule ' ++ $rule.id ++ ': reviewers ' ++ $rule.force ++ ' ' ++ $rule.act ++ '.'" },
+    { tab: 'compose', expr: "inc={$0+1}; dbl={$0*2}; $join%(($dbl ∘ $inc) ↦ [1,2,3], ', ')" },
+    { tab: 'recast', expr: "'lmk if any Qs' :: formal", captured: 'Please let me know if you have any questions.', model: 'gpt-6-luna · captured' },
+  ];
+  let evaluate, stepFn, cfgJson = '{}', ready = false, current = EXAMPLES[0];
+  const tabs = $('htabs');
+  EXAMPLES.forEach((ex, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.role = 'tab'; b.textContent = ex.tab;
+    b.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+    b.onclick = () => { [...tabs.children].forEach(t => t.setAttribute('aria-selected', 'false')); b.setAttribute('aria-selected', 'true'); current = ex; hx.value = ex.expr; run(); };
+    tabs.appendChild(b);
+  });
+  hx.value = current.expr;
+  try {
+    const m = await import('./workspace/pkg/nlir_wasm.js');
+    if (m.default) await m.default();
+    evaluate = m.evaluate; stepFn = m.step; ready = true;
+    try {
+      const y = m.defaultConfigYaml ? m.defaultConfigYaml() : await (await fetch('workspace/config.example.yaml')).text();
+      cfgJson = JSON.stringify(window.jsyaml.load(y));
+    } catch (_) { /* config-free evaluator still runs the keystone examples */ }
+    try { const v = norm(m.version()); const ver = v && (v.crate || v.version); if (ver) meta.textContent = `nlir ${ver} · wasm · det mode · in your browser`; } catch (_) {}
+  } catch (e) {
+    out.innerHTML = '<span class="err">The evaluator did not load. <a href="workspace/">Open the workspace</a></span>';
+  }
+  const prose = (txt, tag) => `<div class="prose-out"><span class="arrow">→</span><span>${esc(txt).replace(/\n/g, '<br>')}</span></div>` + (tag ? `<div class="live-meta">${tag}</div>` : '');
+  async function run() {
+    if (current.captured && hx.value === current.expr) { out.innerHTML = prose(current.captured, current.model); return; }
+    if (!ready) return;
+    try {
+      const r = norm(await evaluate(hx.value, cfgJson, '{}', 'det', {}));
+      out.innerHTML = r.ok ? prose(r.result) : `<span class="err">${esc(r.error)}</span>`;
+    } catch (e) { out.innerHTML = `<span class="err">${esc(e)}</span>`; }
+  }
+  async function step() {
+    if (!ready) return;
+    try {
+      const r = norm(await stepFn(hx.value, cfgJson, '{}', 'det', {}));
+      const steps = (r.steps || []).map(norm);
+      out.innerHTML = r.ok ? steps.map(s => `<div class="step">${esc(s.expr)}</div>`).join('') : `<span class="err">${esc(r.error)}</span>`;
+    } catch (e) { out.innerHTML = `<span class="err">${esc(e)}</span>`; }
+  }
+  $('hgo').onclick = run; $('hstep').onclick = step;
+  hx.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+  run();
+</script>
+<main class="doc index">
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#nlir--natural-language-ir"
+id="toc-nlir--natural-language-ir">nlir — natural-language IR</a>
+<ul>
+<li><a href="#the-core" id="toc-the-core">The core</a></li>
+<li><a href="#mental-model" id="toc-mental-model">Mental model</a></li>
+<li><a href="#install--build" id="toc-install--build">Install /
+build</a></li>
+<li><a href="#quick-start" id="toc-quick-start">Quick start</a></li>
+<li><a href="#the-config-is-the-language"
+id="toc-the-config-is-the-language">The config <em>is</em> the
+language</a></li>
+<li><a href="#modes" id="toc-modes">Modes</a></li>
+<li><a href="#types--coercion" id="toc-types--coercion">Types &amp;
+coercion</a></li>
+<li><a href="#forms--application--the-programmable-core"
+id="toc-forms--application--the-programmable-core">Forms &amp;
+application — the programmable core</a></li>
+<li><a href="#data-trees--specs-configs-and-datasets-as-native-values"
+id="toc-data-trees--specs-configs-and-datasets-as-native-values">Data
+trees — specs, configs and datasets as native values</a></li>
+<li><a href="#determinism--a-content-addressed-record-of-every-call"
+id="toc-determinism--a-content-addressed-record-of-every-call">Determinism
+— a content-addressed record of every call</a></li>
+<li><a href="#the-composable-core--adverbs-trains-basics"
+id="toc-the-composable-core--adverbs-trains-basics">The composable core
+— adverbs, trains, basics</a></li>
+<li><a href="#learning-programs--spec--prose"
+id="toc-learning-programs--spec--prose">Learning programs — spec ⇄
+prose</a></li>
+<li><a href="#editing-backwards--lenses"
+id="toc-editing-backwards--lenses">Editing backwards — lenses</a></li>
+<li><a href="#seeing-programs" id="toc-seeing-programs">Seeing
+programs</a></li>
+<li><a href="#cli-surface" id="toc-cli-surface">CLI surface</a></li>
+<li><a href="#worked-examples" id="toc-worked-examples">Worked
+examples</a></li>
+<li><a href="#sessions" id="toc-sessions">Sessions</a></li>
+<li><a href="#pi-package" id="toc-pi-package">Pi package</a></li>
+<li><a href="#development" id="toc-development">Development</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="nlir--natural-language-ir">nlir — natural-language IR</h1>
+<p><code>nlir</code> is a small language for programs over <strong>data
+and meaning</strong>. Exact structure — lists, dicts, folds, regexes,
+arithmetic — and model-realised semantics — recast, project, change,
+entailment, similarity — share one expression language, evaluated by a
+stack machine whose whole vocabulary lives in config.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;&#39;lmk if any Qs&#39; :: formal&quot;</span>                                  <span class="co"># Please let me know if you have any questions.</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;&#39;the planets from the sun&#39; .. 3&quot;</span>                             <span class="co"># Earth</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;{</span><span class="dt">\$</span><span class="st">0+</span><span class="dt">\$</span><span class="st">1} ⊘ [&#39;3 apples&#39;,&#39;5 oranges&#39;,&#39;2 pears&#39;]&quot;</span>               <span class="co"># 10 — the model reads, + adds</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;a=&#39;Ship on Friday.&#39;; b=&#39;Ship on Friday, after the security review.&#39;; </span><span class="dt">\$</span><span class="st">a ▷ (</span><span class="dt">\$</span><span class="st">a Δ </span><span class="dt">\$</span><span class="st">b)&quot;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>                                                                      <span class="co"># Ship on Friday after the security review.</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--mode</span> det <span class="at">-e</span> <span class="st">&quot;inc={</span><span class="dt">\$</span><span class="st">0+1}; dbl={</span><span class="dt">\$</span><span class="st">0*2}; (</span><span class="dt">\$</span><span class="st">dbl ∘ </span><span class="dt">\$</span><span class="st">inc) ↦ [1,2,3]&quot;</span>  <span class="co"># 4 6 8</span></span></code></pre></div>
+<p>The engine ships a tiny set of builtins (stack, context, indexing,
+assignment, arithmetic, coercion, list and data plumbing). Everything
+else — operators, their fixity / priority / arity / types, the prelude,
+models, prompts, coercions and tests — lives in
+<code>~/.config/nlir/config.yaml</code>. <strong>The binary is a small
+VM; the language is config.</strong> See <a
+href="spec.html"><code>SPEC.md</code></a> for the normative contract and
+<a href="https://github.com/harryaskham/nlir/blob/main/docs/design/v2.md"><code>docs/design/v2.md</code></a> for where
+the language is heading.</p>
+<h2 id="the-core">The core</h2>
+<p>Glyphs are reserved for <strong>generic transforms</strong> —
+operations you would recognise from category theory or functional
+programming, polymorphic over what they act on.</p>
+<p><strong>Semantic core</strong> (model-realised; deterministic stubs
+in <code>--mode det</code>):</p>
+<table>
+<thead>
+<tr>
+<th>op</th>
+<th>name</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>=&gt;x</code></td>
+<td>obey</td>
+<td>treat <code>x</code> as an instruction; return only the result</td>
+</tr>
+<tr>
+<td><code>x :: kind</code></td>
+<td>recast</td>
+<td><code>x</code> re-expressed as a kind of text — <code>formal</code>,
+<code>'a question'</code>, <code>'one sentence'</code>,
+<code>JSON</code></td>
+</tr>
+<tr>
+<td><code>x .. aspect</code></td>
+<td>project</td>
+<td>the part of <code>x</code> an aspect describes —
+<code>'its gist'</code>, <code>'the risks'</code>, <code>3</code>,
+<code>'the last item'</code></td>
+</tr>
+<tr>
+<td><code>!x</code></td>
+<td>dual</td>
+<td>the opposite; <code>!!x ≈ x</code></td>
+</tr>
+<tr>
+<td><code>a &amp; b</code> / <code>a | b</code></td>
+<td>product / coproduct</td>
+<td>both / either, as one statement</td>
+</tr>
+<tr>
+<td><code>a Δ b</code></td>
+<td>change</td>
+<td>how <code>a</code> becomes <code>b</code></td>
+</tr>
+<tr>
+<td><code>a ▷ d</code></td>
+<td>apply</td>
+<td><code>a</code> changed as <code>d</code> describes;
+<code>a ▷ (a Δ b) ≈ b</code></td>
+</tr>
+<tr>
+<td><code>a ~&gt; b</code></td>
+<td>entails</td>
+<td>Bool: does <code>a</code> imply <code>b</code></td>
+</tr>
+<tr>
+<td><code>a ≈ b</code></td>
+<td>similarity</td>
+<td>Number in [0,1]: how fully <code>b</code> keeps the meaning of
+<code>a</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Structural core</strong> (deterministic, polymorphic):</p>
+<table>
+<thead>
+<tr>
+<th>op</th>
+<th>class</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>f ↦ xs</code> / <code>f &lt;$&gt; xs</code></td>
+<td>Functor</td>
+<td>map a form over a list</td>
+</tr>
+<tr>
+<td><code>f ⊘ xs</code></td>
+<td>Foldable</td>
+<td>fold a list with a binary form</td>
+</tr>
+<tr>
+<td><code>f ∘ g</code></td>
+<td>composition</td>
+<td><code>(f ∘ g)%x = f%(g%x)</code></td>
+</tr>
+<tr>
+<td><code>a ++ b</code></td>
+<td>Monoid</td>
+<td>append text, lists, or dicts (right-biased merge);
+<code>++[a,b,c]</code> mconcats</td>
+</tr>
+<tr>
+<td><code>x _ n</code></td>
+<td>Monoid power</td>
+<td><code>n</code> copies appended; a form composes with itself
+<code>n</code> times</td>
+</tr>
+<tr>
+<td><code>x . k</code></td>
+<td>lens get</td>
+<td>index, key, or character</td>
+</tr>
+<tr>
+<td><code>#x</code></td>
+<td>length</td>
+<td>items, keys, or characters</td>
+</tr>
+<tr>
+<td><code>∪ ∩ ∖ ∈</code></td>
+<td>lattice</td>
+<td>set operations, membership</td>
+</tr>
+</tbody>
+</table>
+<p>Plus arithmetic (<code>+ - * / ** √</code>), comparisons
+(<code>== != &lt; &gt; &lt;= &gt;=</code>), booleans
+(<code>∧ ∨ ¬</code>) and the <code>$…</code> builtins
+(<code>$map $fold $scan $filter $if $sort $keys $get $join $match $sub $draw …</code>).</p>
+<p><strong>The prelude</strong> — the everyday vocabulary as named forms
+over the core, loaded into every run and redefinable per project:</p>
+<pre><code>gist={$0 .. &#39;its gist, in one short sentence&#39;};   formal={$0 :: &#39;a formal, professional register&#39;};
+subject={$0 .. &#39;its primary subject, …&#39;};         plain={$0 :: &#39;plain language a child could follow&#39;};
+question={$0 :: &#39;a question with …&#39;};             casual / expand / shorten / implies</code></pre>
+<p>So <code>($gist ∘ $formal)%notes</code>, <code>$plain ↦ items</code>
+and <code>$draw%({$question%$q}, 3)</code> are ordinary programs, not
+special syntax.</p>
+<h2 id="mental-model">Mental model</h2>
+<pre><code>EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval──▶ English
+                             (grammar from config)   (stack machine; types + coercion; per-op det|llm; parallel)</code></pre>
+<ul>
+<li>An expression is a sequence of <strong>statements</strong> separated
+by <code>;</code>.</li>
+<li>Evaluating a statement yields a <strong>typed value</strong> and
+pushes it onto the stack.</li>
+<li><strong>Operators</strong> combine values; each declares the
+<strong>types</strong> it needs, and operands are
+<strong>coerced</strong> to those types first (deterministically, or via
+an LLM coercion).</li>
+<li>Given no operands, an operator <strong>pops from the
+stack</strong>.</li>
+<li>The parse is a <strong>DAG</strong>: independent subtrees can run
+concurrently.</li>
+<li>The <strong>program result</strong> is the final statement's value →
+stdout.</li>
+</ul>
+<h2 id="install--build">Install / build</h2>
+<p>nlir is a Rust CLI built on the harryaskham CLI stack
+(<code>mcp-cli</code>, <code>updatable-cli</code>,
+<code>feedback-cli</code>). On Linux, build with the <strong>system Rust
+toolchain</strong> (no nix dev shell required — glibc provides
+iconv):</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> build <span class="at">--release</span>        <span class="co"># binary at target/release/nlir</span></span></code></pre></div>
+<p>On macOS, either use the flake dev shell, or rustup with Apple's
+linker (a nix-profile <code>cc</code>/<code>ld</code> on PATH links
+binaries whose panics cannot unwind):</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nix</span> develop <span class="at">--command</span> cargo build <span class="at">--release</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="va">CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER</span><span class="op">=</span>/usr/bin/cc <span class="ex">cargo</span> build <span class="at">--release</span></span></code></pre></div>
+<p>The ecosystem crate dependencies are public and fetched over https,
+so no tokens or SSH keys are needed to build.</p>
+<h2 id="quick-start">Quick start</h2>
+<p>On first run, nlir writes a starter config to
+<code>~/.config/nlir/config.yaml</code> (the shipped <a
+href="https://github.com/harryaskham/nlir/blob/main/config.example.yaml"><code>config.example.yaml</code></a>) if
+none exists, then evaluates your expression:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Deterministic mode needs no API key — the numeric / template / join / command</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># operators run locally:</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--mode</span> det <span class="at">-e</span> <span class="st">&#39;1+2+3&#39;</span>      <span class="co"># &quot;6&quot;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--mode</span> det <span class="at">-e</span> <span class="st">&#39;a&amp;b&amp;c&#39;</span>      <span class="co"># &quot;a and b and c&quot;   (via the `and` operator&#39;s join)</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--mode</span> det <span class="at">-e</span> <span class="st">&#39;!(a&amp;b)&#39;</span>     <span class="co"># &quot;not (a and b)&quot;   (parens preserved)</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="co"># LLM mode calls the configured models (set ANTHROPIC_API_KEY for the `haiku`</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="co"># model in the example config):</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;$subject%^-1&#39;</span>          <span class="co"># the subject of the last assistant message</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;^-1 :: &#39;one line&#39;&quot;</span>     <span class="co"># the last assistant message, recast as one line</span></span></code></pre></div>
+<h2 id="the-config-is-the-language">The config <em>is</em> the
+language</h2>
+<p><code>~/.config/nlir/config.yaml</code> defines everything. The
+shipped example config has these sections (see <a
+href="https://github.com/harryaskham/nlir/blob/main/config.example.yaml"><code>config.example.yaml</code></a> for
+the full, validated file):</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>What it defines</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>defaults</code></td>
+<td>default <code>mode</code> (<code>det</code>/<code>llm</code>),
+<code>model</code>, <code>parallelism</code></td>
+</tr>
+<tr>
+<td><code>models</code></td>
+<td>named model backends — <code>anthropic_messages</code> (direct HTTP)
+or <code>command</code> (subprocess)</td>
+</tr>
+<tr>
+<td><code>prompts</code></td>
+<td>reusable prompt fragments exposed as <code>${NLIR_*}</code> env
+vars</td>
+</tr>
+<tr>
+<td><code>prelude</code></td>
+<td>named forms over the core (<code>$gist</code>, <code>$formal</code>,
+…), loaded into every run</td>
+</tr>
+<tr>
+<td><code>operators</code></td>
+<td>the operator vocabulary: <code>op</code> sigil, <code>arity</code>,
+<code>fixity</code>, <code>priority</code>, operand/result
+<code>types</code>, and a realisation (<code>template</code> /
+<code>join</code> / <code>command</code> / <code>reduce</code> for
+<code>det</code>, or <code>model</code> + <code>prompt</code> for
+<code>llm</code>)</td>
+</tr>
+<tr>
+<td><code>types</code></td>
+<td>coercion targets — how to interpret text as <code>number</code> /
+<code>bool</code> / … (deterministic parse first, LLM fallback)</td>
+</tr>
+<tr>
+<td><code>context</code></td>
+<td>the <code>context.json</code> store, <code>_messages</code> role
+views (<code>^</code>), and system-key defaults (<code>_sep</code>,
+<code>_cache</code>)</td>
+</tr>
+<tr>
+<td><code>sessions</code></td>
+<td>how to read external session files (e.g. a Pi session) as
+context</td>
+</tr>
+<tr>
+<td><code>tests</code></td>
+<td><code>nlir test</code> cases:
+<code>{ mode, expr, expected }</code></td>
+</tr>
+</tbody>
+</table>
+<p>A minimal operator, for example:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">operators</span><span class="kw">:</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">and</span><span class="kw">:</span><span class="at"> </span><span class="kw">{</span><span class="at"> </span><span class="fu">op</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;&amp;&quot;</span><span class="kw">,</span><span class="at"> </span><span class="fu">arity</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;&gt;0&quot;</span><span class="kw">,</span><span class="at"> </span><span class="fu">fixity</span><span class="kw">:</span><span class="at"> mixfix</span><span class="kw">,</span><span class="at"> </span><span class="fu">join</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot; and &quot;</span><span class="kw">,</span><span class="at"> </span><span class="fu">model</span><span class="kw">:</span><span class="at"> sonnet</span><span class="kw">,</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="at">         </span><span class="fu">prompt</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;Combine the &lt;text&gt; items with an </span><span class="sc">\&quot;</span><span class="st">and</span><span class="sc">\&quot;</span><span class="st"> connective ...</span><span class="sc">\n\n</span><span class="st">%&quot;</span><span class="at"> </span><span class="kw">}</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">add</span><span class="kw">:</span><span class="at"> </span><span class="kw">{</span><span class="at"> </span><span class="fu">op</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;+&quot;</span><span class="kw">,</span><span class="at"> </span><span class="fu">arity</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;&gt;0&quot;</span><span class="kw">,</span><span class="at"> </span><span class="fu">fixity</span><span class="kw">:</span><span class="at"> mixfix</span><span class="kw">,</span><span class="at"> </span><span class="fu">operands</span><span class="kw">:</span><span class="at"> number</span><span class="kw">,</span><span class="at"> </span><span class="fu">result</span><span class="kw">:</span><span class="at"> number</span><span class="kw">,</span><span class="at"> </span><span class="fu">reduce</span><span class="kw">:</span><span class="at"> add </span><span class="kw">}</span></span></code></pre></div>
+<p><code>&amp;</code> joins its operands with <code>" and "</code> in
+<code>det</code> mode, or asks the <code>sonnet</code> model to combine
+them in <code>llm</code> mode. <code>+</code> is always deterministic
+(<code>reduce: add</code>).</p>
+<h2 id="modes">Modes</h2>
+<ul>
+<li><strong><code>det</code></strong> (no network): realise via
+<code>command:</code> / <code>reduce:</code> / <code>template:</code> /
+<code>join:</code> only.</li>
+<li><strong><code>llm</code></strong>: string transformations go to
+<code>model:</code> + <code>prompt:</code>; <code>command</code> /
+<code>reduce</code> and coercion math stay deterministic regardless of
+mode.</li>
+</ul>
+<p>Default from <code>defaults.mode</code>; override per run with
+<code>--mode det|llm</code>.</p>
+<h2 id="types--coercion">Types &amp; coercion</h2>
+<p>Every value is one of <code>string</code> (default),
+<code>number</code>, <code>bool</code>, <code>list</code>,
+<code>dict</code>, or <code>form</code>; an operator may also declare
+<code>operands: any</code> to receive values uncoerced. Before an
+operator runs, each operand is coerced to the required type:</p>
+<ol type="1">
+<li>already that type → used as-is;</li>
+<li><strong>deterministic</strong> parse — <code>"1"</code> ↔︎
+<code>1</code>, <code>number</code>/<code>bool</code>/<code>list</code>
+→ <code>string</code> (lists join with <code>_sep</code>),
+<code>"true"</code> → <code>bool</code>;</li>
+<li>else an <strong>LLM coercion</strong> — "interpret this text as a
+value of type T" with a <code>{result: T}</code> schema, configured per
+type under <code>types:</code>. This turns a vague
+<code>"ten to twenty"</code> into <code>15</code>.</li>
+</ol>
+<p>A coercion that cannot produce the target type is a loud error;
+<code>list → number</code> is always an error.</p>
+<h2 id="forms--application--the-programmable-core">Forms &amp;
+application — the programmable core</h2>
+<p>A <code>{…}</code> <strong>form</strong> is a quoted expression:
+<code>{2+3}</code> yields the expression <em>as data</em>
+(<code>{(2 + 3)}</code>), not its value — quoting is
+<strong>inert</strong>. Forms are first-class values: bind one to a
+name, pass it around, and <strong>apply</strong> it with <code>%</code>,
+binding arguments positionally to the holes <code>$0</code>,
+<code>$1</code>, …:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;{2+3}&#39;</span>               <span class="co"># → {(2 + 3)}   (a form — code as data, not run)</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;{$0+1}%5&#39;</span>            <span class="co"># → 6           (apply a form to an argument)</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;{$0+$1}%(2,3)&#39;</span>       <span class="co"># → 5           (tuple args; %(2,3) ≡ %[2,3])</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;sq={$0*$0};$sq%5&#39;</span>    <span class="co"># → 25          (a named lambda: bind, then apply)</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;({$0+1}_3)%5&#39;</span>        <span class="co"># → 8           (do-N-times: compose a form N times)</span></span></code></pre></div>
+<p>The argument frame is <strong>hygienic</strong> — a form's
+<code>$0</code> is its argument, not whatever is on the run stack
+(<code>9;{$0}%7</code> → <code>7</code>). Application binds tighter than
+<code>,</code> (pass a tuple with <code>%(a,b)</code>) and tighter than
+<code>_</code> (parenthesise the compose: <code>({form}_N)%x</code>).
+Do-N is bounded to 64 applications: larger runtime-built compositions
+fail cleanly before allocating a deep AST, and an independent
+evaluator-depth guard protects every recursive path. A
+<strong>macro</strong> is just a form whose body is a transform, applied
+to text, so the same quote+apply machinery gives you reusable moves.
+Together — quoted forms, application, named lambdas/macros, and
+do-N-times — these are the programmable layer map/fold over forms builds
+on.</p>
+<p><strong>Build something with them:</strong> the <a
+href="https://github.com/harryaskham/nlir/blob/main/docs/cookbook.md">cookbook</a> is a worked catalogue of
+multi-layer programs — named functions, composition, nesting, and do-N
+chains — every deterministic output verified end-to-end.</p>
+<h2 id="data-trees--specs-configs-and-datasets-as-native-values">Data
+trees — specs, configs and datasets as native values</h2>
+<p>Load a JSON or YAML file as a native value and navigate it with the
+same operators: objects are dicts, arrays are lists, all the way down.
+Program files (<code>-f</code>) hold libraries of named forms;
+<code>--</code> lines are comments.</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> site/spec-lab</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--bind</span> spec=toy-spec.json <span class="at">-e</span> <span class="st">&#39;$len%($keys%$spec.nodes)&#39;</span>                      <span class="co"># → 10</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--bind</span> spec=toy-spec.json <span class="at">-f</span> spec.nlir <span class="at">-f</span> profile.nlir <span class="at">-e</span> <span class="st">&#39;$packet%&quot;CR V 2.2&quot;&#39;</span>   <span class="co"># one rule, resolved</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--mode</span> det <span class="at">-e</span> <span class="st">&#39;orders=[{who=ada, total=12.5},{who=bo, total=40}];</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="st">                    $join%({$0.who}↦($filter%({$0.total&gt;=10}, $orders)), &quot;, &quot;)&#39;</span>   <span class="co"># → ada, bo</span></span></code></pre></div>
+<p><code>$keys</code> <code>$get</code> <code>$join</code>
+<code>$flat</code> <code>$zip</code> <code>$json</code>
+<code>$match</code> <code>$sub</code> and friends do the exact
+structural work; <code>=&gt;</code>, <code>::</code>, <code>..</code>,
+<code>≈</code> and the other model operators do the semantic work; a
+nested form reads its enclosing form's arguments as <code>$$0</code>.
+The <a href="https://a.skh.am/nlir/spec-lab/">spec lab</a> runs this in
+the browser: a spec tree projected into prose and parsed back exactly,
+with edits to the prose turned into the spec changes they imply.</p>
+<h2
+id="determinism--a-content-addressed-record-of-every-call">Determinism —
+a content-addressed record of every call</h2>
+<p>Model and command calls are nlir's only effects. Each realisation is
+keyed by the operator's full definition (prompt, frame, resolved model),
+its operands and <code>_seed</code>, so a recorded call replays exactly
+and identical calls cost nothing:</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">-e</span> <span class="st">&quot;=&gt;&#39;Name a lighthouse keeper&#39;&#39;s cat&#39;&quot;</span>   <span class="co"># 3.9 s, recorded</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">-e</span> <span class="st">&quot;=&gt;&#39;Name a lighthouse keeper&#39;&#39;s cat&#39;&quot;</span>   <span class="co"># 0.03 s, replayed</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">--replay</span> strict <span class="at">-f</span> program.nlir            <span class="co"># fail on any unrecorded call</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;</span><span class="dt">\$</span><span class="st">draw%({=&gt;&#39;Name a cat&#39;}, 3)&quot;</span>                                         <span class="co"># three explicit samples</span></span></code></pre></div>
+<p>The store is JSON lines that only grow, shared across runs,
+evaluations and hill-climb rounds; <code>_seed</code> is the namespace
+(a new seed draws fresh samples) and <code>$draw%(form, n)</code> asks
+for <code>n</code> samples explicitly. <code>_cache=off</code> restores
+the old, nondeterministic behaviour. Hosted models do not honour seeds
+reproducibly, so each model declares
+<code>seed: exact | best-effort | none</code> and the store does the
+work.</p>
+<h2 id="the-composable-core--adverbs-trains-basics">The composable core
+— adverbs, trains, basics</h2>
+<p>Forms unlock a small <strong>composable core</strong>: a handful of
+primitives that compose into real programs (APL/J-style), rather than a
+built-in function for every task.</p>
+<p><strong>The adverb family</strong> — higher-order builtins applied
+with <code>%</code>, taking a form and a list (lists render
+separator-joined; shown here as <code>[…]</code> for clarity):</p>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;$map%({$0*$0},[1,2,3])&#39;</span>                     <span class="co"># [1,4,9]      transform each</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;$fold%({$0+$1},[1,2,3,4])&#39;</span>                  <span class="co"># → 10         reduce</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;$scan%({$0+$1},[1,2,3,4])&#39;</span>                  <span class="co"># [1,3,6,10]   running fold</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;$filter%({$0&gt;=5},[3,7,2,9])&#39;</span>                <span class="co"># [7,9]        keep-if</span></span></code></pre></div>
+<p><strong>Basics</strong> — <code>$if</code> (branch),
+<code>$nth</code> (index; negatives count from the end),
+<code>$sort</code>, and comparison <code>== != &lt;= &gt;=</code>
+(deterministic, <code>→ Bool</code>):</p>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;$sort%[3,1,2]&#39;</span>                               <span class="co"># [1,2,3]</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;$nth%(-1,$sort%[3,1,2])&#39;</span>                     <span class="co"># → 3          max, composed from sort+index</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;$if%(3&lt;=5,&quot;yes&quot;,&quot;no&quot;)&#39;</span>                       <span class="co"># → yes</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;$fold%({$0+$1},$map%({$0&gt;=5},[3,7,2,9]))&#39;</span>   <span class="co"># → 2          count how many ≥5, no loop</span></span></code></pre></div>
+<p><strong>Composition</strong> — <code>∘</code> builds pipelines from
+named forms, and a parenthesised group of prefix operators is a
+<strong>train</strong> (atop or fork):</p>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;(</span><span class="dt">\$</span><span class="st">gist ∘ </span><span class="dt">\$</span><span class="st">formal)%&#39;hey can u take a look thx&#39;&quot;</span>   <span class="co"># formalise, then distil</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;(! &amp; =&gt;)%&#39;ship it Friday&#39;&quot;</span>                         <span class="co"># fork: the opposite AND the obeyed</span></span></code></pre></div>
+<p>Mix in the semantic core and the structural core becomes a language
+for <strong>algorithms on meaning</strong>:
+<code>$if%('prod is down'~&gt;'an incident','page on-call','all clear')</code>
+routes by a model judgment with deterministic control flow. Because a
+bare operator pulls its input from the stack, nlir is
+<strong>pipeline-native</strong> —
+<code>echo "ship it Friday" | nlir -e '!'</code> gives the opposite,
+<code>| nlir -e "(\$gist ∘ \$plain)%\$_stdin"</code> the plain gist.</p>
+<h2 id="learning-programs--spec--prose">Learning programs — spec ⇄
+prose</h2>
+<p>nlir programs are small enough to search over. The <a
+href="https://a.skh.am/nlir/spec-lab/">spec lab</a> loads an invented
+rule spec as native data, projects each rule into prose with an nlir
+library, parses the prose back exactly, and replays a hill-climb in
+which a large model rewrites the projection program while a fast model
+runs it and a judge scores the output with <code>≈</code>, while a
+program judge reviews every version against a meta-policy (no reference
+text pasted into the program, no keying on rule ids, no "reproduce the
+published answer" pointers) and the selection score prefers the shorter
+of two equal programs. On the toy spec the learned program goes from
+0.00 to 0.67 held-out similarity with GPT-6 Luna writing and 0.78 when
+GPT-6.1 Sol runs the same program; every version reviews clean at under
+2 kB. The design is in <a
+href="https://github.com/harryaskham/nlir/blob/main/docs/design/v2.md"><code>docs/design/v2.md</code></a>.</p>
+<h2 id="editing-backwards--lenses">Editing backwards — lenses</h2>
+<p>A program maps inputs to output; <code>nlir put</code> runs it
+backwards. Edit the prose a program produced and it reports which input
+field — or which literal in the program — would have to change, and
+checks the lens laws by re-running:</p>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> site/spec-lab</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--mode</span> det <span class="at">--bind</span> spec=toy-spec.json <span class="at">-f</span> spec.nlir <span class="at">-f</span> profile.nlir <span class="dt">\</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>     <span class="at">-e</span> <span class="st">&#39;$render%(($node%&quot;CR V 1.1&quot;).profile)&#39;</span> <span class="op">&gt;</span> profile.md</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="va">$EDITOR</span> profile.md                       <span class="co"># change a sentence of the MET criterion</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> put <span class="at">--edited</span> profile.md <span class="at">--bind</span> spec=toy-spec.json <span class="at">-f</span> spec.nlir <span class="at">-f</span> profile.nlir <span class="dt">\</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>     <span class="st">&#39;$render%(($node%&quot;CR V 1.1&quot;).profile)&#39;</span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="co"># → data spec nodes/CR V 1.1/profile/decision_boundary/1 … put_get: true</span></span></code></pre></div>
+<p>Concatenation, joins, field access, maps and form calls each carry a
+backward pass; a library declares isomorphisms
+(<code>_inverses={quote=unquote}</code>) for the rest. Editing a heading
+instead lands in the program literal that wrote it.</p>
+<p>With <code>--mode llm</code>, model operators run backwards too: a
+large model proposes minimal patches to each <code>=&gt;</code>
+instruction, and the exact rules carry them back to the data the
+instruction was built from. On a learned spec→prose program, adding a
+clause to one generated MET paragraph comes back as a one-sentence edit
+to the rule's text; re-running forward keeps the edit's meaning (≈
+0.95). Two edits that disagree come back as edits to two fields plus a
+named <strong>tension</strong> between them. The <a
+href="https://a.skh.am/nlir/spec-lab/">spec lab</a>'s <em>Backward
+pass</em> tab replays that session.</p>
+<h2 id="seeing-programs">Seeing programs</h2>
+<p><strong><code>nlir help</code></strong> prints every operator from
+your config; <strong><code>nlir step '&lt;expr&gt;'</code></strong>
+walks an expression one reduction at a time;
+<strong><code>nlir show '&lt;expr&gt;'</code></strong> draws its
+dataflow graph — every value and operation a node, bindings resolved
+into edges — as SVG, PNG, an animated PNG of the reduction, or live in a
+kitty terminal. For whole programs,
+<strong><code>nlir show --statements -f lib.nlir -f program.nlir</code></strong>
+draws one node per statement instead — forms, data, computed values and
+the output, linked by the names they read (including inside form
+bodies), with model-call sites marked and bound data and prelude forms
+as inputs; <code>--text</code> prints the same outline for logs and
+prompts, and <code>--tikz</code> emits it (or, without
+<code>--statements</code>, each statement's expression tree as a
+<code>forest</code> tree) as vector TikZ for LaTeX papers. The browser
+<a href="https://a.skh.am/nlir/workspace/">workspace</a> uses the same
+renderers (Graph and Statements, with pan and zoom).</p>
+<h2 id="cli-surface">CLI surface</h2>
+<div class="sourceCode" id="cb15"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&#39;EXPR&#39;</span> <span class="pp">[--</span><span class="ss">quiet</span><span class="pp">]</span> [--mode det<span class="kw">|</span><span class="ex">llm]</span> [--model haiku] [--parallelism N] <span class="pp">[--</span><span class="ss">dry</span><span class="pp">-</span><span class="ss">run</span><span class="pp">]</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-f</span> lib.nlir <span class="at">-f</span> program.nlir                 <span class="co"># program files (`--` comments)</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--bind</span> spec=spec.json <span class="at">-e</span> <span class="st">&#39;$len%$spec.nodes&#39;</span>  <span class="co"># load JSON/YAML as data, other files as text</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--model</span> <span class="st">&#39;small=luna,large=sol&#39;</span> <span class="at">-e</span> <span class="st">&#39;…&#39;</span>        <span class="co"># remap model tiers (or one name for all)</span></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a><span class="co"># realisation store: deterministic replay of model/command calls</span></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> store.jsonl <span class="at">-e</span> <span class="st">&#39;…&#39;</span>             <span class="co"># record, then replay identical calls</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> store.jsonl <span class="at">--replay</span> strict …  <span class="co"># fail on any unrecorded call</span></span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a><span class="co"># context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)</span></span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> … <span class="at">--context-file</span> PATH</span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> … <span class="at">--session-file</span> PATH        <span class="co"># e.g. a Pi session: roles kept, tool calls dropped</span></span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a><span class="co"># context write (immediate; set = key replacement)</span></span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> set KEY VALUE</span>
+<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> set <span class="st">&#39;{&quot;k&quot;:&quot;v&quot;,&quot;_messages&quot;:[…]}&#39;</span></span>
+<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> get KEY</span>
+<span id="cb15-18"><a href="#cb15-18" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> append-message [--role user] <span class="st">&quot;text&quot;</span></span>
+<span id="cb15-19"><a href="#cb15-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-20"><a href="#cb15-20" aria-hidden="true" tabindex="-1"></a><span class="co"># interactive REPL (one expr per submission; trailing `\` continues; :cmd == nlir cmd)</span></span>
+<span id="cb15-21"><a href="#cb15-21" aria-hidden="true" tabindex="-1"></a><span class="co"># on a TTY: command history (persisted to ~/.config/nlir/repl_history.txt), arrow-key</span></span>
+<span id="cb15-22"><a href="#cb15-22" aria-hidden="true" tabindex="-1"></a><span class="co"># line editing (Ctrl-A/Ctrl-E, ↑/↓ history), Ctrl-C cancels a line, Ctrl-D exits.</span></span>
+<span id="cb15-23"><a href="#cb15-23" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> repl [--context-file F] <span class="pp">[--</span><span class="ss">raw</span><span class="pp">]</span></span>
+<span id="cb15-24"><a href="#cb15-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-25"><a href="#cb15-25" aria-hidden="true" tabindex="-1"></a><span class="co"># computational dataflow graph (the AST with variable bindings resolved into edges)</span></span>
+<span id="cb15-26"><a href="#cb15-26" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span>                          <span class="co"># print the graph as SVG (in a kitty terminal: the image)</span></span>
+<span id="cb15-27"><a href="#cb15-27" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--png</span> g.png              <span class="co"># rasterise the graph to a PNG</span></span>
+<span id="cb15-28"><a href="#cb15-28" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--frames</span> DIR             <span class="co"># one graph SVG per evaluation step</span></span>
+<span id="cb15-29"><a href="#cb15-29" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--save-animation</span> g.apng  <span class="co"># animated PNG of the step-by-step reduction</span></span>
+<span id="cb15-30"><a href="#cb15-30" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--kitty</span>                  <span class="co"># force the in-terminal kitty display (e.g. through tmux)</span></span>
+<span id="cb15-31"><a href="#cb15-31" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="at">--statements</span> <span class="at">-f</span> lib.nlir <span class="at">-f</span> prog.nlir <span class="at">--png</span> g.png   <span class="co"># statement-level graph of a program</span></span>
+<span id="cb15-32"><a href="#cb15-32" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="at">--statements</span> <span class="at">--text</span> <span class="at">-f</span> prog.nlir                   <span class="co"># the same outline as text (or --json)</span></span>
+<span id="cb15-33"><a href="#cb15-33" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--animate</span> <span class="at">--kitty</span>        <span class="co"># live kitty animation of the reduction</span></span>
+<span id="cb15-34"><a href="#cb15-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-35"><a href="#cb15-35" aria-hidden="true" tabindex="-1"></a><span class="co"># plumbing</span></span>
+<span id="cb15-36"><a href="#cb15-36" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> put <span class="at">--edited</span> out.md <span class="at">-f</span> prog.nlir <span class="at">--bind</span> d=data.json   <span class="co"># backward pass (lenses): edits + law checks</span></span>
+<span id="cb15-37"><a href="#cb15-37" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> parse <span class="st">&#39;EXPR&#39;</span>     <span class="co"># tokenise / inspect the parse</span></span>
+<span id="cb15-38"><a href="#cb15-38" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> test             <span class="co"># run the config `tests:` cases</span></span>
+<span id="cb15-39"><a href="#cb15-39" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> mcp stdio        <span class="co"># expose the surface as an MCP server (mcp-cli)</span></span>
+<span id="cb15-40"><a href="#cb15-40" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> self-update …    <span class="co"># updatable-cli</span></span>
+<span id="cb15-41"><a href="#cb15-41" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> feedback …       <span class="co"># feedback-cli</span></span></code></pre></div>
+<h2 id="worked-examples">Worked examples</h2>
+<p>These are the deterministic <code>tests:</code> from the example
+config (run with <code>nlir test</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Expression</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1+2+3</code></td>
+<td><code>6</code></td>
+</tr>
+<tr>
+<td><code>(1+1)**3</code></td>
+<td><code>8</code></td>
+</tr>
+<tr>
+<td><code>a&amp;b&amp;c</code></td>
+<td><code>a and b and c</code></td>
+</tr>
+<tr>
+<td><code>!(a&amp;b)</code></td>
+<td><code>not (a and b)</code></td>
+</tr>
+<tr>
+<td><code>'one two'</code></td>
+<td><code>one two</code></td>
+</tr>
+<tr>
+<td><code>_sep=\ ;[a,b]</code></td>
+<td><code>a b</code></td>
+</tr>
+<tr>
+<td><code>k=foo;$k</code></td>
+<td><code>foo</code></td>
+</tr>
+<tr>
+<td><code>^-1</code> (with <code>_messages</code>)</td>
+<td>the last assistant message</td>
+</tr>
+</tbody>
+</table>
+<h2 id="sessions">Sessions</h2>
+<p>Expressions can read prior conversation from <code>_messages</code>:
+<code>^-1</code> is the last message (the assistant channel), and
+<code>$name</code> reads a context key. Point nlir at an existing
+transcript with <code>--session-file</code> (a Pi session's roles are
+kept and tool-call turns dropped), or accumulate turns yourself with
+<code>append-message</code>.</p>
+<p><code>scripts/pi-dropin.sh</code> is a Pi drop-in filter over a
+shared context: a line beginning with <code>|</code> is expanded as an
+nlir expression, and every other turn is appended to
+<code>_messages</code>, so later <code>|</code> expansions can read the
+conversation.</p>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="bu">printf</span> <span class="st">&#39;%s\n&#39;</span> <span class="st">&#39;the answer is 42&#39;</span> <span class="st">&#39;|^-1&#39;</span> <span class="dt">\</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">|</span> <span class="va">NLIR</span><span class="op">=</span>./target/debug/nlir <span class="ex">scripts/pi-dropin.sh</span> <span class="at">--role</span> assistant</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="co"># → the answer is 42        (the `|^-1` expression read the appended turn)</span></span></code></pre></div>
+<h2 id="pi-package">Pi package</h2>
+<p>nlir ships a <a href="https://github.com/earendil-works/pi">pi</a>
+package so you can expand nlir shorthand inline while chatting. Install
+it into pi:</p>
+<div class="sourceCode" id="cb17"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span> <span class="dt">&quot;packages&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;git:github.com/harryaskham/nlir&quot;</span><span class="ot">]</span> <span class="fu">}</span></span></code></pre></div>
+<p>(in <code>~/.pi/agent/settings.json</code>) or
+<code>pi install git:github.com/harryaskham/nlir</code>. It requires the
+<code>nlir</code> binary on your PATH (build/install separately; set
+<code>$NLIR</code> to override the path).</p>
+<ul>
+<li><strong><code>|EXPR</code></strong> — prefix a message with
+<code>|</code> and the rest is expanded as an nlir expression before it
+reaches the model: <code>|1+2*3</code> → <code>7</code>,
+<code>|a&amp;b&amp;c</code> → <code>a and b and c</code>,
+<code>|'the meeting is at 3' :: formal</code> → a formal rewrite (llm
+mode).</li>
+<li><strong><code>/nlir EXPR</code></strong> — preview an expansion
+inline without sending it.</li>
+</ul>
+<p>The expression evaluates against your
+<code>~/.config/nlir/config.yaml</code> (det or llm mode per your
+defaults). The extension is <code>extensions/nlir.js</code>.</p>
+<h2 id="development">Development</h2>
+<div class="sourceCode" id="cb18"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> test <span class="at">--all</span>                      <span class="co"># unit + integration tests</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> clippy <span class="at">--all-targets</span> <span class="at">--</span> <span class="at">-D</span> warnings</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> fmt <span class="at">--all</span> <span class="at">--check</span></span></code></pre></div>
+<p>CI (<code>.github/workflows/ci.yml</code>) runs on the self-hosted
+nix runners inside <code>nix develop</code>: fmt, clippy
+(deny-warnings), build, the SPEC↔︎config check, <code>nlir test</code>
+over the example config, the offline examples
+(<code>structure.sh</code>, <code>lens.sh</code>), and
+<code>cargo test</code>. Pull requests also build the site
+(<code>.github/workflows/site.yml</code>); pushes to <code>main</code>
+publish it through the shared <code>harryaskham.github.io</code> Pages
+workflow (<code>.github/workflows/pages.yml</code>), building with
+<code>nix develop .#site --command bash scripts/build-site.sh _site</code>.
+Build it locally the same way. A <code>v*</code> tag triggers
+<code>.github/workflows/release.yml</code>.</p>
+</main>
+<footer class="foot"><span>nlir · a config-defined operator language. Generated from README.md and SPEC.md.</span><span><a href="https://github.com/harryaskham/nlir">github.com/harryaskham/nlir</a></span></footer>
+<script>
+// TOC scroll-spy: mark the section currently in view.
+(() => {
+  const links = [...document.querySelectorAll('#TOC a')];
+  if (!links.length) return;
+  const byId = new Map(links.map(a => [decodeURIComponent(a.hash.slice(1)), a]));
+  const io = new IntersectionObserver(es => {
+    for (const e of es) if (e.isIntersecting) {
+      links.forEach(a => a.classList.remove('on'));
+      const a = byId.get(e.target.id); if (a) a.classList.add('on');
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  document.querySelectorAll('main.doc h2[id], main.doc h3[id]').forEach(h => byId.has(h.id) && io.observe(h));
+})();
+</script>
+</body>
+</html>

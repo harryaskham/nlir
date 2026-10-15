@@ -1,0 +1,27 @@
+-- spec.nlir — deterministic projections of a spec tree, used by the spec lab.
+-- Bind the spec as $spec:
+--   nlir --bind spec=toy-spec.json -f spec.nlir -f profile.nlir -e '$packet%"CR V 1.1"'
+
+-- ---- navigation ----------------------------------------------------------
+node={$get%($spec.nodes, $0)};
+hnodes={$flat%[[{id=$0.id, kids=({$0.id}↦$0.children)}], $flat%({$hnodes%$0}↦$0.children)]};
+up={$get%($filter%({$elem%($$0, $0.kids)}, $hnodes%$spec.hierarchy), 0, {id=''}).id};
+leaves=$flat%({{$0.id}↦$0.children}↦$spec.hierarchy.children);
+defn={{id=$0, title=$get%($spec.definitions, $0).title, text=$get%($spec.definitions, $0).text}};
+
+-- ---- spec -> packet: everything a reader or generator needs for one rule ----
+packet={{
+  id=$0,
+  title=($node%$0).title,
+  force=($node%$0).force,
+  rule=($node%$0).rule,
+  dimension=($node%($up%$0)).title,
+  scope=($node%($up%$0)).scope,
+  permissions=$get%($node%$0, 'permissions', []),
+  examples=$get%($node%$0, 'examples', []),
+  definitions=$defn↦($get%($node%$0, 'definitions', []))
+}};
+
+-- ---- spec -> prose: the rule as policy Markdown ----------------------------
+rulemd={"### " ++ $0 ++ " — " ++ ($node%$0).title ++ "\n\n" ++ ($node%$0).rule ++ $join%({"\n\n#### " ++ $0.code ++ " — " ++ $0.title ++ "\n\n" ++ $0.text}↦($get%($node%$0, 'permissions', [])), '') ++ $join%({"\n\n> " ++ $0}↦($get%($node%$0, 'examples', [])), '')};
+policymd="# " ++ $spec.title ++ $join%({"\n\n## " ++ ($node%$0.id).title ++ "\n\n" ++ ($node%$0.id).scope ++ $join%({"\n\n" ++ $rulemd%$0.id}↦$0.children, '')}↦$spec.hierarchy.children, '')

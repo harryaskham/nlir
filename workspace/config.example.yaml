@@ -1,0 +1,863 @@
+# nlir example / default configuration.
+#
+# `~/.config/nlir/config.yaml` is where the whole language lives: nlir is a small
+# stack machine, and the operators, their fixity/priority/arity/types, the models,
+# the prompts, the coercions, and the tests are all defined here. This file is the
+# starter config nlir writes to `~/.config/nlir/config.yaml` on first run; edit it
+# to taste. See SPEC.md for the full contract.
+#
+# `llm`-mode operators call the models below. `det` mode (`--mode det`) uses only
+# the deterministic realisations (`command:` / `reduce:` / `template:` / `join:`),
+# so the numeric and template operators work offline with no API key. Set
+# `ANTHROPIC_API_KEY` in the environment to use the `haiku` model.
+
+defaults:
+  mode: llm
+  # Model size tiers: an operator names a tier (small | medium | large) and it
+  # resolves through here. A single `model: sonnet` (a concrete `models` alias) is
+  # also still valid — tiers are opt-in and back-compatible.
+  #
+  # `medium` is the ops' default = `sonnet` (the claude CLI, type: command): resilient,
+  # no network-proxy dependency. In the wasm/browser playground a command-kind MODEL op
+  # still routes to the LLM realiser (the browser has no shell, so the op's prompt goes
+  # to the Settings BYO base-url + model-id) - the model kind only selects the NATIVE
+  # transport (CLI vs HTTP), not the browser path, so browser llm-mode works too.
+  model:
+    small: haiku
+    medium: sonnet
+    large: opus
+  parallelism: 8
+
+context:
+  env: NLIR_CONTEXT
+  file_default: ~/.config/nlir/context.json
+  messages:
+    key: _messages
+    role_field: role
+    content_field: content
+    views: # ^ / ^_ / ^* / ^/ / ^!
+      default: [assistant]
+      user: [user]
+      all: [user, assistant, system]
+      system: [system]
+      tool: [tool, tool_result, function]
+  defaults:
+    _sep: "\n" # list & message-range → text separator
+    _cache: true
+
+types: # coercion targets (deterministic parse first, LLM fallback)
+  number:
+    model: sonnet
+    prompt: |
+      Interpret the text inside <text> as a single number. Return only the number.
+
+      %
+    schema: { type: object, properties: { result: { type: number } }, required: [result] }
+  bool:
+    model: sonnet
+    prompt: |
+      Interpret the text inside <text> as a boolean. Return exactly `true` or `false`
+      in lowercase, with no other text, punctuation, capitalisation, or explanation.
+
+      %
+    schema: { type: object, properties: { result: { type: boolean } }, required: [result] }
+  # string: numbers/bools/lists stringify deterministically (lists join with _sep)
+
+sessions:
+  pi:
+    format: pi
+    keep_roles: [user, assistant]
+    drop_tool_messages: true
+    role_field: role
+    content_field: content
+
+models:
+  haiku:
+    type: anthropic_messages
+    base_url: $ANTHROPIC_BASE_URL
+    api_key: $ANTHROPIC_API_KEY
+    model: claude-haiku-4-5
+    format: json
+    result_field: result
+    messages:
+      - role: system
+        content: |
+          ${NLIR_SYSTEM_PROMPT}
+          ${NLIR_STRUCTURED_PROMPT}
+      - role: user
+        content: |
+          ${NLIR_PROMPT}
+    output_config:
+      format:
+        type: json_schema
+        schema:
+          type: object
+          properties: { result: { type: string } }
+          required: [result]
+          additionalProperties: false
+
+  sonnet:
+    type: command
+    format: text
+    command: claude --model claude-sonnet-5 --append-system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
+
+  # Generation / instruction-following tier (bd-d18743): mirrors the `sonnet`
+  # (medium) tier but appends the GENERATIVE system frame — operand = instruction
+  # to obey — instead of the transform frame, so the => op obeys by construction.
+  # Point this at whatever backend your `medium` tier uses; only the frame differs.
+  generative:
+    type: command
+    format: text
+    command: claude --model claude-sonnet-5 --append-system-prompt "${NLIR_GENERATIVE_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
+
+  opus:
+    type: command
+    format: text
+    command: pi --no-extensions --no-session --model github-copilot/claude-opus-4.8 --system-prompt "${NLIR_SYSTEM_PROMPT}" --print "${NLIR_PROMPT}"
+
+  # Direct HTTP against a LiteLLM proxy speaking the Anthropic Messages API.
+  direct:
+    type: anthropic_messages
+    base_url: ${LITELLM_BASE_URL}/v1
+    api_key: $LITELLM_MASTER_KEY
+    model: claude-sonnet-5
+    format: text
+    messages:
+      - role: system
+        content: "${NLIR_SYSTEM_PROMPT}"
+      - role: user
+        content: "${NLIR_PROMPT}"
+
+prompts:
+  system: { env: NLIR_SYSTEM_PROMPT, text: "Perform the following text transformation task.\nRespond with the transformed text in plain language.\nDo not include <text> tags in your output." }
+  structured: { env: NLIR_STRUCTURED_PROMPT, text: "Format your response as JSON containing only a \"result\" field with the transformation, no preamble." }
+  unstructured: { env: NLIR_UNSTRUCTURED_PROMPT, text: "Output only the text result of your transformation with no preamble." }
+  # Generative / instruction-following frame (bd-d18743). Distinct from `system`:
+  # the operand is an INSTRUCTION to obey, not text to transform. This frame — not
+  # the per-op prompt — is what makes the => op obey rather than describe, so it
+  # stays robust on weaker models.
+  generative:  { env: NLIR_GENERATIVE_SYSTEM_PROMPT, text: "Treat the text inside <text> as an INSTRUCTION and return ONLY the result of following it. No preamble, no explanation, and do not restate the instruction; never describe what you would produce — produce it. Obey any length or format constraint in the instruction exactly. Do not include <text> tags in your output." }
+
+# The everyday vocabulary as named forms over the semantic core (v2 §C). Evaluated
+# into every run before the program; a context binding of the same name wins, so
+# any of these can be redefined or extended per project.
+prelude: |
+  gist={$0 .. 'its gist, in one short sentence'};
+  subject={$0 .. 'its primary subject, as a short noun phrase'};
+  formal={$0 :: 'a formal, professional register'};
+  casual={$0 :: 'a casual, conversational register'};
+  plain={$0 :: 'plain language a child could follow'};
+  question={$0 :: 'a question with the same subject and meaning'};
+  expand={$0 :: 'a fuller version with more detail and explanation'};
+  shorten={$0 :: 'the fewest words that keep every fact and figure'};
+  implies={=>('State, in one sentence, what follows from: ' ++ $0)}
+
+operators: # `%` = operand under replacement; `%%` = literal %
+  dual:
+    op: "!"
+    description: |
+      The opposite: a claim negated clause-wise (so !(a&b) = neither), a concept-word's antonym. An involution — !!x ≈ x.
+    arity: 1
+    fixity: prefix
+    template: "not %"
+    model: medium
+    prompt: |
+      Return the opposite of the text inside <text>.
+      If it is a single concept-word (adjective, noun or verb such as "hot", "happy", "increase"), reply with its one-word ANTONYM — a different word of opposite meaning (hot->cold, increase->decrease), never "not X", "un-X" or the word itself.
+      Otherwise negate it clause-wise, changing nothing else.
+      Reply with only the result.
+
+      %
+  # The semantic core (v2 §A). `::` recasts a text as a kind of text; `..` projects a
+  # part or aspect out of one; `▷` applies a described change. The everyday
+  # vocabulary — formal, gist, question, … — is built from these in `prelude:`.
+  recast:
+    op: "::"
+    det: "{$1++': '++$0}"  # det stub: "formal: hello"
+    description: |
+      Recast: `x :: kind` re-expresses x as the kind of text named on the right — a register, form, genre, format or length ('formal', 'a question', 'plain language', 'one sentence', 'a haiku', 'JSON') — keeping its meaning. The everyday rewrites ($formal, $plain, $question, …) are prelude forms over this one operator.
+    arity: 2
+    fixity: infix
+    priority: 15
+    model: medium
+    prompt: |
+      Re-express the first <text> as the kind of text described by the second <text> (a register, form, genre, format or length), keeping its meaning and every fact it states unless the kind itself demands brevity. Return only the result.
+
+      %
+  and:
+    op: "&"
+    description: |
+      Joins operands into one 'X and Y' statement (a plan, not boolean AND); nullary & folds the premise stack.
+    arity: ">0"
+    fixity: mixfix
+    join: " and "
+    model: medium
+    prompt: |
+      Combine the <text> items with an "and" connective into one text meaning "t_0 and t_1 and ...".
+
+      %
+  or:
+    op: "|"
+    description: |
+      Joins operands into one 'X or Y' choice, kept as genuine alternatives.
+    arity: ">0"
+    fixity: mixfix
+    join: " or "
+    model: medium
+    prompt: |
+      Combine the <text> items with an "or" connective into one text meaning "t_0 or t_1 or ...".
+
+      %
+  # Instruction-following / generation (bd-d18743) — the THIRD operator category
+  # alongside TRANSFORM (reshape text) and NUMERIC. The operand is an INSTRUCTION
+  # to obey, not text to reshape, so => expresses NEW thoughts (replies, drafts,
+  # answers) — and composes under &/| like any string op, restoring the
+  # generative half of "programs on thoughts". Uses the `generative` model so the
+  # OBEYS contract is carried by the system frame, not this per-op prompt.
+  respond:
+    op: "=>"  # sigil greenlit by Harry (bd-d18743)
+    template: "response: %"  # det-stub (det mode); generative model+frame realise llm mode
+    description: |
+      Instruction-following / generation: treats <text> as an INSTRUCTION and returns only the result of obeying it (vs the transform ops, which reshape their operand). Expresses NEW text — replies, drafts, answers — and composes under &/| like any string op. Bare => on a pipe obeys the piped text as the instruction.
+    arity: 1
+    fixity: prefix
+    model: medium
+    # The OBEY frame travels with the operator (not a dedicated model alias), so
+    # => keeps it on whatever tier `model:` / `--model` selects.
+    system: generative
+    prompt: |
+      %
+  change:
+    op: "Δ"
+    template: "change: %0 -> %1"  # det stub
+    description: |
+      Change: how the first text becomes the second — what was added, removed or shifted. Directional (aΔb ≠ bΔa). Its partner is ▷: a ▷ (a Δ b) ≈ b.
+    arity: 2
+    fixity: infix
+    model: medium
+    prompt: |
+      Describe what changed from the first <text> to the second <text>: what was added, removed, or shifted. This is directional (first → second), not a symmetric comparison. Return only the description.
+
+      %
+  apply:
+    op: "▷"
+    template: "%0 (changed: %1)"  # det stub
+    description: |
+      Apply: `x ▷ change` returns x changed as the right operand describes, and nothing else — the partner of Δ, so a ▷ (a Δ b) ≈ b. Turns edits, feedback and diffs into new text.
+    arity: 2
+    fixity: infix
+    model: medium
+    prompt: |
+      Apply the change described by the second <text> to the first <text>. Change only what the description requires and keep everything else exactly as written. Return only the changed text.
+
+      %
+  entails:
+    op: "~>"
+    det: "{$contains%($0,$1)}"  # det mode: does the first contain the second
+    description: |
+      Entails: does the first text imply the second? A Bool — the preorder on meanings.
+    arity: 2
+    fixity: infix
+    result: bool
+    model: medium
+    prompt: |
+      Return 'true' if the content of the first <text> implies the content of the second <text>, otherwise return 'false'.
+
+      %
+  # Semantic similarity (data-trees slice): how closely the SECOND text
+  # reproduces the meaning of the FIRST, as a Number in [0,1]. det mode = word-set
+  # Jaccard (a real, offline lexical score); llm mode = a calibrated judgement of
+  # meaning (same claims/conditions/criteria, none contradicted). The scorer for
+  # "does generated text match the reference" loops: `$gen ≈ $gold >= 0.8`.
+  similarity:
+    op: "≈"
+    det: "{$len%($inter%($matches%($lower%$0,'\\w+'),$matches%($lower%$1,'\\w+'))) / $len%($union%($matches%($lower%$0,'\\w+'),$matches%($lower%$1,'\\w+')))}"
+    description: |
+      Semantic similarity in [0,1]: how closely the second text reproduces the MEANING of the first (reference) text. det = word-set Jaccard; llm = judged equivalence of claims, conditions and criteria. Non-commutative in llm mode (reference first).
+    arity: 2
+    fixity: infix
+    priority: 5
+    result: number
+    model: medium
+    prompt: |
+      The first <text> is a REFERENCE; the second <text> is a CANDIDATE. Rate how fully the candidate reproduces the reference's MEANING on a scale from 0 to 1:
+      1.0 = every claim, condition, exclusion and criterion in the reference is present and nothing contradicts it (wording, order and formatting may differ);
+      0.7 = the main substance matches but some specific conditions or qualifications are missing or softened;
+      0.4 = partially overlapping, with important criteria missing or changed;
+      0.0 = unrelated or contradictory.
+      Penalise contradictions more than omissions; ignore extra harmless detail. Return only the number with two decimals.
+
+      %
+  compose:
+    op: "∘"
+    description: |
+      Composition: (f ∘ g) % x = f % (g % x). Variadic and right-to-left — f ∘ g ∘ h applies h first. Builds pipelines from named forms: ($gist ∘ $formal) % notes. Parenthesise before applying.
+    arity: ">0"
+    fixity: mixfix
+    priority: 17
+    builtin: compose
+  mtimes:
+    op: "_"
+    description: |
+      Monoid power: `x _ n` is n copies of x appended — text repeats ('ab'_3 → 'ababab'), a list repeats its items, and a {form} composes with itself n times ({$0+1}_3 % 5 → 8).
+    arity: 2
+    fixity: infix
+    priority: 17
+    builtin: mtimes
+  add:
+    op: "+"
+    description: |
+      Sum of the numeric operands (variadic; words/units/bases coerce to numbers first).
+    arity: ">0"
+    fixity: mixfix
+    priority: 11
+    operands: number
+    result: number
+    reduce: add
+  mul:
+    op: "*"
+    description: |
+      Product of the numeric operands (variadic).
+    arity: ">0"
+    fixity: mixfix
+    priority: 12
+    operands: number
+    result: number
+    reduce: mul
+  sub:
+    op: "-"
+    description: |
+      Difference, a minus b (binary, left-associative).
+    arity: 2
+    fixity: infix
+    priority: 11
+    operands: number
+    result: number
+    reduce: sub
+  div:
+    op: "/"
+    description: |
+      Quotient, a divided by b (binary; guards divide-by-zero).
+    arity: 2
+    fixity: infix
+    priority: 12
+    operands: number
+    result: number
+    reduce: div
+  pow:
+    op: "**"
+    description: |
+      a to the power b — RIGHT-associative, so 2**3**2 = 2**(3**2) = 512 (matches math/Python).
+    arity: 2
+    fixity: infix
+    priority: 13
+    assoc: right
+    operands: number
+    result: number
+    reduce: pow
+  concat:
+    op: "++"
+    description: |
+      Append (the Monoid op): text concatenates ("foo"++"bar" → "foobar"), lists concatenate, dicts merge with the right side winning. Variadic.
+    arity: ">0"
+    fixity: mixfix
+    priority: 10
+    operands: any
+    reduce: concat
+  split:
+    op: "//"
+    description: |
+      Split a string by a separator into a list (binary): "a,b,c"//"," -> [a, b, c].
+      An empty separator splits into characters.
+    arity: 2
+    fixity: infix
+    priority: 13
+    operands: string
+    result: list
+    reduce: split
+  equals:
+    op: "=="
+    description: |
+      True when the two operands are equal (compares their rendered value): 5 == 5 -> true, 3 == 4 -> false.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: string
+    result: bool
+    reduce: eq
+  not-equals:
+    op: "!="
+    description: |
+      True when the two operands are not equal (compares their rendered value): 3 != 4 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: string
+    result: bool
+    reduce: ne
+  at-most:
+    op: "<="
+    description: |
+      True when the first operand is at most the second (numeric): 3 <= 5 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: number
+    result: bool
+    reduce: le
+  at-least:
+    op: ">="
+    description: |
+      True when the first operand is at least the second (numeric): 5 >= 3 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: number
+    result: bool
+    reduce: ge
+
+  less:
+    op: "<"
+    description: |
+      True when the first operand is less than the second (numeric): 3 < 5 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: number
+    result: bool
+    reduce: lt
+  greater:
+    op: ">"
+    description: |
+      True when the first operand is greater than the second (numeric): 5 > 3 -> true.
+    arity: 2
+    fixity: infix
+    priority: 5
+    operands: number
+    result: bool
+    reduce: gt
+  length:
+    op: "#"
+    description: |
+      Length (Foldable): the item count of a list, the key count of a dict, the character count of text. Glyph alias for $len.
+    arity: 1
+    fixity: prefix
+    priority: 14
+    builtin: len
+  # Glyph operators (bd-44c294): bind ANY sigil (a word, or a multibyte glyph —
+  # no ASCII-scarcity cost, like Δ) to a FORM or a BUILTIN, as an alt to
+  # command:/prompt:. Uncomment to try; the user owns their config's sigil space.
+  #
+  # form:  the operator applies a form to its operands ($0, $1, …):
+  #   square:   { op: "□", arity: 1, fixity: prefix, form: "{$0*$0}" }    # □5 → 25
+  #   steelman: { op: "⇑", arity: 1, fixity: prefix, form: "{~(>@$0)}" }  # ⇑x = summarise(expand(formalise(x)))
+  # builtin: bind a configured symbol to the map/fold engine. `<$>` is map's
+  # keyboard-typable default; ↦ remains its visual alias, and ⊘ aliases fold.
+  # All three are ordinary configured operators — the engine only sees builtin:.
+  mapascii:
+    op: "<$>"
+    description: |
+      Map: apply the left form to each item of the right list — {$0*$0}<$>[1,2,3] → [1,4,9]. Keyboard-typable alias for $map%; ↦ is the visual twin.
+    arity: 2
+    fixity: infix
+    priority: 8
+    builtin: map
+  mapop:
+    op: "↦"
+    description: |
+      Map: apply the left form to each item of the right list — {$0*$0}↦[1,2,3] → [1,4,9]. Visual alias for $map%; `<$>` is the keyboard-typable twin.
+    arity: 2
+    fixity: infix
+    priority: 8
+    builtin: map
+  foldop:
+    op: "⊘"
+    description: |
+      Fold: reduce the right list with the left binary form — {$0+$1}⊘[1,2,3,4] → 10. Glyph alias for $fold%.
+    arity: 2
+    fixity: infix
+    priority: 8
+    builtin: fold
+  # Polymorphic `.` accessor (bd-27739b): one dot for list/dict/string.
+  access:
+    op: "."
+    description: |
+      Polymorphic accessor: `container.key` — `[a,b,c].1` (0-based list index, negative from end), `{k=v}.k` (dict field), `"the".2` (char at index). Out-of-range / missing key = loud error, never silent. Deterministic; `..` is the LLM/semantic twin.
+    arity: 2
+    fixity: infix
+    # 19: above `%` application (18) so `$lib.f%x` = `($lib.f)%x` and
+    # `$f%$x.k` = `$f%($x.k)` — field access binds like a member lookup.
+    priority: 19
+    operands: string
+    result: string
+    builtin: access
+  # Semantic access `..` (bd-27739b) — the LLM twin of the deterministic `.` (config: @aur-2's lane).
+  project:
+    op: ".."
+    det: "{$1++' of: '++$0}"  # det stub; two integers give the deterministic range a..b
+    description: |
+      Project: `x .. aspect` returns the part of x that the right operand describes — an aspect ('its subject', 'the gist in one sentence', 'the risks') or a position ('3', 'the last item', 'the largest'). The semantic twin of `.`; two integers give the range a..b instead. The prelude's $gist and $subject are projections.
+    arity: 2
+    fixity: infix
+    priority: 16
+    model: medium
+    prompt: |
+      Return only the part of the first <text> that the second <text> describes — an aspect of it (such as "its subject", "the gist in one sentence", "the risks it mentions") or an element of a described collection (such as "3", "the last", "the largest"). No preamble, no explanation, and do not restate the query.
+
+      %
+  # Set-notation sigil operators (bd-4e72c3) — terse DETERMINISTIC aliases for the
+  # $union/$inter/$diff/$elem value builtins (bd-49d65a), delegating via builtin: like <$> / ↦ / ⊘.
+  # Priority: ∩ (7) binds tighter than ∪/∖ (6) [mirrors × over +]; ∈ (5) sits with the
+  # comparisons (Bool result), so `x ∈ a ∪ b` parses as `x ∈ (a ∪ b)`.
+  setunion:
+    op: "∪"
+    description: |
+      Set union: a ∪ b — order-preserving, deduped. Deterministic glyph alias for $union% (binary case). Dict operands operate on their keys.
+    arity: 2
+    fixity: infix
+    priority: 6
+    builtin: union
+  setdiff:
+    op: "∖"
+    description: |
+      Set difference: a ∖ b — items of a not present in b (deduped, a-order). Deterministic glyph alias for $diff%. (∖ is U+2216 SET MINUS.)
+    arity: 2
+    fixity: infix
+    priority: 6
+    builtin: diff
+  setinter:
+    op: "∩"
+    description: |
+      Set intersection: a ∩ b — items of a also present in b (deduped, a-order). Deterministic glyph alias for $inter%. Binds tighter than ∪/∖.
+    arity: 2
+    fixity: infix
+    priority: 7
+    builtin: inter
+  setelem:
+    op: "∈"
+    description: |
+      Membership: x ∈ coll — true if x is a list element, dict key, or string substring. Bool result. Deterministic glyph alias for $elem% (arg order: item ∈ collection).
+    arity: 2
+    fixity: infix
+    priority: 5
+    builtin: elem
+
+  # Boolean-logic operators (bd-f1ee6f) — first-class logical AND/OR, DISTINCT from the
+  # string compose-&/| (which weave "X and Y" text). Deterministic; operands coerced to
+  # bool (truthy), result bool. ∧ (4) binds tighter than ∨ (3), both looser than the
+  # comparisons (5), so `a==b ∧ c==d` = `(a==b) ∧ (c==d)`. Cleans up the mutual judge.
+  booland:
+    op: "∧"
+    description: |
+      Logical AND: a ∧ b — true iff BOTH operands are truthy. Bool result. First-class conjunction, distinct from compose-& (string weave). Evaluates both operands (use $if for short-circuit). Glyph alias for $and%.
+    arity: 2
+    fixity: infix
+    priority: 4
+    builtin: and
+  boolor:
+    op: "∨"
+    description: |
+      Logical OR: a ∨ b — true iff EITHER operand is truthy. Bool result. Distinct from compose-| (string choice). Glyph alias for $or%.
+    arity: 2
+    fixity: infix
+    priority: 3
+    builtin: or
+  boolnot:
+    op: "¬"
+    description: |
+      Logical NOT: ¬a — true iff a is falsy. Bool result, negating truthiness of any Bool (incl. fuzzy ~> results). The boolean twin of ! (which is TEXTUAL negation, "not X" prose); ¬ composes in fold-fusion count-if-NOT. Binds tighter than ∧∨. Glyph alias for $not%.
+    arity: 1
+    fixity: prefix
+    priority: 14
+    builtin: not
+  sqrtop:
+    op: "√"
+    description: |
+      Square root: √x — the non-negative square root of x as a Number (deterministic, prefix unary). Enables terse stddev (√variance), Pythagoras √(3*3+4*4)→5, Euclidean distance, geometric mean. Glyph alias for $sqrt%.
+    arity: 1
+    fixity: prefix
+    priority: 14
+    builtin: sqrt
+
+tests:
+  det-mtimes: { mode: det, expr: "xxx_2", expected: "xxxxxx" }
+  det-mtimes-list: { mode: det, expr: "_sep=',';[a,b]_2", expected: "a,b,a,b" }
+  det-not: { mode: det, expr: "!foo", expected: "not foo" }
+  det-and: { mode: det, expr: "a&b&c", expected: "a and b and c" }
+  det-or: { mode: det, expr: "a|b", expected: "a or b" }
+  # comparison ops: == != <= >= — all deterministic, result: bool. `==` lexes as
+  # one op via the lexer longest-match tweak (a lone `=` stays assignment).
+  det-eq:       { mode: det, expr: "5 == 5", expected: "true" }
+  det-eq-false: { mode: det, expr: "3 == 4", expected: "false" }
+  det-ne:       { mode: det, expr: "3 != 4", expected: "true" }
+  det-ne-false: { mode: det, expr: "4 != 4", expected: "false" }
+  det-le:       { mode: det, expr: "3 <= 5", expected: "true" }
+  det-le-false: { mode: det, expr: "5 <= 3", expected: "false" }
+  det-booland:   { mode: det, expr: "(5==5)∧(3==3)", expected: "true" }
+  det-booland-f: { mode: det, expr: "(5==5)∧(3==4)", expected: "false" }
+  det-boolor:    { mode: det, expr: "(5==4)∨(3==3)", expected: "true" }
+  det-boolnot:   { mode: det, expr: "¬(5==4)", expected: "true" }
+  det-boolnot-f: { mode: det, expr: "¬(5==5)", expected: "false" }
+  det-sqrt:      { mode: det, expr: "√4", expected: "2" }
+  det-sqrt-hyp:  { mode: det, expr: "√(3*3+4*4)", expected: "5" }
+  det-ge:       { mode: det, expr: "5 >= 3", expected: "true" }
+  # det coverage for the formerly-llm-only text lenses + semantic ops (their
+  # trivial template det-stubs, so `nlir test` covers EVERY operator offline).
+  det-recast:      { mode: det, expr: "'x'::formal", expected: "formal: x" }
+  det-project:     { mode: det, expr: "'x'..gist",   expected: "gist of: x" }
+  det-apply:       { mode: det, expr: "'a'▷'b'",     expected: "a (changed: b)" }
+  det-length:      { mode: det, expr: "#[a,b,c] + #'abcd' + #{k=v}", expected: "8" }
+  det-less-greater: { mode: det, expr: "_sep=',';[2<3, 2>3, 3>2]", expected: "true,false,true" }
+  det-prelude-form: { mode: det, expr: "$formal%'x'", expected: "a formal, professional register: x" }
+  det-prelude-override: { mode: det, expr: "formal={$0::stiff};$formal%'x'", expected: "stiff: x" }
+  det-change:      { mode: det, expr: "'a'Δ'b'",   expected: "change: a -> b" }
+  det-implies:     { mode: det, expr: "'the code is correct'~>'correct'",  expected: "true" }
+  det-append-lists: { mode: det, expr: "_sep=',';[1,2]++[3]++[]", expected: "1,2,3" }
+  det-append-dicts: { mode: det, expr: "_sep=',';{a=1,b=2}++{b=3,c=4}", expected: "a=1,b=3,c=4" }
+  det-mconcat:      { mode: det, expr: "++[a,b,c]", expected: "abc" }
+  det-group: { mode: det, expr: "!(a&b)", expected: "not (a and b)" }
+  det-quote: { mode: det, expr: "'one two'", expected: "one two" }
+  det-sep: { mode: det, expr: "_sep=\\ ;[a,b]", expected: "a b" }
+  det-assign: { mode: det, expr: "k=foo;$k", expected: "foo" }
+  det-dollar-escape: { mode: det, expr: 'k=world;"\$k"', expected: '$k' }
+  num-add: { mode: det, expr: "1+2+3", expected: "6" }
+  num-prec: { mode: det, expr: "1+2*3", expected: "7" }
+  num-prec2: { mode: det, expr: "2+3*4-1", expected: "13" }
+  num-mul: { mode: det, expr: "2*3*4", expected: "24" }
+  num-sub: { mode: det, expr: "10-4", expected: "6" }
+  num-div: { mode: det, expr: "12/3", expected: "4" }
+  num-index: { mode: det, expr: "(1+1)**3", expected: "8" }
+  num-powassoc: { mode: det, expr: "2**3**2", expected: "512" }
+  str-concat: { mode: det, expr: '"foo"++"bar"++"baz"', expected: "foobarbaz" }
+  str-split: { mode: det, expr: '_sep=\ ;"a,b,c"//","', expected: "a b c" }
+  str-split-chars: { mode: det, expr: '_sep=\ ;"abc"//""', expected: "a b c" }
+  str-split-map: { mode: det, expr: '_sep=\ ;$map%({$0++$0},"a,b"//",")', expected: "aa bb" }
+  pipe-fold-sum: { mode: det, expr: '{$0+$1}⊘("3,5,2"//",")', expected: "10" }
+  pipe-count-branch: { mode: det, expr: '$if%({$0+$1}⊘({$contains%($0,"ERR")}<$>["ok","ERR a","ok","ERR b"])>=2,"page","clear")', expected: "page" }
+  part-named-form-reuse: { mode: det, expr: '_sep=" ";sq={$0*$0};$sq<$>[1,2,3,4]', expected: "1 4 9 16" }
+  gen-obeys: { mode: det, expr: "=>'x'", expected: "response: x" }  # det stub for the => generation op (bd-d18743)
+  # quote-eval (bd-5dd86f): `{…}` quotes a form — evaluation is INERT (the form is
+  # returned as data, not run), it round-trips through render (precedence kept),
+  # and a form is a first-class value you can bind to a name and read back.
+  form-quote-inert: { mode: det, expr: "{2+3}",      expected: "{(2 + 3)}" }
+  form-quote-strop: { mode: det, expr: "{a&b}",      expected: "{(a & b)}" }
+  form-quote-prec:  { mode: det, expr: "{1+2*3}",    expected: "{(1 + (2 * 3))}" }
+  form-bind-read:   { mode: det, expr: "f={2+3};$f", expected: "{(2 + 3)}" }
+  # quote-eval apply (bd-5dd86f): `%` calls a form, binding args to $0/$1… from an
+  # argument frame — tuple `%(a,b)` ≡ list `%[a,b]` ≡ single `%x`. The frame is
+  # hygienic: a form's $0 is its argument, not the run-stack top (`9;{$0}%7`→7).
+  apply-inc:        { mode: det, expr: "{$0+1}%5",      expected: "6" }
+  apply-add2:       { mode: det, expr: "{$0+$1}%(2,3)", expected: "5" }
+  apply-add2-list:  { mode: det, expr: "{$0+$1}%[2,3]", expected: "5" }
+  apply-id:         { mode: det, expr: "{$0}%7",        expected: "7" }
+  apply-mul:        { mode: det, expr: "{$0*$1}%(3,4)", expected: "12" }
+  apply-hygiene:    { mode: det, expr: "9;{$0}%7",      expected: "7" }
+  # quote-eval named lambdas (bd-5dd86f): assign a form to a name, then read + apply
+  # it — a form persists in context and stays callable via `$name%args`.
+  lambda-named:     { mode: det, expr: "f={$0+$1};$f%(2,3)",       expected: "5" }
+  lambda-square:    { mode: det, expr: "sq={$0*$0};$sq%5",         expected: "25" }
+  lambda-inc:       { mode: det, expr: "inc={$0+1};$inc%9",        expected: "10" }
+  lambda-compose:   { mode: det, expr: "dbl={$0*2};$dbl%($dbl%3)", expected: "12" }
+  # quote-eval do-N-times (bd-5dd86f): `{form}_N` composes a form N times (the `_`
+  # repeat lifted from text-repeat to form-compose). Apply binds tighter than `_`,
+  # so the compose needs parens before `%`: `({form}_N)%seed`.
+  do-n-inc3: { mode: det, expr: "({$0+1}_3)%5", expected: "8" }
+  do-n-dbl2: { mode: det, expr: "({$0*2}_2)%3", expected: "12" }
+  do-n-id0:  { mode: det, expr: "({$0+1}_0)%5", expected: "5" }
+  do-n-named: { mode: det, expr: "g=({$0+1}_3);$g%5", expected: "8" }
+  # cookbook (docs/cookbook.md): flagship multi-layer form programs — named
+  # lambdas composed/nested/iterated into real deterministic little programs.
+  cookbook-compose:    { mode: det, expr: "inc={$0+1};dbl={$0*2};$inc%($dbl%5)", expected: "11" }
+  cookbook-nest:       { mode: det, expr: "sq={$0*$0};$sq%($sq%2)", expected: "16" }
+  cookbook-tree:       { mode: det, expr: "add={$0+$1};$add%($add%(1,2),$add%(3,4))", expected: "10" }
+  cookbook-pipeline:   { mode: det, expr: "inc={$0+1};dbl={$0*2};$dbl%($inc%($dbl%3))", expected: "14" }
+  cookbook-pythagoras: { mode: det, expr: "sq={$0*$0};add={$0+$1};$add%($sq%3,$sq%4)", expected: "25" }
+  cookbook-poly:       { mode: det, expr: "poly={($0*$0)+(2*$0)+1};$poly%5", expected: "36" }
+  cookbook-repeat-named: { mode: det, expr: "inc={$0+1};(($inc)_10)%0", expected: "10" }
+  cookbook-iterated:   { mode: det, expr: "inc={$0+1};sq={$0*$0};$sq%($inc%($inc%($inc%2)))", expected: "25" }
+  # lists are first-class + render sep-joined (NOT collapsed): a manual map by
+  # spelling out the form per element yields a real 3-element list.
+  cookbook-list-firstclass: { mode: det, expr: "[1,4,9]", expected: "1\n4\n9" }
+  cookbook-manual-map:      { mode: det, expr: "sq={$0*$0};[$sq%1,$sq%2,$sq%3]", expected: "1\n4\n9" }
+  # map/fold higher-order builtins (bd-14af74): $map applies a form per-item →
+  # a list; $fold reduces with a 2-arg form; named forms + map-reduce compose.
+  cookbook-map-square:  { mode: det, expr: "$map%({$0*$0},[1,2,3])", expected: "1\n4\n9" }
+  cookbook-map-inc:     { mode: det, expr: "$map%({$0+1},[10,20,30])", expected: "11\n21\n31" }
+  cookbook-map-named:   { mode: det, expr: "sq={$0*$0};$map%($sq,[1,2,3])", expected: "1\n4\n9" }
+  cookbook-fold-sum:    { mode: det, expr: "$fold%({$0+$1},[1,2,3,4])", expected: "10" }
+  cookbook-fold-product: { mode: det, expr: "$fold%({$0*$1},[1,2,3,4])", expected: "24" }
+  cookbook-map-reduce:  { mode: det, expr: "inc={$0+1};$fold%({$0+$1},$map%($inc,[1,2,3]))", expected: "9" }
+  cookbook-fold-map-sq: { mode: det, expr: "$fold%({$0+$1},$map%({$0*$0},[1,2,3]))", expected: "14" }
+  cookbook-map-nested:  { mode: det, expr: "$map%({$fold%({$0+$1},$0)},[[1,2],[3,4]])", expected: "3\n7" }
+  # composable core (docs/cookbook.md §8): scan (running fold), filter (select),
+  # the map/filter/fold trio, and trains (atop compose + fork = two-lenses-on-one).
+  cookbook-scan:    { mode: det, expr: "$scan%({$0+$1},[1,2,3,4])", expected: "1\n3\n6\n10" }
+  cookbook-filter:  { mode: det, expr: "$filter%({$0},[1,0,2,0,3])", expected: "1\n2\n3" }
+  cookbook-trio:    { mode: det, expr: "$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3,0,4])))", expected: "30" }
+  cookbook-compose-semantic: { mode: det, expr: "({$0..gist} ∘ {$0::formal})%'thanks'", expected: "gist of: formal: thanks" }
+  cookbook-compose-named: { mode: det, expr: "double={$0*2};inc={$0+1};f=$double ∘ $inc;$f%5", expected: "12" }
+  cookbook-train-fork: { mode: det, expr: "(! & =>)%'x'", expected: "not x and response: x" }
+  # value builtins (docs/cookbook.md §9): branch ($if), index ($nth), reorder ($sort).
+  cookbook-if-then: { mode: det, expr: "$if%(1,'yes','no')", expected: "yes" }
+  cookbook-if-else: { mode: det, expr: "$if%(0,'yes','no')", expected: "no" }
+  cookbook-nth:     { mode: det, expr: "$nth%(1,[10,20,30])", expected: "20" }
+  cookbook-sort:    { mode: det, expr: "$sort%[3,1,2]", expected: "1\n2\n3" }
+  cookbook-sort-min: { mode: det, expr: "$nth%(0,$sort%[30,4,100,2])", expected: "2" }
+  # `nlir help` examples (bd-5c19c4): the help text's input→output pairs are lifted
+  # from these verified cases so `nlir help` stays ≡ `nlir test`. These two close
+  # the last coverage gaps (join-3 + assign-then-compute).
+  help-join3:          { mode: det, expr: "'ship'&'test'&'review'", expected: "ship and test and review" }
+  help-assign-compute: { mode: det, expr: "k=2+3;$k*2", expected: "10" }
+  cookbook-nth-neg:  { mode: det, expr: "$nth%(-1,[10,20,30])", expected: "30" }
+  cookbook-sort-max: { mode: det, expr: "$nth%(-1,$sort%[30,4,100,2])", expected: "100" }
+  # `nlir help` comparison + conditional examples (bd-e27e67): help ≡ nlir test.
+  help-eq:     { mode: det, expr: "4==4", expected: "true" }
+  help-le:     { mode: det, expr: "3<=5", expected: "true" }
+  help-ge:     { mode: det, expr: "5>=9", expected: "false" }
+  help-ne:     { mode: det, expr: "'a'!='b'", expected: "true" }
+  help-if-eq:  { mode: det, expr: "$if%(4==4,'match','differ')", expected: "match" }
+  help-count:  { mode: det, expr: "$fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))", expected: "2" }
+  # `nlir help` mixed det+fuzzy capstone (bd-8956b1): ~> classify + correctness-gate count.
+  help-implies:     { mode: det, expr: "'this is correct'~>'correct'", expected: "true" }
+  help-fuzzy-count: { mode: det, expr: "$fold%({$0+$1},$map%({$0~>'correct'},['this is correct','this is wrong','also correct']))", expected: "2" }
+  # predicates & counting (docs/cookbook.md §10): comparisons -> bool, count-if,
+  # filter-by-threshold, and gate-on-count (the correctness-gate shape).
+  cookbook-cmp-le:    { mode: det, expr: "3<=5", expected: "true" }
+  cookbook-cmp-eq:    { mode: det, expr: "4==4", expected: "true" }
+  cookbook-count-if:  { mode: det, expr: "$fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))", expected: "2" }
+  cookbook-filter-threshold: { mode: det, expr: "$filter%({$0>=5},[3,7,2,9])", expected: "7\n9" }
+  cookbook-gate-count: { mode: det, expr: "$if%($fold%({$0+$1},$map%({$0>=5},[3,7,2,9]))>=2,'enough','more')", expected: "enough" }
+  cookbook-contains:    { mode: det, expr: "$contains%('login page broken','broken')", expected: "true" }
+  cookbook-contains-no: { mode: det, expr: "$contains%('all systems green','broken')", expected: "false" }
+  cookbook-grep:        { mode: det, expr: "$filter%({$contains%($0,'err')},['ok','err 1','err 2'])", expected: "err 1\nerr 2" }
+  hero-ops-gate:        { mode: det, expr: "$if%($fold%({$0+$1},$map%({$contains%($0,'ERROR')},['ok','ERROR: oom','ok','ERROR: disk full']))>=2,'page on-call','all clear')", expected: "page on-call" }
+  # Set-notation family (bd-49d65a, Harry's request): membership + set algebra,
+  # deterministic + total, keyed on rendered value. Engine-layer value builtins.
+  set-elem-list:        { mode: det, expr: "$elem%('b',[a,b,c])", expected: "true" }
+  set-elem-list-no:     { mode: det, expr: "$elem%('x',[a,b,c])", expected: "false" }
+  set-elem-string:      { mode: det, expr: "$elem%('broken','login page broken')", expected: "true" }
+  set-elem-dict-key:    { mode: det, expr: "$elem%('k',{k=1, j=2})", expected: "true" }
+  set-union:            { mode: det, expr: "$union%([1,2],[2,3])", expected: "1\n2\n3" }
+  set-union-variadic:   { mode: det, expr: "$union%([a,b],[b,c],[c,d])", expected: "a\nb\nc\nd" }
+  set-union-nub:        { mode: det, expr: "$union%[a,b,a,c]", expected: "a\nb\nc" }
+  set-union-dict-keys:  { mode: det, expr: "$union%({a=1, b=2},{b=3, c=4})", expected: "a\nb\nc" }
+  set-inter:            { mode: det, expr: "$inter%([1,2,3],[2,3,4])", expected: "2\n3" }
+  set-diff:             { mode: det, expr: "$diff%([1,2,3],[2])", expected: "1\n3" }
+  set-compose-gate:     { mode: det, expr: "$if%($elem%('ERROR','ok ERROR: oom'),'page','ok')", expected: "page" }
+  # Length/cardinality (bd-b9b491, mathy directive): list items, dict keys, else
+  # rendered char count. Deterministic + total — the model-free counting primitive.
+  len-list:             { mode: det, expr: "$len%[2,3,5,7,11]", expected: "5" }
+  len-dict:             { mode: det, expr: "$len%{a=1, b=2, c=3}", expected: "3" }
+  len-string:           { mode: det, expr: "$len%'hello'", expected: "5" }
+  len-scalar:           { mode: det, expr: "$len%42", expected: "2" }
+  len-set-cardinality:  { mode: det, expr: "$len%($inter%([2,3,5,7,11],[1,3,5,7,9]))", expected: "3" }
+  len-empty-set:        { mode: det, expr: "$len%($inter%([a],[b]))", expected: "0" }
+  len-count-odds:       { mode: det, expr: "$len%($diff%([1,2,3,4,5,6,7,8,9,10],[2,4,6,8,10]))", expected: "5" }
+  # Predicate builtins (bd-89b3d0, mathy directive): strict comparison ($gt/$lt fill
+  # the </> gap — >/< sigils are taken by expand/shorten) + boolean NOT ($not; `!` is
+  # textual). Return clean Bools that coerce true->1, so map-then-fold counts.
+  gt-strict:            { mode: det, expr: "$gt%(5,3)", expected: "true" }
+  gt-strict-eq:         { mode: det, expr: "$gt%(3,3)", expected: "false" }
+  lt-strict:            { mode: det, expr: "$lt%(3,5)", expected: "true" }
+  lt-strict-eq:         { mode: det, expr: "$lt%(3,3)", expected: "false" }
+  not-bool:             { mode: det, expr: "$not%($lt%(5,3))", expected: "true" }
+  not-falsey:           { mode: det, expr: "$not%(0)", expected: "true" }
+  predicate-count-if:   { mode: det, expr: "$fold%({$0+$1},$map%({$lt%($0,5)},0..10))", expected: "5" }
+  predicate-count-not:  { mode: det, expr: "$fold%({$0+$1},$map%({$not%($lt%($0,3))},1..5))", expected: "3" }
+  # Rounding builtins (bd-9004bb): general det-math primitives; median falls out of
+  # floor(len/2)+sort+index (composition, not a special $median fn). Credit msm-0.
+  floor-half:          { mode: det, expr: "$floor%2.5", expected: "2" }
+  ceil-half:           { mode: det, expr: "$ceil%2.5", expected: "3" }
+  round-half:          { mode: det, expr: "$round%2.5", expected: "3" }
+  round-down:          { mode: det, expr: "$round%2.4", expected: "2" }
+  floor-negative:      { mode: det, expr: "$floor%(0-2.5)", expected: "-3" }
+  median-odd:          { mode: det, expr: "$nth%($floor%($len%[3,1,4,1,5]/2),$sort%[3,1,4,1,5])", expected: "3" }
+  median-even:         { mode: det, expr: "($nth%($floor%(($len%[4,1,3,2]-1)/2),$sort%[4,1,3,2])+$nth%($ceil%(($len%[4,1,3,2]-1)/2),$sort%[4,1,3,2]))/2", expected: "2.5" }
+  # $sqrt (bd-92cbf0): completes stddev (variance already composes) + Pythagoras.
+  sqrt-4:              { mode: det, expr: "$sqrt%4", expected: "2" }
+  sqrt-pythagoras:     { mode: det, expr: "$sqrt%(3*3+4*4)", expected: "5" }
+  stddev:              { mode: det, expr: "L=[2,4,4,4,5,5,7,9];m=$fold%({$0+$1},$L)/$len%$L;$sqrt%($fold%({$0+$1},$map%({($0-$m)*($0-$m)},$L))/$len%$L)", expected: "2" }
+  # Modulo builtin (mathy golf, msm-3): mathematical modulo via rem_euclid —
+  # non-negative result, so number theory (even/odd, divisibility) composes.
+  mod-basic:           { mode: det, expr: "$mod%(7,3)", expected: "1" }
+  mod-even:            { mode: det, expr: "$mod%(10,2)", expected: "0" }
+  mod-euclid-negative: { mode: det, expr: "$mod%(0-1,3)", expected: "2" }
+  mod-count-evens:     { mode: det, expr: "$len%($filter%({$not%($mod%($0,2))},1..10))", expected: "5" }
+  # Regression guard (bd-d50bd7, fixed @bc863e1): STRING LITERALS in a {…} map/fold
+  # body must parse — map bodies can return string-valued conditionals, so
+  # FizzBuzz-over-a-range composes (was a stale-binary false alarm on current main).
+  map-body-string:     { mode: det, expr: "$map%({$if%(1,'a','b')},1..3)", expected: "a\na\na" }
+  map-body-mod-string: { mode: det, expr: "$map%({$if%($not%($mod%($0,3)),'Fizz',$0)},1..5)", expected: "1\n2\nFizz\n4\n5" }
+  # `?` dual-role (bd-2f4d5e, Harry): postfix `x?` = question; operand-start `?%(c,t,e)` = if (reuses the $if engine, short-circuits).
+  q-if-then:            { mode: det, expr: "$if%(2>=2,'yes','no')", expected: "yes" }
+  q-if-else:            { mode: det, expr: "$if%(1>=2,'yes','no')", expected: "no" }
+  q-if-shortcircuit:    { mode: det, expr: "$if%(1>=2,$nth%(99,[a]),'safe')", expected: "safe" }
+  # Configured map/fold aliases + the operator-form hero (bd-44c294 + bd-2f4d5e + bd-80e76f).
+  # `<$>` is typable; ↦ is visual. Both dispatch the same configured builtin: map.
+  # Existing train tests above prove this infix alias does not perturb train parsing.
+  similarity-det-jaccard: { mode: det, expr: "'the cat sat' ≈ 'The cat ran'", expected: "0.5" }
+  data-dict-roundtrip:    { mode: det, expr: "row={first_name=ada, langs=[en,fr]};$row.langs.1", expected: "fr" }
+  data-keys-json:         { mode: det, expr: "$json%($keys%{a=1, b_c=2})", expected: '["a","b_c"]' }
+  data-fold-seed:         { mode: det, expr: "$fold%({$0+$len%$1}, [ab, cde], 0)", expected: "5" }
+  data-flat-walk:         { mode: det, expr: "t={id=r, kids=[{id=a, kids=[]},{id=b, kids=[]}]};ids={$flat%[[$0.id], $flat%({$ids%$0}↦$0.kids)]};$join%($ids%$t, ',')", expected: "r,a,b" }
+  data-match-groups:      { mode: det, expr: "$join%($match%('## R 2.1 — Wash hands', '^#+ (\\S+ [\\d.]+) — (.*)$'), '|')", expected: "R 2.1|Wash hands" }
+  data-member-apply:      { mode: det, expr: "lib={dbl={$0*2}};$lib.dbl%21", expected: "42" }
+  json-integral-number:   { mode: det, expr: "$json%{a=1+1, b=1/2}", expected: '{"a":2,"b":0.5}' }
+  map-parallel-det:       { mode: det, expr: "_sep=\",\";{$0*$0}↦[1,2,3,4]", expected: "1,4,9,16" }
+  map-parallel-closure:   { mode: det, expr: "_sep=\",\";{$0 ++ $join%({$0 ++ $$0}↦[1,2], '')}↦[a,b]", expected: "a1a2a,b1b2b" }
+  data-zip:               { mode: det, expr: "_sep=\",\";{$0.0 ++ $0.1}↦($zip%([a,b,c], [1,2]))", expected: "a1,b2" }
+  assign-generated:       { mode: det, expr: "brief==>'a note';$brief", expected: "response: a note" }
+  data-parse: { mode: det, expr: "x=$parse%'Sure! ```json\n{\"a\": [1, 2], \"b\": \"t\"}\n```';$x.a.1 + #$x.a", expected: "4" }
+  data-parse-roundtrip: { mode: det, expr: "$json%($parse%($json%{k=[1,true]}))", expected: '{"k":[1,true]}' }
+  data-dict-from-pairs: { mode: det, expr: "_sep=',';d=$dict%({[$0, #$0]}↦[a, bb]);[$d.bb] ++ $keys%($dict%($entries%{x=1, y=2}))", expected: "2,x,y" }
+  data-dict-computed-keys: { mode: det, expr: "$json%($dict%[[k1, 1], [k2, [true]], [k1, 3]])", expected: '{"k1":3,"k2":[true]}' }
+  data-typed-literals: { mode: det, expr: "$json%[1, 2.5, -3, true, 007, 1.50, x]", expected: '[1,2.5,-3,true,"007","1.50","x"]' }
+  draw-explicit-seeds:    { mode: det, expr: "_sep=\",\";_seed=10;$draw%({$0*2}, 3)", expected: "0,2,4" }
+  call-then-access:       { mode: det, expr: "$get%({a={t=ok}}, a).t", expected: "ok" }
+  outer-arg-closure:      { mode: det, expr: "_sep=\",\";{$filter%({$gt%($0,$$0)}, [1,5,9])}%4", expected: "5,9" }
+  outer-arg-two-levels:   { mode: det, expr: "_sep=\",\";{{{$0 ++ $$0 ++ $$$0}↦[x]}%(B)}%(A)", expected: "xBA" }
+  map-ascii:            { mode: det, expr: "{$0*$0}<$>[1,2,3]", expected: "1\n4\n9" }
+  map-glyph:            { mode: det, expr: "{$0*$0}↦[1,2,3]", expected: "1\n4\n9" }
+  fold-glyph:           { mode: det, expr: "{$0+$1}⊘[1,2,3,4]", expected: "10" }
+  hero-ops-gate-glyph:  { mode: det, expr: "$if%({$0+$1}⊘({$contains%($0,'ERROR')}↦['ok','ERROR: oom','ok','ERROR: disk full'])>=2,'page on-call','all clear')", expected: "page on-call" }
+  # dicts + polymorphic `.` accessor + semantic `..` det stub (bd-27739b).
+  dict-lit:             { mode: det, expr: "{k=v}", expected: "k=v" }
+  dict-access:          { mode: det, expr: "{a=1, b=2}.b", expected: "2" }
+  dict-eager-val:       { mode: det, expr: "{k=1+2}.k", expected: "3" }
+  list-access:          { mode: det, expr: "[a,b,c].1", expected: "b" }
+  list-access-neg:      { mode: det, expr: "[a,b,c].-1", expected: "c" }
+  string-access:        { mode: det, expr: "'the'.2", expected: "e" }
+  semantic-access-stub: { mode: det, expr: "'the planets from the sun'..3", expected: "3 of: the planets from the sun" }
+  numeric-range-asc:    { mode: det, expr: "_sep=\\ ;1..5", expected: "1 2 3 4 5" }
+  numeric-range-desc:   { mode: det, expr: "_sep=\\ ;5..1", expected: "5 4 3 2 1" }
+  numeric-range-single: { mode: det, expr: "3..3", expected: "3" }
+  numeric-range-gauss:  { mode: det, expr: "$fold%({$0+$1},1..100)", expected: "5050" }
+  numeric-range-fact:   { mode: det, expr: "{$0*$1}⊘(1..5)", expected: "120" }
+  numeric-range-sumsq:  { mode: det, expr: "{$0+$1}⊘({$0*$0}<$>(1..5))", expected: "55" }
+  # Composed det-math statistics (msm-3, bd-429d87 tier): the mathy-golf toolkit
+  # (range + $len + $gt + fold/filter) composes into exact, model-free,
+  # transport-invariant statistics — the CI-assertable tier. All verified det.
+  stats-mean-1-100:       { mode: det, expr: "$fold%({$0+$1},1..100)/$len%(1..100)", expected: "50.5" }
+  stats-count-above-mean: { mode: det, expr: "m=$fold%({$0+$1},1..10)/$len%(1..10);$len%($filter%({$gt%($0,$m)},1..10))", expected: "5" }
+  stats-sum-if-gt5:       { mode: det, expr: "{$0+$1*($gt%($1,5))}⊘[0,3,6,9]", expected: "15" }
+  # Boolean forall/exists via ∧/∨ fold over a predicate-mapped list (bd-f1ee6f
+  # ∧∨ in their natural reduction role; previously untested). "are they ALL
+  # under 100" (∧) / "is ANY at least 100" (∨) — one-line ∀/∃ over data, exact.
+  bool-forall-true:       { mode: det, expr: "{$0∧$1}⊘($map%({$lt%($0,100)},[3,50,99]))", expected: "true" }
+  bool-forall-false:      { mode: det, expr: "{$0∧$1}⊘($map%({$lt%($0,100)},[3,150,99]))", expected: "false" }
+  bool-exists-true:       { mode: det, expr: "{$0∨$1}⊘($map%({$gt%($0,99)},[3,150,99]))", expected: "true" }
+  bool-exists-false:      { mode: det, expr: "{$0∨$1}⊘($map%({$gt%($0,99)},[3,50,99]))", expected: "false" }
+  # nlir-grades-nlir as a DET CI gate (bd-b00961 made the mutual judge det-evaluate):
+  # a generator PART self-verified by the mutual judge, fully offline. The det
+  # generator (concat) produces EXACTLY the target, so mutual `j` (equivalence) is
+  # the right check — the exact-regression use of the judge. (An llm generation
+  # self-check uses one-directional `sat={$0~>$1}` instead — see the parts library.)
+  self-judge-det:      { mode: det, expr: "greet={('Hello, '++$0++'!')};j={$if%($0~>$1,$1~>$0,'false')};$j%(($greet%'Ada'),'Hello, Ada!')", expected: "true" }
+  msg:
+    mode: det
+    context:
+      _messages:
+        - { role: user, content: "hi" }
+        - { role: assistant, content: "in rust" }
+    expr: "^-1"
+    expected: "in rust"

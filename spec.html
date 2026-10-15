@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>nlir ��� spec</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="theme.css" />
+  <link rel="stylesheet" href="docs.css" />
+  <meta name="color-scheme" content="light dark">
+  <meta property="og:title" content="nlir — natural-language IR">
+  <meta property="og:description" content="A small language for programs over data and meaning: exact structure and model-realised semantics in one evaluator — forwards and backwards.">
+  <meta property="og:image" content="og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="og.png">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121418'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' font-weight='700' fill='%235cc6a8' text-anchor='middle'%3En·%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<header class="bar"><a class="mark" href="index.html">nlir<i>·</i><small>natural-language IR</small></a>
+<a class="nav" href="index.html">Guide</a>
+<a class="nav" href="spec.html" aria-current="page">Spec</a>
+<a class="nav" href="workspace/">Workspace</a>
+<a class="nav" href="spec-lab/">Spec lab</a>
+<a class="nav" href="examples.html">Examples</a>
+<a class="nav hide-sm" href="https://github.com/harryaskham/nlir">GitHub ↗</a></header>
+<main class="doc">
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#nlir--natural-language-ir"
+id="toc-nlir--natural-language-ir">nlir — natural-language IR</a>
+<ul>
+<li><a href="#mental-model" id="toc-mental-model">Mental model</a></li>
+<li><a href="#runtime-state-two-namespaces"
+id="toc-runtime-state-two-namespaces">Runtime state (two
+namespaces)</a></li>
+<li><a href="#types--coercion" id="toc-types--coercion">Types &amp;
+coercion</a></li>
+<li><a href="#modes" id="toc-modes">Modes</a></li>
+<li><a href="#builtins-fixed-engine-layer-not-config"
+id="toc-builtins-fixed-engine-layer-not-config">Builtins (fixed engine
+layer, not config)</a></li>
+<li><a href="#lenses-backward-passes-nlir-put"
+id="toc-lenses-backward-passes-nlir-put">Lenses: backward passes
+(<code>nlir put</code>)</a></li>
+<li><a href="#whitespace-escapes--quoting"
+id="toc-whitespace-escapes--quoting">Whitespace, escapes &amp;
+quoting</a></li>
+<li><a href="#interpolation--evaluation-timing"
+id="toc-interpolation--evaluation-timing">Interpolation &amp; evaluation
+timing</a></li>
+<li><a href="#execution-graph--parallelism"
+id="toc-execution-graph--parallelism">Execution graph &amp;
+parallelism</a></li>
+<li><a href="#output--tracing" id="toc-output--tracing">Output &amp;
+tracing</a></li>
+<li><a href="#config-operators-the-language-proper"
+id="toc-config-operators-the-language-proper">Config operators (the
+language proper)</a></li>
+<li><a href="#grammar--parsing" id="toc-grammar--parsing">Grammar &amp;
+parsing</a></li>
+<li><a href="#worked-examples" id="toc-worked-examples">Worked
+examples</a></li>
+<li><a href="#cli-surface" id="toc-cli-surface">CLI surface</a></li>
+<li><a href="#example-confignlirconfigyaml"
+id="toc-example-confignlirconfigyaml">Example
+<code>~/.config/nlir/config.yaml</code></a></li>
+<li><a href="#implementation--project-shape"
+id="toc-implementation--project-shape">Implementation / project
+shape</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="nlir--natural-language-ir">nlir — natural-language IR</h1>
+<p><code>nlir</code> transpiles a terse, sigil-laden
+<strong>shorthand</strong> into fluent <strong>English</strong>. The
+shorthand is an intermediate representation: it is <em>tokenised</em>,
+<em>parsed</em> into a DAG using a config-defined grammar, and
+<em>evaluated</em> over a small <strong>stack machine</strong> with a
+<strong>tiny type system</strong>, where each operator is realised
+either <strong>deterministically</strong> (mechanical string/number
+expansion) or via an <strong>LLM</strong> call (a structured
+text-transformation).</p>
+<p>Invocation — typically from a coding agent's prompt window:</p>
+<pre><code>nlir -e &#39;EXPR&#39;</code></pre>
+<p>The engine ships only a tiny set of <strong>builtins</strong> (stack
+/ context / indexing / assignment / arithmetic / coercion / list
+plumbing). Everything else — the operator vocabulary, their
+fixity/priority/arity/types, the models, the prompts, the coercions, the
+tests — lives in <code>~/.config/nlir/config.yaml</code>. The binary is
+a small VM; the language is config.</p>
+<hr />
+<h2 id="mental-model">Mental model</h2>
+<pre><code>EXPR ──tokenise──▶ tokens ──parse──▶ DAG ──schedule/eval──▶ English
+                             (grammar from config)   (stack machine; types+coercion; per-op det|llm; parallel)</code></pre>
+<ul>
+<li>An expression is a sequence of <strong>statements</strong> separated
+by <code>;</code>.</li>
+<li>Evaluating a statement yields a <strong>typed value</strong> and
+pushes it onto the stack.</li>
+<li><strong>Atoms</strong>: literal text (bare/quoted), numbers, list
+literals, dict literals, context accessors (<code>^</code> messages,
+<code>$</code> stack/context), and <code>.</code>/<code>..</code>
+accessors.</li>
+<li><strong>Operators</strong> combine values; each operator declares
+the <strong>types</strong> it needs, and operands are
+<strong>coerced</strong> to those types first (deterministically, or via
+an LLM coercion call).</li>
+<li>Given no operands an operator <strong>pops from the
+stack</strong>.</li>
+<li>The parse is a <strong>DAG</strong>: independent subtrees run
+concurrently (see Parallelism), except where context is written or
+serial is forced.</li>
+<li><strong>Program result</strong> = the final statement's value →
+stdout.</li>
+</ul>
+<hr />
+<h2 id="runtime-state-two-namespaces">Runtime state (two
+namespaces)</h2>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Owner</th>
+<th>Lifetime</th>
+<th>Access</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>context</strong> (<code>NLIR_CONTEXT</code> env, or a
+context file)</td>
+<td>harness / scripts / <code>nlir set</code> / in-expr
+<code>=</code></td>
+<td>transient by default; persistent with a context file</td>
+<td>read <code>$name</code> / <code>^</code>; write <code>LHS=RHS</code>
+(immediate) or <code>set</code>/<code>append-message</code></td>
+</tr>
+<tr>
+<td><strong>stack</strong></td>
+<td><code>nlir</code>, internal</td>
+<td>one run</td>
+<td><code>;</code> pushes, <code>$</code> / <code>$N</code> peek,
+nullary-op pops</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>context</strong> is one JSON object. Default context file
+<strong><code>~/.config/nlir/context.json</code></strong> (beside
+<code>config.yaml</code>); <code>--context-file</code> overrides; else
+<code>NLIR_CONTEXT</code> env. A <strong>one-shot <code>-e</code> eval
+does not auto-load the default file</strong> (bd-85c49d): it uses only
+an explicit <code>--context-file</code> / <code>NLIR_CONTEXT</code> /
+<code>--session-file</code>, so <code>^</code> on a bare <code>-e</code>
+with no context fails loud instead of bleeding a shared node-global
+default across agents. The REPL and <code>set</code> / <code>get</code>
+/ <code>append-message</code> keep default-file persistence.</li>
+<li>Messages live under <strong><code>_messages</code></strong>
+(<code>{role, content}</code> array); <code>^</code> indexes
+role-filtered views. <code>^</code> on an empty message set is a loud
+<code>no conversation context</code> error, not an empty read.</li>
+<li>System keys (<code>_</code>-prefixed): <code>_messages</code>,
+<code>_sep</code> (list/range → text separator, default
+<code>"\n"</code>), <code>_cache</code> (<code>eval</code> default ·
+<code>persist</code> · <code>off</code>;
+<code>true</code>/<code>false</code> still mean
+<code>eval</code>/<code>off</code> — see Caching),
+<code>_cache_file</code> (the persistent realisation store),
+<code>_precision</code> (final-display decimal places for numbers,
+default off = exact/round-tripping; display-only, never changes
+computation), <code>_seed</code> (an integer <strong>namespace</strong>
+for realisations, unset by default: the same seed replays recorded
+calls, a new seed draws fresh samples. It is also exported as
+<code>${NLIR_SEED}</code> and sent as the request's top-level
+<code>seed</code>, but providers do not make that reproducible —
+measured Oct 2026, Claude ignores it and gpt-4.1 varies even at
+temperature 0 — so determinism comes from the store, and each model
+declares <code>seed: exact | best-effort | none</code>, shown by
+<code>--dry-run</code>).</li>
+<li><strong>Context writes happen immediately</strong> (write-through to
+the context file when one is active).</li>
+</ul>
+<hr />
+<h2 id="types--coercion">Types &amp; coercion</h2>
+<p>Every value has a type: <strong><code>string</code></strong>
+(default), <strong><code>number</code></strong>,
+<strong><code>bool</code></strong>, <strong><code>list</code></strong>,
+<strong><code>dict</code></strong> (an insertion-ordered
+<code>key=value</code> map — see Dictionaries &amp; accessors below),
+<strong><code>form</code></strong> (a quoted <code>{…}</code> expression
+— see metaprogramming below).</p>
+<ul>
+<li>Operators declare <code>operands:</code> / <code>result:</code>
+types (default <code>string</code>). <code>^</code> indices and
+arithmetic want <code>number</code>;
+<code>!</code>/<code>&amp;</code>/<code>::</code> want
+<code>string</code>; <code>++</code> takes <code>any</code>.</li>
+<li>A <strong><code>form</code></strong> coerces to <code>string</code>
+as its <strong>inner source</strong> (no braces), so an op over a form
+reads its code as text (<code>@{a+b}</code> → "a+b");
+<code>%</code>-application takes <code>operands:[form]</code>.</li>
+<li>Before an operator runs, each operand is <strong>coerced</strong> to
+the required type:
+<ol type="1">
+<li>already that type → use as-is;</li>
+<li><strong>deterministic</strong> parse —
+<code>"1"</code>↔︎<code>1</code>, <code>number→string</code>,
+<code>list→string</code> (join with <code>_sep</code>),
+<code>"true"→bool</code>;</li>
+<li>else an <strong>LLM coercion</strong> — "interpret the text as a
+value of type T" with a structured-output schema
+<code>{result: T}</code>, config-defined per type. This turns a vague
+<code>"ten to twenty"</code> into <code>15</code>.</li>
+</ol></li>
+</ul>
+<p>Coercion that cannot produce the target type is a <strong>loud
+error</strong> (the LLM path is constrained by its output JSON schema,
+so it returns a valid typed value or fails). <code>list → number</code>
+is an error. A <strong><code>dict</code></strong> coerces to
+<code>string</code> as its <code>key=value</code> pairs (joined with
+<code>_sep</code>); <code>dict → number</code>/<code>bool</code> is an
+error.</p>
+<p>Coercion is part of the same expand/contract machinery as operators,
+and its results honour <code>_cache</code>.</p>
+<hr />
+<ul>
+<li><strong>Literal types:</strong> a bare literal written as a
+canonical number (<code>12</code>, <code>2.5</code>, <code>-3</code> —
+it renders back to the same text) is a <code>number</code>, and bare
+<code>true</code> / <code>false</code> are <code>bool</code>s; anything
+else, including <code>007</code> and <code>1.50</code>, is text. Quoted
+literals are always text. So data built from literals stays typed
+(<code>$json%[1, true]</code> → <code>[1,true]</code>).</li>
+</ul>
+<h2 id="modes">Modes</h2>
+<p><code>det</code> (no network) or <code>llm</code>. Default
+<code>defaults.mode</code>, override <code>--mode</code>. Realisation
+resolution for an operator:</p>
+<ol type="1">
+<li><code>command:</code> (subprocess, det) or <code>reduce:</code>
+(builtin numeric add/sub/mul/div/pow, det) → run it;</li>
+<li>else mode <code>det</code> → <code>template:</code> /
+<code>join:</code>;</li>
+<li>else mode <code>llm</code> → <code>model:</code> +
+<code>prompt:</code>.</li>
+</ol>
+<p><code>command</code>/<code>reduce</code>/coercion math are
+deterministic regardless of mode; only string transformations differ by
+mode.</p>
+<hr />
+<h2 id="builtins-fixed-engine-layer-not-config">Builtins (fixed engine
+layer, not config)</h2>
+<h3 id="sequencing--stack">Sequencing &amp; stack</h3>
+<ul>
+<li><strong><code>;</code></strong> — evaluate, push.
+<code>a;b;&amp;</code> → "a and b".</li>
+<li><strong><code>$</code></strong> — peek stack top;
+<strong><code>$N</code></strong> — peek by index (<code>$0</code>
+bottom, <code>$-1</code> top). No pop.</li>
+<li><strong>nullary-pop</strong> — a config op with no operands pops the
+stack (arity-<code>k</code> pops <code>k</code>; variadic pops
+all).</li>
+<li><strong>nullary-fallback (parser)</strong> — a prefix operator with
+<strong>no available operand</strong> (next token is a terminator
+<code>) , ] ;</code> / EOF, or an infix/postfix op that can't start an
+operand) parses as a <strong>nullary Apply</strong> instead of erroring,
+then uses nullary-pop to take its operand(s) from the stack. So infix
+ops (<code>Δ ~&gt; ::</code>) become stack-pullable.
+<em>Zero-regression:</em> this only converts a former parse
+<strong>error</strong> (op with no operand) — every operand-bearing
+prefix parse (<code>!foo</code>, <code>=&gt;(!x)</code>, trains) is
+byte-identical. <strong>Loud</strong> stack-underflow error if the stack
+lacks the operand (never silent-empty).</li>
+<li><strong><code>$_stdin</code> on the stack</strong> — when input is
+piped (<code>… | nlir</code>), the evaluator seeds the premise stack at
+position 0 with the piped <code>_stdin</code> value, so a bare operator
+pulls it: <code>echo "ship it Friday" | nlir -e '=&gt;'</code> obeys it,
+<code>| nlir -e '!'</code> → its opposite. A bare
+<strong>form/train</strong> is a first-class <em>value</em>, so it
+evaluates to itself (not auto-applied) — apply it to piped input
+explicitly with <code>%$_stdin</code>
+(<code>… | nlir -e '($gist ∘ $plain)%$_stdin'</code>). Nullary-fallback
+is scoped to <em>operators</em>; a form is a value, not an
+operator.</li>
+</ul>
+<h3 id="context-read--assign">Context: read &amp; assign</h3>
+<ul>
+<li><strong><code>$name</code></strong> — read
+<code>context[name]</code> (typed; <code>$_messages</code> is the
+array). The <code>$</code> is <strong>required</strong> to reuse a
+binding: a <strong>bare</strong> <code>name</code> (no <code>$</code>)
+is a string <em>literal</em>, not the bound value — so a "reusable part"
+written <code>part..3</code> silently reads the literal
+<code>"part"</code> (garbage, no error), while <code>$part..3</code>
+reads the binding. Reusable-parts idiom:
+<code>p='the planets from the sun'; $p..3</code> → Earth
+(bd-6995d9).</li>
+<li><strong><code>key=RHS</code></strong> — assign. <code>key</code> is
+a <strong>literal key string</strong> (identifier;
+<code>_</code>-prefixed = system key), <code>RHS</code> an expression.
+Yields the value; <strong>writes immediately</strong>. E.g.
+<code>_sep=\ </code>, <code>_cache=off</code>, <code>_seed=42</code>,
+<code>k=$subject%^-1</code>.</li>
+</ul>
+<h3 id="message-indexing-role-filtered-views-of-_messages">Message
+indexing (role-filtered views of <code>_messages</code>)</h3>
+<ul>
+<li><strong><code>^N</code></strong> — assistant;
+<strong><code>^_N</code></strong> — user;
+<strong><code>^*N</code></strong> — all;
+<strong><code>^/N</code></strong> — system.</li>
+<li>Indices are <strong>expressions coerced to number</strong>;
+negatives from the end.</li>
+<li>Ranges <code>M^N</code> (and
+<code>^_</code>/<code>^*</code>/<code>^/</code> variants): contents
+joined with <code>_sep</code>. <code>^</code> binds tightest. E.g.
+<code>(1+1)^(5+5)</code> = assistant messages 2..10.</li>
+</ul>
+<h3 id="structure">Structure</h3>
+<ul>
+<li><strong><code>[a,b,c]</code></strong> — list; spreads into a
+variadic op (<code>&amp;[a,b,c]</code> ≡ <code>a&amp;b&amp;c</code>), or
+renders to text by joining with <code>_sep</code>.</li>
+<li><strong><code>(…)</code></strong> — grouping; overrides precedence
+and is preserved in output (parens always win).</li>
+<li><strong><code>`</code></strong> — a low-precedence prefix that
+forces the <strong>whole of its right-hand subexpression</strong> to
+evaluate <strong>serially</strong>; the marked subtree still runs in
+parallel with respect to its siblings.</li>
+</ul>
+<h3 id="forms-application--macros-metaprogramming">Forms, application
+&amp; macros (metaprogramming)</h3>
+<ul>
+<li><strong><code>{EXPR}</code></strong> — a <strong>quoted
+form</strong>: <code>EXPR</code> as an unevaluated first-class value (a
+<code>Form</code>), <em>not</em> run. <code>{2+3}</code> → the form
+<code>{(2 + 3)}</code>, not <code>5</code>. Braces = code-as-data;
+parens <code>(…)</code> = the evaluated value.</li>
+<li><strong><code>%</code></strong> — <strong>application</strong>
+(infix): applies a form to arguments, binding them to the positional
+holes <code>$0 $1 …</code> in a fresh <strong>argument frame</strong>,
+then evaluates the body. <code>{$0+$1}%(2,3)</code> → <code>5</code>;
+single arg <code>{$0+1}%5</code> → <code>6</code>. <code>%</code> binds
+<strong>tighter than <code>,</code></strong> (<code>f%a,b</code> =
+<code>(f%a),b</code>; pass a tuple with <code>f%(a,b)</code>).
+<code>%</code> is <strong>right-associative</strong>, so a bare
+compose-chain <code>f%g%x</code> reads as <code>f%(g%x)</code> — apply
+<code>g</code> to <code>x</code>, then <code>f</code> to the result
+(<code>$sort%$map%({$0*$0},[3,1,2])</code> =
+<code>$sort%($map%(…))</code> → <code>[1,4,9]</code>), matching J/APL
+application order; the left-associative reading <code>(f%g)%x</code> is
+never intended (it was a silent-empty / unknown-key trap). Explicit
+parens/nesting still work as written; only bare <code>%</code>-chaining
+is affected.</li>
+<li><strong>Argument holes <code>$0 $1 …</code></strong> — positional
+parameters inside a form, bound at apply time.
+<strong>Hygienic</strong>: a form's <code>$0</code> is its
+<em>argument</em>, not the run stack (<code>9;{$0}%7</code> →
+<code>7</code>).</li>
+<li><strong>Enclosing-form arguments <code>$$0 $$1 …</code></strong> —
+inside a nested form, each extra <code>$</code> steps one argument frame
+out: <code>$$0</code> is the <em>enclosing</em> form's <code>$0</code>
+(<code>$$$0</code> two frames out). This is how an inner form (a
+<code>$filter</code> predicate, a <code>↦</code> body) reads the outer
+form's arguments without clobbering global context — closures without a
+binding construct: <code>{$filter%({$gt%($0,$$0)}, [1,5,9])}%4</code> →
+<code>[5,9]</code>;
+<code>parent={$filter%({$elem%($$0, $0.kids)}, $nodes)}</code>. Loud
+when no such frame or argument exists.</li>
+<li><strong>Named macros</strong> — assign a form to a name and call it
+by name (forms persist in context):
+<code>steelman={($0 :: 'its strongest, most charitable form') .. 'the gist'}; $steelman%'we should rewrite it in Rust'</code>.
+The prelude (§Prelude) is exactly such a library, loaded into every
+run.</li>
+<li><strong>Do-N composition <code>{form}_N</code></strong> — builds a
+form that applies <code>form</code> repeatedly, then <code>%</code> runs
+it: <code>({$0+1}_3)%5</code> → <code>8</code>. Runtime construction is
+capped at <strong>64 applications</strong>; larger counts error before
+allocating a deep AST. Evaluation independently bounds all recursive
+paths, including runtime-built form arguments, so malformed/generated
+trees fail cleanly instead of overflowing the native stack.</li>
+<li>Building/applying forms is deterministic (structural); only the
+realisation of the <em>expanded</em> body hits the model.</li>
+</ul>
+<h3 id="dictionaries--accessors">Dictionaries &amp; accessors</h3>
+<ul>
+<li><strong><code>{k=v, k2=v2}</code></strong> — a <strong>dict
+literal</strong>: an insertion-ordered <code>key=value</code> map. A
+<code>{…}</code> is a <strong>dict</strong> iff its body is a comma-list
+(or single) of ≥1 items that are <strong>all</strong>
+<code>key=value</code> assigns; a single non-assign expression is a
+<strong>form</strong> instead (<code>{2+3}</code> → the form
+<code>{(2 + 3)}</code>); empty <code>{}</code> is an empty dict. Keys
+are bare-name strings; values eval <strong>eagerly</strong> at
+construction (<code>{k=1+2}</code> → <code>{k=3}</code>), except an
+explicit form-literal value stays quoted (<code>{k={$0*2}}</code> →
+<code>k</code> ↦ a form — code-as-data). A <code>;</code> inside
+<code>{…}</code> is a <strong>clear error</strong>, never a form: a
+form-quote holds a <em>single</em> expression, so a multi-statement
+<code>{a; b}</code> block has no representation.</li>
+<li><strong><code>.</code></strong> — the <strong>polymorphic
+accessor</strong> (deterministic, structural):
+<code>container.key</code>. <code>[a,b,c].1</code> → <code>b</code>
+(0-based list index; negative counts from the end, <code>.-1</code> →
+last), <code>{k=v}.k</code> → <code>v</code> (dict field),
+<code>"the".2</code> → <code>e</code> (char at index). Out-of-range or a
+missing key is a <strong>loud error</strong>, never a silent empty.
+Distinct from <code>$nth</code>.</li>
+<li><strong><code>..</code></strong> — the <strong>semantic
+accessor</strong>, the LLM twin of <code>.</code>: reads element N from
+the sequence <em>described</em> by the text.
+<code>"the planets from the sun"..3</code> → "earth"; it generalizes
+past integers to descriptors ("the last", "the largest"). A
+deterministic stub (<code>item N of: …</code>) keeps det-total; the
+model realises llm mode. The <code>.</code>↔︎<code>..</code> duality
+(structural access ↔︎ semantic access) rhymes with <code>~&gt;</code> and
+<code>@</code>↔︎<code>=&gt;</code> — the det/llm pairing that recurs
+across the vocabulary. <strong>Numeric range</strong>: when
+<em>both</em> operands are integer literals (<code>a..b</code>),
+<code>..</code> short-circuits to a deterministic inclusive
+<strong>range list</strong> instead of semantic access —
+<code>1..5</code> → <code>[1,2,3,4,5]</code> (ascending),
+<code>5..1</code> → <code>[5,4,3,2,1]</code> (descending),
+<code>3..3</code> → <code>[3]</code>. This repurposes the
+otherwise-useless numeric case (indexing a number is nonsensical) into
+the range literal mathy programs need:
+<code>$fold%({$0+$1},1..100)</code> → 5050 (Gauss),
+<code>{$0*$1}⊘(1..5)</code> → 120 (5!). Text-LHS semantic access
+(<code>"primes"..5</code>) is untouched — only two integer operands
+trigger the range. <strong>Seed reliability</strong>: a terse descriptor
+can win on brevity (<code>sol..3</code> → "Earth", reading
+<code>sol</code> as the Sun) but terse meaning-tokens are often
+ambiguous — <code>sol</code> is also the solfège note, so higher indices
+drift (<code>sol..7</code> → "Si") — and llm realisation is
+non-deterministic. Prefer an unambiguous seed
+(<code>"the planets from the sun"..3</code>) for anything you'll re-run
+or ship. <strong>Access kind</strong>: an unambiguous seed is necessary
+but <em>not</em> sufficient. Reliability also depends on whether the
+addressed element is <em>recalled</em> as a distinctive fact or
+<em>enumerated</em> by counting. Distinctive named constants are stable
+across samples (<code>'perfect'..2</code> → 28 on every draw — the 2nd
+perfect number is a recalled fact); an ordinal index into a counting
+sequence can be flaky <em>within one transport</em>
+(<code>'primes'..5</code> measured 11, 7, 7 over three identical runs —
+the model sometimes miscounts the enumeration). So <code>..N</code> is
+dependable only when the element is a recallable fact, not a derived
+count. For anything asserted or shipped, prefer deterministic math
+(fold/map over explicit lists) over ordinal semantic access; reserve
+<code>..</code> for the "describe the math, the model supplies the
+sequence" demo, where the supply may vary or err. (Measured 2026-07-08,
+sonnet CLI; see bd-429d87.)</li>
+<li><strong>Precedence</strong>: <code>.</code> (priority 19) binds
+tighter than <code>%</code> application (18), so a form stored in a dict
+applies like a method — <code>lib={dbl={$0*2}};$lib.dbl%21</code> →
+<code>42</code> — and <code>$f%$row.k</code> applies <code>$f</code> to
+<code>$row.k</code>. A parenthesised argument list closes the call, so
+<code>$get%($nodes, $id).title</code> reads <code>.title</code> of the
+result, as <code>f(x).k</code> would.</li>
+<li><strong>snake_case keys</strong>: directly after <code>.</code>, a
+key run includes <code>_</code> (<code>$node.rule_policy_exact</code>),
+and an identifier containing <code>_</code> that is followed by an
+assignment <code>=</code> is one key (<code>first_name=ada</code>,
+<code>{row_id=1}</code>). Elsewhere <code>x_2</code> still splits for
+the <code>_</code> echo operator.</li>
+<li><strong>Limitation (v1)</strong>: chained <em>numeric</em> access
+<code>list.1.0</code> lexes <code>1.0</code> as a float (numeric-literal
+lexing runs before operator matching — which is exactly what keeps
+<code>3.14</code> a number), so it is a clear "index must be an integer"
+error; use <code>(list.1).0</code>. Dict/string chaining
+(<code>.k.k2</code>, <code>.1.k</code>) is unaffected.</li>
+</ul>
+<h3 id="data-trees-loading-and-navigating-structured-data">Data trees:
+loading and navigating structured data</h3>
+<p>Context values keep their JSON structure: objects are
+insertion-ordered <strong>dicts</strong>, arrays are
+<strong>lists</strong>, all the way down (a context file,
+<code>NLIR_CONTEXT</code>, the wasm <code>contextJson</code>, and
+assigned dicts round-tripping through context). Load a whole file as a
+native value with <strong><code>--bind NAME=PATH</code></strong>
+(<code>.json</code> and <code>.yaml</code>/<code>.yml</code> load as
+data; any other file — Markdown, text — binds as one string; repeatable;
+transient — never written to a context file):</p>
+<pre><code>nlir --bind spec=spec.json -f lib.nlir -e &#39;$join%({$0.id}↦$spec.items, &quot;, &quot;)&#39;</code></pre>
+<p><strong><code>-f PATH</code></strong> runs a program file
+(repeatable; files then any <code>-e</code> are joined as
+<code>;</code>-separated statements, so a library file can define named
+forms used later). In program files, lines whose first non-blank
+characters are <code>--</code> are comments.</p>
+<p>Deterministic data builtins (all loud on bad input; a context key of
+the same name shadows them):</p>
+<table>
+<thead>
+<tr>
+<th>builtin</th>
+<th>result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$keys%d</code> / <code>$values%d</code></td>
+<td>a dict's keys / values (a list's indices / items)</td>
+</tr>
+<tr>
+<td><code>$entries%d</code></td>
+<td><code>[{key=k, value=v}, …]</code> — map a dict like a list of
+records</td>
+</tr>
+<tr>
+<td><code>$dict%pairs</code></td>
+<td>a dict from <code>[key, value]</code> pairs or
+<code>{key, value}</code> records — the inverse of
+<code>$entries</code>, and the way to build a dict with computed
+keys</td>
+</tr>
+<tr>
+<td><code>$get%(c, k)</code> / <code>$get%(c, k, default)</code></td>
+<td>dynamic <code>.</code>: dict key or list/string index
+(<code>$get%($nodes, $id)</code> for keys with spaces); missing →
+default, else loud</td>
+</tr>
+<tr>
+<td><code>$has%(c, k)</code></td>
+<td>Bool: is <code>k</code> a key / valid index</td>
+</tr>
+<tr>
+<td><code>$join%(list, sep)</code></td>
+<td>items rendered and joined with <code>sep</code></td>
+</tr>
+<tr>
+<td><code>$flat%list</code></td>
+<td>flatten one level — the concat recursive tree walks need (and list
+append: <code>$flat%[$xs, [x]]</code>)</td>
+</tr>
+<tr>
+<td><code>$zip%(a, b, …)</code></td>
+<td><code>[[a0, b0], [a1, b1], …]</code>, truncated to the shortest —
+pair parallel results with their inputs</td>
+</tr>
+<tr>
+<td><code>$slice%(c, start[, end])</code></td>
+<td>sub-list / substring, end-exclusive, negatives from the end,
+clamped</td>
+</tr>
+<tr>
+<td><code>$json%v</code> / <code>$json%(v, indent)</code></td>
+<td>the value as JSON text (dicts stay ordered)</td>
+</tr>
+<tr>
+<td><code>$parse%text</code></td>
+<td>JSON text as a value — the inverse of <code>$json</code>; tolerates
+a code fence or prose around the JSON (model replies), loud when there
+is none</td>
+</tr>
+<tr>
+<td><code>$type%v</code></td>
+<td><code>string</code> · <code>number</code> · <code>bool</code> ·
+<code>list</code> · <code>dict</code> · <code>form</code></td>
+</tr>
+<tr>
+<td><code>$trim%s</code> · <code>$lower%s</code> · <code>$upper%s</code>
+· <code>$lines%s</code></td>
+<td>text plumbing (<code>$lines</code> splits on newlines)</td>
+</tr>
+<tr>
+<td><code>$replace%(s, from, to)</code></td>
+<td>literal replace-all</td>
+</tr>
+<tr>
+<td><code>$match%(s, re)</code></td>
+<td>first regex match — the whole match, its one group, or a list of
+groups; <code>''</code> if none</td>
+</tr>
+<tr>
+<td><code>$matches%(s, re)</code></td>
+<td>every match (same shape per match)</td>
+</tr>
+<tr>
+<td><code>$sub%(s, re, repl)</code></td>
+<td>regex replace-all (<code>$1</code>, <code>${name}</code> refer to
+groups)</td>
+</tr>
+</tbody>
+</table>
+<p>Write regexes in single quotes (<code>'\d+'</code>): double-quoted
+strings process <code>\</code> escapes. A recursive named form walks a
+tree:
+<code>ids={$flat%[[$0.id], $flat%({$ids%$0}↦$0.children)]}; $ids%$tree</code>.</p>
+<h3 id="higher-order-list-builtins-map--fold--scan--filter">Higher-order
+list builtins (<code>$map</code> / <code>$fold</code> /
+<code>$scan</code> / <code>$filter</code>)</h3>
+<p>Deterministic, model-free list combinators (bd-14af74): each takes a
+<strong>form</strong> as its first argument and applies it structurally
+— the form's body only touches the model if it <em>itself</em> contains
+an llm op. <code>$map</code> has a keyboard-typable alias
+(<code>&lt;$&gt;</code>) and a visual alias (<code>↦</code>);
+<code>$fold</code> has <code>⊘</code> (see the operator table).
+<code>$scan</code> and <code>$filter</code> are builtin-only. These
+aliases are ordinary <code>config.yaml</code> operators using
+<code>builtin:</code> — the engine does not hardcode their
+spellings.</p>
+<ul>
+<li><strong><code>$map%(f, list)</code></strong> — apply <code>f</code>
+to each element: <code>$map%({$0*$0},[1,2,3])</code> →
+<code>[1,4,9]</code>. Aliases <code>&lt;$&gt;</code> and <code>↦</code>:
+<code>{$0*$0}&lt;$&gt;[1,2,3]</code>.</li>
+<li><strong><code>$fold%(f, list)</code></strong> /
+<strong><code>$fold%(f, list, seed)</code></strong> — reduce
+<code>list</code> with the binary form <code>f</code> (<code>$0</code> =
+accumulator, <code>$1</code> = element), seeded by the first element, or
+by <code>seed</code> when given (so the accumulator may differ in type
+from the items and an empty list folds to <code>seed</code>;
+<code>$scan</code> takes the same optional seed):
+<code>$fold%({$0+$1},[1,2,3,4])</code> → <code>10</code>. Alias
+<code>⊘</code>. Pairs with the numeric range for exact aggregates:
+<code>$fold%({$0+$1},1..100)</code> → <code>5050</code> (Gauss).</li>
+<li><strong><code>$scan%(f, list)</code></strong> — like
+<code>$fold</code> but returns every intermediate accumulator (the
+running reduction): <code>$scan%({$0+$1},[1,2,3,4])</code> →
+<code>[1,3,6,10]</code> (running sums);
+<code>$scan%({$0*$1},1..5)</code> → running factorials
+<code>[1,2,6,24,120]</code>.</li>
+<li><strong><code>$filter%(f, list)</code></strong> — keep the elements
+for which <code>f</code> is truthy:
+<code>$filter%({$0&gt;=5},[3,7,2,9])</code> → <code>[7,9]</code>; with a
+predicate builtin, <code>$filter%({$gt%($0,$m)},1..10)</code> selects
+those above a bound <code>$m</code>. Composes the whole trio:
+<code>$fold%({$0+$1},$map%({$0*$0},$filter%({$0},[1,2,3,0,4])))</code> →
+<code>30</code>.</li>
+</ul>
+<p>Together these are the deterministic composable core — statistics
+(mean = <code>$fold%(…)/$len%…</code>), running series, and
+predicate-filtered aggregates — all exact, model-free, and
+CI-gateable.</p>
+<h3 id="set-notation-builtins-elem--union--inter--diff">Set-notation
+builtins (<code>$elem</code> / <code>$union</code> / <code>$inter</code>
+/ <code>$diff</code>)</h3>
+<p>Deterministic, total set algebra over values (bd-49d65a). Like
+<code>$sort</code>/<code>$contains</code>, element identity is the
+<strong>rendered value</strong> (trimmed), so lists of numbers, strings,
+or mixed values compare predictably.
+<code>$union</code>/<code>$inter</code>/<code>$diff</code> return a
+list; results are <strong>order-preserving</strong> (first-occurrence
+order of the left operand) and <strong>deduped</strong>. Coercion for
+the algebra ops: a <strong>list</strong> spreads to its items, a
+<strong>dict</strong> spreads to its <strong>keys</strong> (set ops on a
+dict operate on its key set), and a scalar is a one-element set.</p>
+<ul>
+<li><strong><code>$elem%(item, coll)</code></strong> — membership
+<code>Bool</code>, the flip of <code>$contains</code> ("contained-in /
+element-of"). Polymorphic on <code>coll</code>: a <strong>list</strong>
+→ exact element membership (<code>$elem%('b',[a,b,c])</code> →
+<code>true</code>); a <strong>dict</strong> → key membership
+(<code>$elem%('k',{k=1,j=2})</code> → <code>true</code>); a
+<strong>string</strong> → substring
+(<code>$elem%('broken','login page broken')</code> → <code>true</code>);
+a scalar → equality.</li>
+<li><strong><code>$union%(a, b, …)</code></strong> — variadic union:
+<code>$union%([1,2],[2,3])</code> → <code>[1,2,3]</code>. A single list
+argument doubles as <strong>unique/nub</strong>:
+<code>$union%[a,b,a,c]</code> → <code>[a,b,c]</code>.</li>
+<li><strong><code>$inter%(a, b)</code></strong> — intersection
+<code>a ∩ b</code>: items of <code>a</code> (a-order, deduped) also in
+<code>b</code>. <code>$inter%([1,2,3],[2,3,4])</code> →
+<code>[2,3]</code>; a disjoint pair → the empty list.</li>
+<li><strong><code>$diff%(a, b)</code></strong> — difference
+<code>a ∖ b</code>: items of <code>a</code> (a-order, deduped) not in
+<code>b</code>. <code>$diff%([1,2,3],[2])</code> → <code>[1,3]</code>.
+(Distinct from the semantic <code>Δ</code> operator, which is an llm
+text-diff, not set subtraction.)</li>
+</ul>
+<p>They compose with the rest of the value-builtin family:
+<code>$if%($elem%('ERROR',$0),'page','ok')</code> gates on membership;
+<code>$nth%(0,$sort%$union%(a,b))</code> = the least element of a merged
+set. Sigil aliases (<code>∪ ∩ ∈ ∖</code>) are a planned follow-up
+(config-operator layer).</p>
+<h3 id="length-builtin-len">Length builtin (<code>$len</code>)</h3>
+<p><strong><code>$len%coll</code></strong> — the length/cardinality of
+<code>coll</code> as a <code>Number</code> (bd-b9b491): a
+<strong>list</strong> → item count, a <strong>dict</strong> → key count,
+and anything else (<strong>string</strong>/number/bool/form) → the
+Unicode character count of its rendered form (so a string's length is
+its chars: <code>$len%'hello'</code> → 5, <code>$len%42</code> → 2).
+Total + deterministic — the model-free counting primitive:
+<code>$len%[2,3,5,7,11]</code> → 5, <code>$len%{a=1,b=2}</code> → 2, and
+set cardinality <code>$len%($inter%([2,3,5,7,11],[1,3,5,7,9]))</code> →
+3. A spread list <code>$len%[a,b,c]</code> (3 args) counts 3; a single
+scalar in a single-element list <code>$len%[x]</code> is
+indistinguishable from <code>$len%x</code> after the spread.</p>
+<h3 id="predicate-builtins-gt--lt--not">Predicate builtins
+(<code>$gt</code> / <code>$lt</code> / <code>$not</code>)</h3>
+<p><strong><code>$gt%(a,b)</code></strong> /
+<strong><code>$lt%(a,b)</code></strong> — STRICT numeric comparison
+(bd-89b3d0), <code>a &gt; b</code> / <code>a &lt; b</code>, returning a
+<code>Bool</code>. They fill the strict-comparison gap: the
+<code>&gt;</code>/<code>&lt;</code> sigils are taken (expand/shorten),
+and the <code>&gt;=</code>/<code>&lt;=</code> operators are non-strict,
+so <code>$gt%(3,3)</code> → false where <code>3&gt;=3</code> → true.
+Operands coerce to number like
+<code>&gt;=</code>/<code>&lt;=</code>.</p>
+<p><strong><code>$not%(x)</code></strong> — boolean NOT: negates
+<code>x</code>'s truthiness and returns a <code>Bool</code>. Unlike
+<code>!</code> (which is <em>textual</em> negation, e.g.
+<code>!(3&gt;=5)</code> → the string "not (false)"), <code>$not</code>
+inverts any Bool — including a fuzzy <code>~&gt;</code> result — so it
+composes in fold-fusion count-if-NOT. Since Bools coerce true→1 under
+<code>+</code>, map a predicate then fold to count:
+<code>$fold%({$0+$1},$map%({$lt%($0,5)},0..10))</code> → 5. The sigil
+alias <code>¬</code> (config operator, prefix) completes
+<code>∧ ∨ ¬</code> — see the operator table.</p>
+<h3 id="rounding-builtins-floor--ceil--round">Rounding builtins
+(<code>$floor</code> / <code>$ceil</code> / <code>$round</code>)</h3>
+<p>Fundamental numeric primitives (bd-9004bb): <code>$floor%x</code> →
+⌊x⌋, <code>$ceil%x</code> → ⌈x⌉, <code>$round%x</code> → nearest integer
+(half away from zero). Operand coerces to number. They keep
+<code>$nth</code> strict (it rejects a fractional index) while letting
+<strong>median</strong> fall out of sort + index — no special
+<code>$median</code> function:
+<code>$nth%($floor%($len%L/2),$sort%L)</code> is the middle element for
+odd length. The two middle indices are <code>$floor</code> and
+<code>$ceil</code> of <code>($len-1)/2</code>, so one expression gives
+the median for both parities (mean of the two middles when even). Same
+principle as max = sort-then-last: composable primitives over
+special-cased sugar. A sigil alias (⌊⌋) is a config-operator
+follow-up.</p>
+<p><strong><code>$sqrt%x</code></strong> (bd-92cbf0) — square root
+(<code>f64::sqrt</code>; negative operand → <code>NaN</code>). Same
+unary-numeric family. It completes <strong>stddev</strong> — variance
+already composes from
+<code>$fold</code>/<code>$map</code>/<code>$len</code>, so stddev =
+<code>$sqrt%variance</code> — and unlocks Pythagoras/hypotenuse
+(<code>$sqrt%(3*3+4*4)</code> → 5), Euclidean distance, and geometric
+mean. A <code>√</code> sigil is a config-operator follow-up.</p>
+<h3 id="modulo-builtin-mod">Modulo builtin (<code>$mod</code>)</h3>
+<p><strong><code>$mod%(a,b)</code></strong> — mathematical modulo (mathy
+golf): the remainder of <code>a</code> divided by <code>b</code> via
+<code>rem_euclid</code>, so the result is <strong>non-negative</strong>
+in <code>[0, |b|)</code> — <code>$mod%(7,3)</code> → 1,
+<code>$mod%(0-1,3)</code> → 2 (not -1, unlike C-style <code>%</code>).
+Operands coerce to number like <code>$gt</code>/<code>$lt</code>; a zero
+divisor is a loud error. The non-negative convention is what makes
+number theory compose cleanly: even/odd (<code>$mod%(n,2)</code> → 0/1),
+divisibility (<code>$mod%(n,k)</code> → 0), cyclic indexing, and
+Euclid-style GCD. Count evens in 1..10:
+<code>$len%($filter%({$not%($mod%($0,2))},1..10))</code> → 5.</p>
+<p>Reserved builtin sigils: <code>; $ ^ = [ ] , ( ) { } % \</code>
+<code>`</code> , the quote chars <code>" '</code>, the escape
+<code>\</code>. Configured operator sigils
+(<code># ! &amp; | :: .. + - * / ** …</code>) add to this. After
+<code>^</code>/<code>$</code>, <code>* _ /</code> are role modifiers and
+a leading <code>-</code> is a negative index.</p>
+<hr />
+<h2 id="lenses-backward-passes-nlir-put">Lenses: backward passes
+(<code>nlir put</code>)</h2>
+<p>A program is a <em>get</em>: inputs (bound data, its own literals) →
+output. <code>nlir put --edited FILE [-f …] [--bind …] [EXPR]</code> is
+its <em>put</em>: it runs the program forward (det), pushes the edited
+output back through it, and prints JSON — the edits to bound inputs
+(<code>kind: data</code>, with <code>/</code>-separated leaf paths), the
+edits to program literals (<code>kind: program</code>, with the
+statement and AST path), edits that could not be pushed further
+(<code>stuck</code>, naming the expression and why), and clashing edits
+(<code>conflicts</code>). Both lens laws are checked by re-evaluation:
+<strong>GetPut</strong> (the unedited output implies no edits) and
+<strong>PutGet</strong> (the edited inputs and program reproduce the
+edited output).</p>
+<p>Each deterministic construct carries its own put: <code>.</code> and
+<code>$get</code> set the field they read; <code>++</code> aligns the
+edited text with its old parts by a character diff (an edit at a
+boundary between a literal and a computed part goes to the computed part
+— content belongs in data); <code>$join</code> splits on its separator;
+<code>$trim</code> restores whitespace; <code>↦</code> /
+<code>$map</code> put each item through the mapped form;
+<code>$if</code> puts into the branch it took; list and dict literals
+put element-wise. A form application puts through the form's body (a
+program-defined form through the body as written), and edits to
+<code>$0 $1 …</code> become edits to the call's arguments, merged
+three-way so separate field edits to one record combine. A name bound by
+an earlier statement puts into that statement.</p>
+<p><code>_inverses</code> declares isomorphisms:
+<code>_inverses={quote=unquote}</code> makes a call to either form put
+through the other, which is how a regex-built layout (<code>$sub</code>
+has no general inverse) inverts exactly. <code>$json</code> puts by
+parsing the edited text back into a value.</p>
+<p><strong>Model operators</strong> (<code>=&gt;</code>,
+<code>::</code>, <code>..</code>, <code>!</code>, …) get a model-backed
+put in llm mode (<code>nlir put --mode llm</code>): a request on the
+<code>large</code> tier asks for minimal find/replace patches to the
+operator's inputs that would turn its output into the edited output
+(preferring the subject matter over the operation's directions). The
+patches apply exactly and each changed input puts further back with the
+exact rules — so a patch to an instruction built with <code>++</code>
+lands in the data it was built from, e.g. a field of a packet rendered
+with <code>$json</code>. An operator may carry an authored backward
+instruction (<code>put:</code> in its config), folded into the request.
+The request is an ordinary content-addressed realisation, so it replays
+from the store. In llm mode PutGet is judged:
+<code>put_get_similarity</code> is <code>≈</code> between the edited
+output and the re-run; and <code>tensions</code> lists input changes
+that contradict each other — across fields, or within one edited text
+(edits can merge textually — text edits to one value merge three-way
+when their regions do not overlap — and still contradict each
+other).</p>
+<h2 id="whitespace-escapes--quoting">Whitespace, escapes &amp;
+quoting</h2>
+<ul>
+<li><strong>Whitespace between tokens is non-semantic</strong>
+(spaces/tabs/newlines stripped) — expressions can be written as
+multi-line programs.</li>
+<li><strong>Bare literal</strong> = <code>[a-zA-Z0-9]+</code>; numbers
+are numeric literals in numeric positions. For spaces/sigils use escapes
+or quotes.</li>
+<li><strong>POSIX escapes</strong> → literal chars incl. whitespace:
+<code>\ </code> <code>\t</code> <code>\n</code> <code>\\</code>
+<code>\"</code> <code>\'</code>.</li>
+<li><strong>Quotes</strong> preserve internal whitespace:
+<ul>
+<li><code>'…'</code> — raw (no escapes, no interpolation);</li>
+<li><code>"…"</code> — escapes processed <strong>and</strong> bare
+<code>$name</code> interpolated (see below);</li>
+<li><code>'one two'</code> → "one two".</li>
+</ul></li>
+</ul>
+<hr />
+<h2 id="interpolation--evaluation-timing">Interpolation &amp; evaluation
+timing</h2>
+<ul>
+<li>Context reads (<code>$name</code>, <code>$N</code>, <code>^…</code>)
+and <code>"…"</code> interpolation are resolved <strong>greedily at
+evaluation time</strong>, not parse time — context may change mid-run
+(appended messages, <code>=</code> writes), so late resolution reflects
+current state.</li>
+<li>Only bare <code>$name</code> interpolates inside <code>"…"</code> —
+not <code>${…}</code>, <code>$N</code>, <code>^…</code>, or nested
+expressions. <code>"the subject is $k"</code> interpolates
+<code>$k</code> when that node evaluates.</li>
+</ul>
+<hr />
+<h2 id="execution-graph--parallelism">Execution graph &amp;
+parallelism</h2>
+<ul>
+<li>The program is a <strong>DAG</strong>; independent LLM calls /
+<code>command:</code> subprocesses run <strong>concurrently</strong>,
+bounded by <code>--parallelism</code> (default <code>8</code>). Fan-out
+points: an operator's operands, the items of a list literal
+(<code>[!a, !b, !c]</code>), the values of a dict literal, and
+<code>$map</code>/<code>↦</code> over a list — each item is bound into
+the form body (<code>$0</code> → the item) and the bound bodies run side
+by side when parallel-safe. A body that writes context, reads the stack
+or applies a named form runs item by item.</li>
+<li><strong>Safety:</strong> greedy interpolation + context writes make
+blind parallelism unsafe. Any subtree that <strong>writes
+context</strong> (<code>=</code>) is serialised against readers; when in
+doubt the scheduler forces serial.</li>
+<li><strong><code>`</code> prefix</strong> forces serial evaluation of
+the whole of its RHS for ordering automatic detection can't infer — but
+the marked subtree stays parallel with its siblings. In
+<code>a+`(a+b)</code> the outer operands <code>a</code> and
+<code>`(a+b)</code> run in parallel, while <code>a</code> then
+<code>b</code> inside the backtick run serially.</li>
+<li><strong>Caching (content-addressed realisations):</strong> every
+realisation is keyed by a SHA-256 of the operator's full definition (its
+config, the resolved model backend, the prompt fragments), the typed
+operands, grouping, separator and <code>_seed</code>. Model and command
+calls are nlir's only effects, so a hit returns exactly what the call
+produced: identical calls are free and replays are deterministic.
+Scopes: one evaluation (default); a host-held cache across runs (below);
+or a <strong>store file</strong> (<code>--cache-file PATH</code>,
+<code>NLIR_CACHE_FILE</code>, or <code>_cache_file</code> with
+<code>_cache=persist</code>) of JSON lines shared across runs, evals and
+hill-climb rounds — it only grows, records effectful realisations only,
+and never evicts. <code>--replay strict</code> turns an unrecorded
+model/command call into an error. <code>_cache=off</code> disables
+caching (the old, nondeterministic behaviour). Editing an operator's
+prompt or model changes its keys, so a store never replays a stale
+definition.</li>
+<li><strong>Explicit randomness:</strong> <code>$draw%(form, n)</code>
+evaluates <code>form</code> <code>n</code> times (0–64) under seeds
+<code>_seed, _seed+1, …</code> (from 0 when unset), passing the draw
+index as <code>$0</code>, and restores <code>_seed</code> afterwards.
+Fresh samples are always an explicit request. A normal evaluation owns a
+run-local cache. Incremental/speculative hosts may retain an
+<code>EvaluationCache</code> across edits via
+<code>evaluate_with_cache</code>,
+<code>evaluate_async_with_cache</code>, or the cached async
+step/streaming variants: unchanged call keys hit, while an edited
+operand changes its key and naturally invalidates that node and every
+dependent parent. Cache locks are never held across an async realiser
+await; retention is bounded to 1024 completed calls, and hosts clear the
+cache when config/model policy changes incompatibly.</li>
+</ul>
+<hr />
+<h2 id="output--tracing">Output &amp; tracing</h2>
+<ul>
+<li><strong>Default:</strong> result → <strong>stdout</strong>; a
+pretty, real-time trace of the expansion (ops / LLM calls resolving) →
+<strong>stderr</strong>.</li>
+<li><strong><code>--quiet</code></strong> — stdout result only.</li>
+<li><strong><code>--dry-run</code></strong> — DAG + assembled prompts,
+no calls.</li>
+</ul>
+<hr />
+<h2 id="config-operators-the-language-proper">Config operators (the
+language proper)</h2>
+<p>The <strong>canonical operator vocabulary</strong> — each realised
+via <code>template</code> / <code>det</code> / <code>reduce</code> /
+<code>builtin</code> / <code>command</code> (deterministic) or
+<code>prompt</code> (llm). These descriptions are the authoritative
+semantics, mirrored by <code>nlir help</code>.</p>
+<p>Glyphs are reserved for <strong>generic transforms</strong>:
+operations recognisable from category theory and functional programming,
+polymorphic over the values they act on. Task-specific rewrites (formal,
+plain, question, gist, …) are not glyphs; they are
+<strong>prelude</strong> forms built from the core (§Prelude), readable
+and overridable.</p>
+<p><strong>Semantic core</strong> (model-realised; each has a
+deterministic stub for <code>--mode det</code>). Values are texts read
+as concepts.</p>
+<table>
+<thead>
+<tr>
+<th>op</th>
+<th>name</th>
+<th>fixity · arity</th>
+<th>what it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>=&gt;</code></td>
+<td>respond</td>
+<td>prefix · 1</td>
+<td>Obey: treat the operand as an INSTRUCTION and return only the result
+of following it (length/format constraints included). Generative rather
+than transformative; carries the <code>generative</code> system frame,
+so it obeys on any tier. A bare <code>=&gt;</code> on a pipe obeys the
+piped text.</td>
+</tr>
+<tr>
+<td><code>::</code></td>
+<td>recast</td>
+<td>infix · 2</td>
+<td><code>x :: kind</code> re-expresses x as the kind of text named on
+the right — a register, form, genre, format or length
+(<code>'formal'</code>, <code>'a question'</code>,
+<code>'plain language'</code>, <code>'a haiku'</code>,
+<code>'JSON'</code>) — keeping its meaning. Saturates:
+<code>x::k::k ≈ x::k</code>.</td>
+</tr>
+<tr>
+<td><code>..</code></td>
+<td>project</td>
+<td>infix · 2</td>
+<td><code>x .. aspect</code> returns the part of x the right operand
+describes — an aspect (<code>'its subject'</code>,
+<code>'the gist'</code>, <code>'the risks'</code>) or a position
+(<code>3</code>, <code>'the last item'</code>). The semantic twin of
+<code>.</code>; two integers give the deterministic range
+<code>a..b</code>.</td>
+</tr>
+<tr>
+<td><code>!</code></td>
+<td>dual</td>
+<td>prefix · 1</td>
+<td>The opposite: a claim negated clause-wise (<code>!(a&amp;b)</code> =
+neither), a concept-word's antonym. An involution:
+<code>!!x ≈ x</code>.</td>
+</tr>
+<tr>
+<td><code>&amp;</code></td>
+<td>and</td>
+<td>mixfix · &gt;0</td>
+<td>Product: joins operands into one "X and Y" statement (not boolean
+∧); nullary <code>&amp;</code> folds the premise stack.</td>
+</tr>
+<tr>
+<td><code>|</code></td>
+<td>or</td>
+<td>mixfix · &gt;0</td>
+<td>Coproduct: joins operands into one "X or Y" choice, kept as genuine
+alternatives.</td>
+</tr>
+<tr>
+<td><code>Δ</code></td>
+<td>change</td>
+<td>infix · 2</td>
+<td>How the first text becomes the second — added, removed, shifted.
+Directional (<code>aΔb ≠ bΔa</code>).</td>
+</tr>
+<tr>
+<td><code>▷</code></td>
+<td>apply</td>
+<td>infix · 2</td>
+<td><code>x ▷ change</code> returns x changed as described, and nothing
+else. The partner of <code>Δ</code>: <code>a ▷ (a Δ b) ≈ b</code>.</td>
+</tr>
+<tr>
+<td><code>~&gt;</code></td>
+<td>entails</td>
+<td>infix · 2</td>
+<td>Bool: does the first text imply the second? The preorder on
+meanings. det = substring containment.</td>
+</tr>
+<tr>
+<td><code>≈</code></td>
+<td>similarity</td>
+<td>infix · 2</td>
+<td>Number in [0,1]: how fully the second text keeps the
+<em>meaning</em> of the first (reference). det = word-set Jaccard; llm =
+judged equivalence of claims, conditions and criteria
+(<code>$gen ≈ $gold &gt;= 0.8</code>).</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Structural core</strong> (deterministic, polymorphic — the
+typeclass-shaped layer):</p>
+<table>
+<thead>
+<tr>
+<th>op</th>
+<th>name</th>
+<th>fixity · arity</th>
+<th>what it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.</code></td>
+<td>access</td>
+<td>infix · 2</td>
+<td>Lens get: <code>[a,b,c].1</code>→<code>b</code> (0-based, negative
+from end), <code>{k=v}.k</code>→<code>v</code>,
+<code>"the".2</code>→<code>e</code>. Missing → loud error. Binds above
+<code>%</code>.</td>
+</tr>
+<tr>
+<td><code>++</code></td>
+<td>concat</td>
+<td>mixfix · &gt;0</td>
+<td>Monoid append: text concatenates, lists concatenate, dicts merge
+right-biased (<code>{a=1}++{a=2,b=3}</code> → <code>{a=2,b=3}</code>). A
+lone list operand mconcats its items (<code>++[a,b,c]</code> →
+<code>abc</code>).</td>
+</tr>
+<tr>
+<td><code>_</code></td>
+<td>mtimes</td>
+<td>infix · 2</td>
+<td>Monoid power: <code>x _ n</code> = n copies appended —
+<code>'ab'_3</code> → <code>ababab</code>, a list repeats its items, and
+a <code>{form}</code> composes with itself n times
+(<code>{$0+1}_3 % 5</code> → 8).</td>
+</tr>
+<tr>
+<td><code>∘</code></td>
+<td>compose</td>
+<td>mixfix · &gt;0</td>
+<td>Composition: <code>(f ∘ g) % x</code> = <code>f % (g % x)</code>;
+variadic, right to left. Builds pipelines from named forms:
+<code>($gist ∘ $formal) % notes</code>.</td>
+</tr>
+<tr>
+<td><code>#</code></td>
+<td>length</td>
+<td>prefix · 1</td>
+<td>Foldable length: list items, dict keys, text characters. Alias for
+<code>$len</code>.</td>
+</tr>
+<tr>
+<td><code>//</code></td>
+<td>split</td>
+<td>infix · 2</td>
+<td>Split text by a separator into a list: <code>"a,b,c"//","</code> →
+<code>[a,b,c]</code>.</td>
+</tr>
+<tr>
+<td><code>&lt;$&gt;</code></td>
+<td>mapascii</td>
+<td>infix · 2</td>
+<td>Functor map: apply the left form to each item of the right list:
+<code>{$0*$0}&lt;$&gt;[1,2,3]</code> → <code>[1,4,9]</code>. Alias for
+<code>$map%</code>.</td>
+</tr>
+<tr>
+<td><code>↦</code></td>
+<td>mapop</td>
+<td>infix · 2</td>
+<td>Visual map alias with the same <code>builtin: map</code> semantics
+as <code>&lt;$&gt;</code>.</td>
+</tr>
+<tr>
+<td><code>⊘</code></td>
+<td>foldop</td>
+<td>infix · 2</td>
+<td>Fold the right list with the left binary form:
+<code>{$0+$1}⊘[1,2,3,4]</code> → <code>10</code>. Alias for
+<code>$fold%</code>.</td>
+</tr>
+<tr>
+<td><code>∪</code></td>
+<td>setunion</td>
+<td>infix · 2</td>
+<td>Set union — order-preserving, deduped; dict operands → their keys.
+Alias for <code>$union%</code>.</td>
+</tr>
+<tr>
+<td><code>∩</code></td>
+<td>setinter</td>
+<td>infix · 2</td>
+<td>Set intersection — items of <code>a</code> also in <code>b</code>.
+Alias for <code>$inter%</code>; binds tighter than
+<code>∪</code>/<code>∖</code>.</td>
+</tr>
+<tr>
+<td><code>∖</code></td>
+<td>setdiff</td>
+<td>infix · 2</td>
+<td>Set difference — items of <code>a</code> not in <code>b</code>.
+Alias for <code>$diff%</code> (U+2216).</td>
+</tr>
+<tr>
+<td><code>∈</code></td>
+<td>setelem</td>
+<td>infix · 2</td>
+<td>Membership → Bool: list element, dict key, or substring. Alias for
+<code>$elem%</code>.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Numeric operators</strong> (<code>operands: number</code>,
+<code>result: number</code>, <code>reduce:</code>):</p>
+<table>
+<thead>
+<tr>
+<th>op</th>
+<th>name</th>
+<th>fixity · arity</th>
+<th>what it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>+</code></td>
+<td>add</td>
+<td>mixfix · &gt;0</td>
+<td>Sum of the operands (words / units / bases coerce to numbers
+first).</td>
+</tr>
+<tr>
+<td><code>*</code></td>
+<td>mul</td>
+<td>mixfix · &gt;0</td>
+<td>Product of the operands.</td>
+</tr>
+<tr>
+<td><code>-</code></td>
+<td>sub</td>
+<td>infix · 2</td>
+<td>Difference, a − b (left-associative).</td>
+</tr>
+<tr>
+<td><code>/</code></td>
+<td>div</td>
+<td>infix · 2</td>
+<td>Quotient, a ÷ b (guards divide-by-zero).</td>
+</tr>
+<tr>
+<td><code>**</code></td>
+<td>pow</td>
+<td>infix · 2</td>
+<td>a to the power b — right-associative (<code>2**3**2</code> =
+512).</td>
+</tr>
+<tr>
+<td><code>√</code></td>
+<td>sqrtop</td>
+<td>prefix · 1</td>
+<td>Non-negative square root.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Comparison and boolean operators</strong>
+(<code>result: bool</code>, deterministic):</p>
+<table>
+<thead>
+<tr>
+<th>op</th>
+<th>name</th>
+<th>fixity · arity</th>
+<th>what it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>==</code></td>
+<td>equals</td>
+<td>infix · 2</td>
+<td>Equal by rendered value: <code>5==5</code> → true.</td>
+</tr>
+<tr>
+<td><code>!=</code></td>
+<td>not-equals</td>
+<td>infix · 2</td>
+<td>The operands differ.</td>
+</tr>
+<tr>
+<td><code>&lt;</code></td>
+<td>less</td>
+<td>infix · 2</td>
+<td>Numeric less-than: <code>3&lt;5</code> → true.</td>
+</tr>
+<tr>
+<td><code>&gt;</code></td>
+<td>greater</td>
+<td>infix · 2</td>
+<td>Numeric greater-than.</td>
+</tr>
+<tr>
+<td><code>&lt;=</code></td>
+<td>at-most</td>
+<td>infix · 2</td>
+<td>Numeric ≤.</td>
+</tr>
+<tr>
+<td><code>&gt;=</code></td>
+<td>at-least</td>
+<td>infix · 2</td>
+<td>Numeric ≥.</td>
+</tr>
+<tr>
+<td><code>∧</code></td>
+<td>booland</td>
+<td>infix · 2</td>
+<td>Logical AND (truthiness) — distinct from the semantic product
+<code>&amp;</code>.</td>
+</tr>
+<tr>
+<td><code>∨</code></td>
+<td>boolor</td>
+<td>infix · 2</td>
+<td>Logical OR — distinct from the semantic coproduct
+<code>|</code>.</td>
+</tr>
+<tr>
+<td><code>¬</code></td>
+<td>boolnot</td>
+<td>prefix · 1</td>
+<td>Logical NOT; negates any Bool, including a fuzzy <code>~&gt;</code>
+result. The boolean twin of <code>!</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="prelude">Prelude</h3>
+<p>Config <code>prelude:</code> is nlir source evaluated into every run
+before the program: <code>name={…}</code> named forms (and literals),
+<code>--</code> comment lines. Bindings are transient (never written to
+the context file), and a context binding of the same name wins, so a
+project can redefine or extend the vocabulary. The shipped prelude:</p>
+<table>
+<thead>
+<tr>
+<th>form</th>
+<th>definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$gist</code></td>
+<td><code>{$0 .. 'its gist, in one short sentence'}</code></td>
+</tr>
+<tr>
+<td><code>$subject</code></td>
+<td><code>{$0 .. 'its primary subject, as a short noun phrase'}</code></td>
+</tr>
+<tr>
+<td><code>$formal</code> / <code>$casual</code></td>
+<td><code>{$0 :: 'a formal, professional register'}</code> /
+<code>… 'a casual, conversational register'</code></td>
+</tr>
+<tr>
+<td><code>$plain</code></td>
+<td><code>{$0 :: 'plain language a child could follow'}</code></td>
+</tr>
+<tr>
+<td><code>$question</code></td>
+<td><code>{$0 :: 'a question with the same subject and meaning'}</code></td>
+</tr>
+<tr>
+<td><code>$expand</code> / <code>$shorten</code></td>
+<td><code>{$0 :: 'a fuller version …'}</code> /
+<code>{$0 :: 'the fewest words that keep every fact and figure'}</code></td>
+</tr>
+<tr>
+<td><code>$implies</code></td>
+<td><code>{=&gt;('State, in one sentence, what follows from: ' ++ $0)}</code></td>
+</tr>
+</tbody>
+</table>
+<p>Prelude forms compose like any form:
+<code>($gist ∘ $formal) % notes</code>, <code>$formal ↦ [a, b]</code>,
+<code>$draw%({$question%$q}, 3)</code>.</p>
+<p>The algebraic laws (<code>!!x ≈ x</code>,
+<code>x::k::k ≈ x::k</code>, <code>a ▷ (a Δ b) ≈ b</code>) are
+<strong>realised-semantics</strong>: they hold in llm realisation — the
+user-facing output — while det mode applies the literal stubs
+(<code>!!a</code> → "not not a").</p>
+<hr />
+<h2 id="grammar--parsing">Grammar &amp; parsing</h2>
+<p><strong>Tokens:</strong> bare literal <code>[a-zA-Z0-9]+</code>;
+numeric literal; quoted literal (<code>'…'</code>/<code>"…"</code>);
+operator (longest configured <code>op:</code>, so <code>**</code> before
+<code>*</code> and <code>&lt;$&gt;</code> as one token); builtin sigils
+<code>; $ ^ = [ ] , ( )</code> <code>`</code> (with
+<code>$name</code>/<code>$N</code>,
+<code>^</code>/<code>^_</code>/<code>^*</code>/<code>^/</code>,
+<code>LHS=</code> sub-forms); escapes <code>\x</code>. A builtin sigil
+may appear later in a configured punctuation operator —
+<code>&lt;$&gt;</code> is config, not a lexer special case. At a leading
+<code>$</code>, configured punctuation operators such as
+<code>$&gt;</code>/<code>$(</code> longest-match before the fallback;
+<code>$name</code>, <code>$_key</code>, <code>$N</code>,
+<code>$-N</code>, and bare <code>$</code> remain reserved stack/context
+forms and cannot be shadowed by config.</p>
+<p><strong>Operator attributes (config):</strong> <code>op</code>,
+<code>arity</code> (<code>1</code>,<code>2</code>,…,<code>&gt;0</code>),
+<code>fixity</code>
+(<code>prefix</code>/<code>postfix</code>/<code>infix</code>/<code>mixfix</code>),
+<code>priority</code> (higher binds tighter, default <code>9</code>),
+<code>assoc</code> (<code>left</code>/<code>right</code>, default
+<code>left</code>; only meaningful for <code>infix</code>),
+<code>operands</code>/<code>result</code> types.</p>
+<p><strong>Precedence (config-tunable):</strong> <code>^</code> indexing
+is tightest; <strong>prefix unary</strong> (<code># ! ¬ √</code>) binds
+above <strong>all binary</strong>; binary follows normal math —
+<code>**</code> &gt; <code>* /</code> &gt; <code>+ -</code> — then
+string <code>&amp; |</code>; <code>=</code> is loosest. Concretely:
+<code>^</code> 20 · <code>.</code> 19 · <code>%</code> 18 ·
+<code>∘ _</code> 17 · <code>..</code> 16 · <code>::</code> 15 ·
+<code># ! ¬ √</code> 14 · <code>** //</code> 13 · <code>* /</code> 12 ·
+<code>+ -</code> 11 · <code>++</code> 10 · <code>&amp; | Δ ▷</code> 9 ·
+<code>&lt;$&gt; ↦ ⊘</code> 8 · <code>∩</code> 7 · <code>∪ ∖</code> 6 ·
+<code>∈ == != &lt; &gt; &lt;= &gt;= ≈</code> 5 · <code>∧</code> 4 ·
+<code>∨</code> 3 · <code>=</code> 0 (<code>nlir help</code> lists the
+exhaustive per-op priority; this prose summarises the tiers). prefix
+takes one right operand; postfix takes leftward to its priority;
+variadic flattens; mixfix unifies infix/list/nullary; ties → prefix &gt;
+infix &gt; postfix. <strong>Associativity:</strong> infix operators are
+<strong>left-associative</strong> by default (<code>a-b-c</code> =
+<code>(a-b)-c</code>, <code>16/4/2</code> = <code>(16/4)/2</code>);
+<code>**</code> sets <code>assoc: right</code>, so exponentiation is
+<strong>right-associative</strong> (<code>2**3**2</code> =
+<code>2**(3**2)</code> = 512), matching normal math and Python. Mixfix
+operators flatten same-op chains into one n-ary node, so associativity
+does not affect them. <code>(…)</code> overrides and is preserved in
+output.</p>
+<hr />
+<h2 id="worked-examples">Worked examples</h2>
+<p>Assume the last assistant message (<code>^-1</code>) is about <em>a
+rust-rewrite</em>.</p>
+<table>
+<thead>
+<tr>
+<th>Expression</th>
+<th>Reading</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>^-1</code></td>
+<td>last assistant message</td>
+</tr>
+<tr>
+<td><code>^_-1</code> / <code>^/-1</code></td>
+<td>last user / last system message</td>
+</tr>
+<tr>
+<td><code>(1+1)^(5+5)</code></td>
+<td>assistant messages 2..10, joined with <code>_sep</code></td>
+</tr>
+<tr>
+<td><code>1+1</code></td>
+<td>"2" (number, stringified on output)</td>
+</tr>
+<tr>
+<td><code>$subject%^-1</code></td>
+<td>"a rust-rewrite"</td>
+</tr>
+<tr>
+<td><code>!($subject%^-1)</code></td>
+<td>"not a rust-rewrite"</td>
+</tr>
+<tr>
+<td><code>^-1 :: 'one line'</code></td>
+<td>the last message, recast as one line</td>
+</tr>
+<tr>
+<td><code>#(0^*-1 // "\n")</code></td>
+<td>how many lines the whole thread spans</td>
+</tr>
+<tr>
+<td><code>&amp;[a,b,c]</code></td>
+<td>"a, b, and c"</td>
+</tr>
+<tr>
+<td><code>!(a&amp;b)</code></td>
+<td>"not (a and b)" — parens preserved</td>
+</tr>
+<tr>
+<td><code>'one two'</code></td>
+<td>"one two"</td>
+</tr>
+<tr>
+<td><code>"the subject is $k"</code></td>
+<td>interpolates <code>$k</code> at eval time</td>
+</tr>
+<tr>
+<td><code>_sep=\ ;[a,b]</code></td>
+<td>"a b"</td>
+</tr>
+<tr>
+<td><code>`k=$subject%^-1;$k</code></td>
+<td>serial: store the subject as <code>k</code>, then read it</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="cli-surface">CLI surface</h2>
+<pre><code>nlir -e &#39;EXPR&#39; [--quiet] [--mode det|llm] [--model haiku | --model medium=haiku,large=opus] [--parallelism 8] [--dry-run]
+nlir -f lib.nlir [-f prog.nlir] [-e &#39;EXPR&#39;]   # program files (`--` comment lines)
+nlir … --bind NAME=PATH           # JSON/YAML → native dict/list `$NAME`; other files → string (transient)
+nlir … --cache-file PATH [--replay strict]   # realisation store (§Execution graph: Caching)
+
+# context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
+# (default file loads for the REPL / set / get; a one-shot `-e` skips it — bd-85c49d)
+nlir … --context-file PATH
+nlir … --session-file PATH        # e.g. Pi session: roles kept, tool calls dropped
+
+# context write (immediate; on active/default context file); set = key replacement
+nlir set KEY VALUE
+nlir set &#39;{&quot;k&quot;:&quot;v&quot;,&quot;_messages&quot;:[…]}&#39;   # each named key replaced (not deep-merged)
+nlir get KEY
+nlir append-message [--role user] &quot;text&quot;
+
+# interactive: one expr per submission, trailing `\` continues; :cmd == `nlir cmd`
+nlir repl [--context-file F] [--raw]     # :set/:get/:append-message inside repl
+
+# graphs: the expression DAG, or one node per top-level statement
+nlir show &#39;EXPR&#39; [--png F | --out F | --kitty | --frames | --save-animation F | --animate]
+nlir show --statements [-f FILE…] [&#39;EXPR&#39;] [--png F | --out F | --text | --json | --tikz]
+nlir show --tikz [-f FILE…] [&#39;EXPR&#39;]   # each statement&#39;s expression tree as a LaTeX forest tree
+
+# plumbing (CLI template stack)
+nlir parse &#39;EXPR&#39;
+nlir test
+nlir mcp stdio        # mcp-cli
+nlir self-update …    # updatable-cli
+nlir feedback …       # feedback-cli</code></pre>
+<p><strong>Pi plugin:</strong> a prompt starting with <code>|</code> →
+the remainder is expanded as nlir first; the plugin
+<code>append-message</code>s each turn and pipes shorthand into a
+long-lived <code>nlir repl --raw</code>.</p>
+<hr />
+<h2 id="example-confignlirconfigyaml">Example
+<code>~/.config/nlir/config.yaml</code></h2>
+<p>The shipped <a
+href="https://github.com/harryaskham/nlir/blob/main/config.example.yaml"><code>config.example.yaml</code></a> is the
+reference config: the v2 operator set (§Config operators), the prelude,
+models, prompts, types, sessions and the <code>tests:</code> suite
+<code>nlir test</code> runs. nlir writes it to
+<code>~/.config/nlir/config.yaml</code> on first run;
+<code>include_str!</code> embeds the same file in the binary and the
+browser build, so the CLI, the docs and the workspace never drift
+apart.</p>
+<h2 id="implementation--project-shape">Implementation / project
+shape</h2>
+<p>Rust, Nix-flake-managed, on the harryaskham CLI template stack
+(mature examples under <code>~/.cacophony/daemon/checkouts/…</code>):
+<strong>mcp-cli</strong> (<code>nlir mcp stdio</code> — the whole
+surface is agent-callable), <strong>updatable-cli</strong>
+(<code>nlir self-update</code>), <strong>feedback-cli</strong>
+(<code>nlir feedback</code>). Behaviour above is the spec; this is the
+scaffolding pattern.</p>
+<pre><code></code></pre>
+</main>
+<footer class="foot"><span>nlir · a config-defined operator language. Generated from README.md and SPEC.md.</span><span><a href="https://github.com/harryaskham/nlir">github.com/harryaskham/nlir</a></span></footer>
+<script>
+// TOC scroll-spy: mark the section currently in view.
+(() => {
+  const links = [...document.querySelectorAll('#TOC a')];
+  if (!links.length) return;
+  const byId = new Map(links.map(a => [decodeURIComponent(a.hash.slice(1)), a]));
+  const io = new IntersectionObserver(es => {
+    for (const e of es) if (e.isIntersecting) {
+      links.forEach(a => a.classList.remove('on'));
+      const a = byId.get(e.target.id); if (a) a.classList.add('on');
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  document.querySelectorAll('main.doc h2[id], main.doc h3[id]').forEach(h => byId.has(h.id) && io.observe(h));
+})();
+</script>
+</body>
+</html>
