@@ -6,4 +6,7 @@ quote={$sub%($trim%$0, '(?m)^', '> ')};
 render={"#### `applicability`\n\n" ++ $join%($quote↦$0.applicability, "\n\n") ++ "\n\n#### `decision_boundary`\n\n" ++ $join%($quote↦$0.decision_boundary, "\n\n")};
 sub4={$trim%($match%($0, '#### ' ++ $1 ++ '\n([\s\S]*?)(?:\n#### |$)'))};
 unquote={$trim%($sub%($0, '(?m)^> ?', ''))};
+-- quote and unquote are inverses: declaring it lets `nlir put` push prose edits
+-- back through $render to the exact spec field (and template edits to the program).
+_inverses={quote=unquote};
 fields={{applicability=[$unquote%($sub4%($0, '`applicability`'))], decision_boundary=$unquote↦($filter%({$trim%$0}, $sub4%($0, '`decision_boundary`')//"\n\n"))}}

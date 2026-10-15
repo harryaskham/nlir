@@ -405,6 +405,31 @@ After `^`/`$`, `* _ /` are role modifiers and a leading `-` is a negative index.
 
 ---
 
+## Lenses: backward passes (`nlir put`)
+
+A program is a *get*: inputs (bound data, its own literals) → output. `nlir put
+--edited FILE [-f …] [--bind …] [EXPR]` is its *put*: it runs the program forward
+(det), pushes the edited output back through it, and prints JSON — the edits to bound
+inputs (`kind: data`, with `/`-separated leaf paths), the edits to program literals
+(`kind: program`, with the statement and AST path), edits that could not be pushed
+further (`stuck`, naming the expression and why), and clashing edits (`conflicts`).
+Both lens laws are checked by re-evaluation: **GetPut** (the unedited output implies
+no edits) and **PutGet** (the edited inputs and program reproduce the edited output).
+
+Each deterministic construct carries its own put: `.` and `$get` set the field they
+read; `++` aligns the edited text with its old parts by a character diff (an edit at a
+boundary between a literal and a computed part goes to the computed part — content
+belongs in data); `$join` splits on its separator; `$trim` restores whitespace; `↦` /
+`$map` put each item through the mapped form; `$if` puts into the branch it took;
+list and dict literals put element-wise. A form application puts through the form's
+body (a program-defined form through the body as written), and edits to `$0 $1 …`
+become edits to the call's arguments, merged three-way so separate field edits to one
+record combine. A name bound by an earlier statement puts into that statement.
+
+`_inverses` declares isomorphisms: `_inverses={quote=unquote}` makes a call to either
+form put through the other, which is how a regex-built layout (`$sub` has no general
+inverse) inverts exactly. Model-realised operators are stuck for now (v2 §E2).
+
 ## Whitespace, escapes & quoting
 
 - **Whitespace between tokens is non-semantic** (spaces/tabs/newlines stripped) —

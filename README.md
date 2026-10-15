@@ -298,6 +298,26 @@ output with `≈`. The design for the next step — a meta-policy judge, a compl
 term, deterministic replay through the realisation store, and lenses for editing prose
 back into the spec — is in [`docs/design/v2.md`](docs/design/v2.md).
 
+## Editing backwards — lenses
+
+A program maps inputs to output; `nlir put` runs it backwards. Edit the prose a
+program produced and it reports which input field — or which literal in the program —
+would have to change, and checks the lens laws by re-running:
+
+```sh
+cd site/spec-lab
+nlir --mode det --bind spec=toy-spec.json -f spec.nlir -f profile.nlir \
+     -e '$render%(($node%"CR V 1.1").profile)' > profile.md
+$EDITOR profile.md                       # change a sentence of the MET criterion
+nlir put --edited profile.md --bind spec=toy-spec.json -f spec.nlir -f profile.nlir \
+     '$render%(($node%"CR V 1.1").profile)'
+# → data spec nodes/CR V 1.1/profile/decision_boundary/1 … put_get: true
+```
+
+Concatenation, joins, field access, maps and form calls each carry a backward pass;
+a library declares isomorphisms (`_inverses={quote=unquote}`) for the rest. Editing a
+heading instead lands in the program literal that wrote it.
+
 ## Seeing programs
 
 **`nlir help`** prints every operator from your config; **`nlir step '<expr>'`** walks
@@ -349,6 +369,7 @@ nlir show --statements --text -f prog.nlir                   # the same outline 
 nlir show 'EXPR' --animate --kitty        # live kitty animation of the reduction
 
 # plumbing
+nlir put --edited out.md -f prog.nlir --bind d=data.json   # backward pass (lenses): edits + law checks
 nlir parse 'EXPR'     # tokenise / inspect the parse
 nlir test             # run the config `tests:` cases
 nlir mcp stdio        # expose the surface as an MCP server (mcp-cli)

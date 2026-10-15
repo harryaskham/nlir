@@ -9,6 +9,7 @@ config (`config.example.yaml`); set `NLIR=/path/to/nlir` to choose a binary.
 | [`meaning.sh`](meaning.sh) | yes | the semantic core — `=>` `::` `..` `!` `&` `Δ` `▷` `~>` `≈` — and the prelude forms built from it |
 | [`exact-over-fuzzy.sh`](exact-over-fuzzy.sh) | yes | the model reads, the evaluator counts: fuzzy extraction under exact folds and filters |
 | [`spec-roundtrip.sh`](spec-roundtrip.sh) | no | a rule spec loaded as data, projected to prose and parsed back exactly (the spec lab's library) |
+| [`lens.sh`](lens.sh) | no | backward passes: edit the prose a program wrote and recover the spec field (or program literal) that would produce it, with the lens laws checked |
 | [`replay.sh`](replay.sh) | yes | the realisation store: record once, replay deterministically, `--replay strict` audits |
 
 The design these follow is [`docs/design/v2.md`](../docs/design/v2.md); the full

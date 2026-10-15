@@ -670,6 +670,36 @@ impl<'a> Evaluator<'a> {
     /// # Errors
     /// Returns [`EvalError`] on the first failing statement, or
     /// [`EvalError::EmptyProgram`] when there are no statements.
+    /// Evaluate one expression in the current frames (crate-internal: lenses).
+    pub(crate) fn eval_expr(&mut self, expr: &Expr) -> Result<Value, EvalError> {
+        self.eval(expr)
+    }
+
+    /// Push a positional argument frame (crate-internal: lenses).
+    pub(crate) fn push_frame(&mut self, frame: Vec<Value>) -> Result<(), EvalError> {
+        self.enter_arg_frame(frame)
+    }
+
+    /// Pop the innermost argument frame (crate-internal: lenses).
+    pub(crate) fn pop_frame(&mut self) {
+        self.arg_frames.pop();
+    }
+
+    /// The evaluator's context (crate-internal: lenses).
+    pub(crate) fn context_ref(&self) -> &Context {
+        self.context
+    }
+
+    /// The evaluator's config (crate-internal: lenses).
+    pub(crate) fn config_ref(&self) -> &Config {
+        self.config
+    }
+
+    /// The list/text separator in effect (crate-internal: lenses).
+    pub(crate) fn separator(&self) -> String {
+        self.sep()
+    }
+
     pub fn run(&mut self, program: &Program) -> Result<Value, EvalError> {
         let mut last = None;
         // Seed depth = value(s) already on the stack before eval (piped `$_stdin`).
@@ -3393,6 +3423,16 @@ fn json_to_value_with(json: &Json, config: Option<&Config>) -> Value {
 
 /// Convert a typed nlir [`Value`] back to a JSON value for context storage
 /// (inverse of [`json_to_value`]).
+/// [`value_to_json`] for crate modules (lenses).
+pub(crate) fn value_to_json_pub(value: &Value) -> Json {
+    value_to_json(value)
+}
+
+/// [`json_to_value_forms`] for crate modules (lenses).
+pub(crate) fn json_to_value_pub(json: &Json, config: &Config) -> Value {
+    json_to_value_forms(json, config)
+}
+
 fn value_to_json(value: &Value) -> Json {
     match value {
         Value::String(text) => Json::String(text.clone()),

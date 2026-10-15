@@ -138,6 +138,10 @@ enum Command {
     Parse(ParseArgs),
     /// Step-through: print EXPR then each reduction, one redex at a time.
     Step(StepArgs),
+    /// Backward pass: given an EDITED output, print the edits to the program's
+    /// inputs (bound data) and literals that would produce it, with the lens laws
+    /// checked by re-evaluation (JSON). Deterministic constructs only, for now.
+    Put(PutArgs),
     /// Run the config-defined test suite.
     Test,
     /// Print a config-derived reference of every operator + a one-line summary.
@@ -184,6 +188,16 @@ struct StepArgs {
     /// The shorthand expression to step through.
     #[arg(value_name = "EXPR", allow_hyphen_values = true)]
     expr: String,
+}
+
+#[derive(Debug, Args)]
+struct PutArgs {
+    /// The program's final expression (or pass the program with -f FILE…).
+    #[arg(value_name = "EXPR", allow_hyphen_values = true)]
+    expr: Option<String>,
+    /// The edited output: a file path, or `-` for stdin.
+    #[arg(long, value_name = "PATH")]
+    edited: PathBuf,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -326,6 +340,7 @@ fn run(cli: Cli) -> Result<(), i32> {
     match cli.command {
         Some(Command::Parse(ref args)) => run_parse(&cli, args),
         Some(Command::Step(ref args)) => run_step(&cli, args),
+        Some(Command::Put(ref args)) => run_put(&cli, args),
         Some(Command::Test) => run_test(&cli),
         Some(Command::Help) => run_help(&cli),
         Some(Command::Show(ref args)) => run_show(&cli, args),
@@ -1623,6 +1638,53 @@ fn emit_show_svg(cli: &Cli, args: &ShowArgs, svg: &str) -> Result<(), i32> {
 /// (bd-9c366d, Harry's learn-the-language ask). The non-interactive companion to
 /// the REPL Tab step-through. Deterministic ops reduce instantly; each LLM op is
 /// one step (one realisation) under `--mode llm`.
+/// `nlir put --edited FILE [-f …] [--bind …] [EXPR]`: the backward pass (lenses).
+fn run_put(cli: &Cli, args: &PutArgs) -> Result<(), i32> {
+    let cfg = resolve_config(cli)?;
+    let source = match (&args.expr, cli.files.is_empty()) {
+        (Some(expr), true) => expr.clone(),
+        (expr, false) => program_text_from(&cli.files, expr.as_deref())?,
+        (None, true) => {
+            eprintln!("nlir put: pass the program with -f FILE… and/or an EXPR");
+            return Err(2);
+        }
+    };
+    let edited = if args.edited.as_os_str() == "-" {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).map_err(|error| {
+            eprintln!("nlir put: reading stdin: {error}");
+            2
+        })?;
+        text
+    } else {
+        std::fs::read_to_string(&args.edited).map_err(|error| {
+            eprintln!("nlir put: reading {}: {error}", args.edited.display());
+            2
+        })?
+    };
+    // A trailing newline from an editor is not part of the output.
+    let edited = edited.strip_suffix('\n').unwrap_or(&edited);
+    let program = parse_for_show(&cfg, &source)?;
+    let mut ctx = open_eval_context(cli)?;
+    apply_binds(cli, &mut ctx)?;
+    match nlir::lens::put_program(&program, &cfg, &ctx, edited) {
+        Ok(report) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report).unwrap_or_default()
+            );
+            if report.put_get == Some(false) || !report.conflicts.is_empty() {
+                return Err(1);
+            }
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("nlir put: {error}");
+            Err(1)
+        }
+    }
+}
+
 fn run_step(cli: &Cli, args: &StepArgs) -> Result<(), i32> {
     use std::io::Write;
     let cfg = resolve_config(cli)?;

@@ -390,6 +390,16 @@ impl Context {
         self.data.insert(key, value);
     }
 
+    /// A copy with no write-through file: evaluating against it never touches disk
+    /// (lens law checks re-run a program on edited inputs).
+    #[must_use]
+    pub fn detached(&self) -> Self {
+        Self {
+            file: None,
+            ..self.clone()
+        }
+    }
+
     /// Temporarily set `key` (in memory only), returning what was there so
     /// [`Context::restore`] can put it back exactly — used for scoped overrides
     /// such as the per-draw `_seed` of `$draw`.
