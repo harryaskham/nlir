@@ -259,10 +259,12 @@ function instructionSentences(src) {
     const before = src.slice(0, m.index);
     const names = [...before.matchAll(/(?:^|;|\n)\s*([A-Za-z_][\w-]*)\s*=(?![=>])/g)];
     const owner = names.length ? names.at(-1)[1] : 'program';
-    const tag = body.match(/^\s*([A-Za-z_ ]{2,24})\.\s/);
+    // "FIELD: MET\n…" (a header line) or "MET. …" (a leading tag) names the field.
+    const tag = body.match(/^\s*FIELD:\s*([^\n]{2,40})\n/) || body.match(/^\s*([A-Za-z_ ]{2,24})\.\s/);
     const label = tag && tag[1].split(' ').length <= 3 ? `${owner} · ${tag[1].trim()}` : owner;
     let k = 0;
-    const re = /[^.!?]+?(?:[.!?]+(?=\s|\\n|$)|$)/g;
+    // A sentence ends at . ! ? before a space or line break, or at a line break.
+    const re = /[^.!?\n]+?(?:[.!?]+(?=\s|\\n|$)|(?=\n)|$)/g;
     let s;
     while ((s = re.exec(body))) {
       const raw = s[0];
