@@ -885,7 +885,11 @@ or a <strong>store file</strong> (<code>--cache-file PATH</code>,
 <code>NLIR_CACHE_FILE</code>, or <code>_cache_file</code> with
 <code>_cache=persist</code>) of JSON lines shared across runs, evals and
 hill-climb rounds — it only grows, records effectful realisations only,
-and never evicts. <code>--replay strict</code> turns an unrecorded
+and never evicts. The first record of a key wins: writers sharing a
+store take a file lock, adopt a value another process recorded for the
+same call meanwhile instead of appending their own, and loads keep the
+first of any duplicates, so concurrent identical calls converge and
+replays agree. <code>--replay strict</code> turns an unrecorded
 model/command call into an error, and <code>--cache-stats</code> prints
 <code>nlir cache-stats {"replayed":N,"fresh":M}</code> to stderr after
 evaluation (effectful calls only; shown with <code>--quiet</code> and on
