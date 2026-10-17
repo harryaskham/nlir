@@ -214,6 +214,11 @@ export async function showRun(id) {
         <label class="run-label" for="runProgram">Program</label>
         <select id="runProgram">${programs.map(p => `<option value="${p.key}" ${p.key === progKey ? 'selected' : ''}>${D.esc(p.label)}</option>`).join('')}</select>
         <details class="run-src"><summary>Program source <span class="muted" id="runSrcState"></span></summary><textarea id="runSrc" spellcheck="false"></textarea><button class="ghost" id="runSrcReset">Reset program</button></details>
+        <details class="run-anatomy" id="runAnatomy"><summary>Instruction sentences <span class="muted" id="runAnatomyState"></span></summary>
+          <p class="muted">Switch a sentence off and Run: with the same seed, only the model calls whose prompt changed are re-made. Sweep switches each sentence off in turn and ranks them by how much they change the output compared with a re-sample.</p>
+          <div id="runSentences"></div>
+          <div class="run-actions"><button class="ghost" id="runSweep" title="Switch each sentence off in turn">Sweep sentences</button><button class="ghost" id="runSweepGroups" title="Switch each statement's whole instruction off in turn">Sweep groups</button><button class="ghost" id="runSentencesReset">All on</button><span class="muted" id="runSweepState"></span></div>
+        </details>
         <details class="run-graph"><summary>Program graph</summary><div id="runGraph" class="graph"></div></details>
         <label class="run-label" for="runPacket">Packet <code>$p</code> <span class="muted" id="runPacketState">from the spec</span></label>
         <div class="run-perturb">${Object.entries(PERTURB).map(([k, [t]]) => `<button class="ghost" data-perturb="${k}" ${packet[k] === undefined ? 'disabled' : ''}>${t}</button>`).join('')}<button class="ghost" id="runPacketReset">Reset packet</button></div>
@@ -238,6 +243,52 @@ export async function showRun(id) {
   renderRuns();
 }
 
+// ---- program anatomy: the instruction sentences inside a program's string literals ---------
+// A learned program is mostly natural-language instructions wrapped in string plumbing.
+// Switching one sentence off and re-running (same seed, so untouched calls replay) shows
+// whether it changes the output more than a re-sample does.
+function instructionSentences(src) {
+  const out = [];
+  const lit = /"((?:[^"\\]|\\.)*)"/g;
+  let m, li = 0;
+  while ((m = lit.exec(src))) {
+    const body = m[1], base = m.index + 1;
+    if (body.length < 60) continue;
+    // Owner: the statement name the literal is assigned under, and a field tag like "MET."
+    // when the literal starts with one.
+    const before = src.slice(0, m.index);
+    const names = [...before.matchAll(/(?:^|;|\n)\s*([A-Za-z_][\w-]*)\s*=(?![=>])/g)];
+    const owner = names.length ? names.at(-1)[1] : 'program';
+    const tag = body.match(/^\s*([A-Za-z_ ]{2,24})\.\s/);
+    const label = tag && tag[1].split(' ').length <= 3 ? `${owner} · ${tag[1].trim()}` : owner;
+    let k = 0;
+    const re = /[^.!?]+?(?:[.!?]+(?=\s|\\n|$)|$)/g;
+    let s;
+    while ((s = re.exec(body))) {
+      const raw = s[0];
+      if (!raw.trim()) { re.lastIndex++; continue; }
+      const text = raw.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim();
+      if (text.split(' ').length >= 4) out.push({ id: `${li}.${k++}`, label, start: base + s.index, end: base + s.index + raw.length, text });
+      if (s.index + raw.length >= body.length) break;
+    }
+    li++;
+  }
+  return out;
+}
+
+function ablate(src, sentences, off) {
+  const spans = sentences.filter(x => off.has(x.id)).sort((a, b) => b.start - a.start);
+  let out = src;
+  for (const x of spans) {
+    let end = x.end;
+    while (out[end] === ' ') end++;
+    out = out.slice(0, x.start) + out.slice(end);
+  }
+  return out;
+}
+
+let anatomy = { key: null, sentences: [], off: new Set() };
+
 function currentProgram() {
   const p = programs.find(x => x.key === $('runProgram').value) || programs[0];
   const src = $('runSrc').value;
@@ -248,6 +299,8 @@ function wirePane(packet) {
   const loadProgram = () => {
     const p = programs.find(x => x.key === $('runProgram').value) || programs[0];
     $('runSrc').value = p.src; $('runSrcState').textContent = '';
+    anatomy = { key: p.key, sentences: instructionSentences(p.src), off: new Set() };
+    renderSentences();
     let graph = p.graph;
     // The statement-level outline stays legible for long programs; the expression graph does not.
     if (!graph && D.nlir.outline) { const g = D.norm(D.nlir.outline(strip(p.src), D.cfgJson)); graph = g?.ok ? g.svg : ''; }
@@ -277,18 +330,78 @@ function wirePane(packet) {
   $('runResample').onclick = () => execute({ resample: true });
   $('runStep').onclick = () => execute({ step: true });
   $('runAgainst').onchange = renderRuns;
+  $('runSentencesReset').onclick = () => { anatomy.off.clear(); applyAblation(); };
+  $('runSweep').onclick = () => sweep('sentences');
+  $('runSweepGroups').onclick = () => sweep('groups');
 }
 
-async function execute({ resample = false, step = false }) {
+function renderSentences() {
+  const groups = {};
+  for (const x of anatomy.sentences) (groups[x.label] ||= []).push(x);
+  $('runSentences').innerHTML = Object.entries(groups).map(([label, xs]) => `<div class="sent-group"><div class="label">${D.esc(label)} <button class="ghost mini" data-group="${D.esc(label)}">${xs.every(x => anatomy.off.has(x.id)) ? 'all on' : 'all off'}</button></div>${xs.map(x => `<button class="sent ${anatomy.off.has(x.id) ? 'off' : ''}" data-sent="${x.id}" aria-pressed="${anatomy.off.has(x.id)}" title="${anatomy.off.has(x.id) ? 'Switched off — click to restore' : 'Click to switch off'}">${D.esc(x.text)}</button>`).join('')}</div>`).join('') || '<p class="muted">No long instruction literals in this program.</p>';
+  $('runAnatomyState').textContent = `${anatomy.sentences.length} sentences${anatomy.off.size ? ` · ${anatomy.off.size} off` : ''}`;
+  $('runSentences').querySelectorAll('[data-group]').forEach(b => b.onclick = () => {
+    const xs = groups[b.dataset.group], allOff = xs.every(x => anatomy.off.has(x.id));
+    for (const x of xs) allOff ? anatomy.off.delete(x.id) : anatomy.off.add(x.id);
+    applyAblation();
+  });
+  $('runSentences').querySelectorAll('[data-sent]').forEach(b => b.onclick = () => {
+    const id = b.dataset.sent;
+    anatomy.off.has(id) ? anatomy.off.delete(id) : anatomy.off.add(id);
+    applyAblation();
+  });
+}
+
+function applyAblation() {
+  const p = programs.find(x => x.key === anatomy.key);
+  $('runSrc').value = ablate(p.src, anatomy.sentences, anatomy.off);
+  $('runSrcState').textContent = anatomy.off.size ? `· ${anatomy.off.size} sentence${anatomy.off.size === 1 ? '' : 's'} off` : '';
+  renderSentences();
+}
+
+// Switch each sentence off in turn (same seed, packet from the textarea), after making sure a
+// baseline and one re-sample exist so each effect can be compared with sampling noise.
+let sweeping = false;
+async function sweep(unit = 'sentences') {
+  if (sweeping || !endpointReady()) { if (!endpointReady()) { $('endpoint').open = true; } return; }
+  sweeping = true;
+  const p = programs.find(x => x.key === anatomy.key), xs = anatomy.sentences;
+  anatomy.off.clear(); applyAblation();
+  $('runPacketReset').click(); // every sweep run reads the spec packet, like its baseline
+  const list = runs[ruleId] ||= [];
+  const plain = r => r.program === p.key && r.src === p.src && r.packetNote === 'packet from the spec' && r.status === 'done';
+  try {
+    if (!list.some(r => plain(r) && r.seed === 0)) { $('runSweepState').textContent = 'baseline…'; await execute({}); }
+    if (!list.some(r => plain(r) && r.seed > 0)) { $('runSweepState').textContent = 're-sample…'; await execute({ resample: true }); }
+    // A unit is one sentence, or every sentence under one statement (a whole instruction).
+    const units = unit === 'groups'
+      ? Object.entries(xs.reduce((g, x) => ((g[x.label] ||= []).push(x), g), {})).map(([label, ys]) => ({ ids: ys.map(y => y.id), without: { text: `all ${ys.length} sentences of ${label}`, label, group: true } }))
+      : xs.map(x => ({ ids: [x.id], without: x }));
+    let done = 0;
+    const queue = units.slice();
+    const worker = async () => {
+      while (queue.length) {
+        const u = queue.shift();
+        await execute({ src: ablate(p.src, xs, new Set(u.ids)), without: u.without });
+        $('runSweepState').textContent = `${++done}/${units.length} ${unit}`;
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    $('runSweepState').textContent = `done: ${units.length} ${unit}`;
+  } finally { sweeping = false; }
+}
+
+async function execute({ resample = false, step = false, src = null, without = null }) {
   if (!endpointReady()) { $('endpoint').open = true; $('epBase').focus(); return; }
-  const id = ruleId, prog = currentProgram();
+  const id = ruleId, base = currentProgram();
+  const prog = src === null ? base : { ...base, src, edited: true };
   let p; try { p = JSON.parse($('runPacket').value); } catch (e) { $('runNeed').textContent = 'The packet is not valid JSON.'; return; }
   const list = (runs[id] ||= []);
   const samePrior = list.filter(r => r.program === prog.key && r.src === prog.src && r.packetJson === JSON.stringify(p));
   const seed = resample ? Math.max(0, ...samePrior.map(r => r.seed)) + 1 : 0;
   const change = packetChange(p, await specPacket(id));
   const run = {
-    n: list.length + 1, id, program: prog.key, programLabel: prog.label.split(' — ')[0] + (prog.edited ? ' (edited)' : ''), src: prog.src,
+    n: list.length + 1, id, program: prog.key, programLabel: prog.label.split(' — ')[0] + (without ? ' minus one sentence' : prog.edited ? ' (edited)' : ''), src: prog.src, without,
     seed, packetJson: JSON.stringify(p), packetNote: change.length ? change.join(', ') : 'packet from the spec',
     writer: ep.writer, calls: [], steps: [], status: 'running', t0: performance.now(),
   };
@@ -402,8 +515,10 @@ function backHtml(r) {
 }
 
 // ---- results ---------------------------------------------------------------------------
+// The seed-0 run of the unedited program on the spec packet: what every variation is read against.
 function baselineOf(list, run) {
-  return list.find(r => r !== run && r.status === 'done' && r.program === run.program && r.src === run.src && r.seed === 0 && r.packetNote === 'packet from the spec');
+  const original = programs.find(p => p.key === run.program)?.src;
+  return list.find(r => r !== run && r.status === 'done' && r.program === run.program && r.src === original && r.seed === 0 && r.packetNote === 'packet from the spec');
 }
 
 function renderRuns() {
@@ -422,7 +537,11 @@ function renderRunsInner() {
   sel.value = [...sel.options].some(o => o.value === prev) ? prev : 'authored';
   const against = sel.value === 'authored' ? { parts: auth?.parts, name: 'authored' } : (() => { const r = list.find(x => String(x.n) === sel.value); return { parts: r?.parts, name: `run ${r?.n}` }; })();
   $('runSummary').innerHTML = summary(list, auth);
-  $('runCards').innerHTML = list.slice().reverse().map(r => card(r, against, auth)).join('') || '<p class="muted">No runs yet for this rule.</p>';
+  // A sweep makes one run per sentence: keep those cards together, folded.
+  const main = list.filter(r => !r.without), swept = list.filter(r => r.without);
+  const sweepOpen = $('runSweepCards')?.open ? 'open' : '';
+  $('runCards').innerHTML = (swept.length ? `<details class="sweep-cards" id="runSweepCards" ${sweepOpen}><summary>Runs with one sentence switched off (${swept.length})</summary>${swept.slice().reverse().map(r => card(r, against, auth)).join('')}</details>` : '')
+    + (main.slice().reverse().map(r => card(r, against, auth)).join('') || '<p class="muted">No runs yet for this rule.</p>');
   const byN = n => list.find(r => String(r.n) === n);
   $('runCards').querySelectorAll('[data-judge]').forEach(b => b.onclick = () => judge(byN(b.dataset.judge)));
   $('runCards').querySelectorAll('[data-back]').forEach(d => d.ontoggle = () => { byN(d.dataset.back).back.open = d.open; });
@@ -432,9 +551,11 @@ function renderRunsInner() {
 }
 
 function summary(list, auth) {
-  const done = list.filter(r => r.status === 'done');
-  if (!done.length || !auth) return '';
+  const all = list.filter(r => r.status === 'done');
+  if (!all.length || !auth) return '';
+  const done = all.filter(r => !r.without);
   const aw = words(allText(auth.parts)).length;
+  const original = r => r.src === programs.find(p => p.key === r.program)?.src;
   const rows = done.map(r => {
     const base = baselineOf(list, r);
     const w = words(allText(r.parts)).length;
@@ -442,12 +563,50 @@ function summary(list, auth) {
   }).join('');
   // Plain reading: sampling noise vs the effect of a packet edit, for the same program.
   const notes = [];
-  const noise = done.filter(r => r.seed > 0 && r.packetNote === 'packet from the spec').map(r => { const b = baselineOf(list, r); return b ? changed(allText(b.parts), allText(r.parts)) : null; }).filter(x => x !== null);
-  const edits = done.filter(r => r.packetNote !== 'packet from the spec').map(r => { const b = baselineOf(list, r); return b ? [r, changed(allText(b.parts), allText(r.parts))] : null; }).filter(Boolean);
+  const resamples = done.filter(r => r.seed > 0 && r.packetNote === 'packet from the spec' && original(r));
+  const noise = resamples.map(r => { const b = baselineOf(list, r); return b ? changed(allText(b.parts), allText(r.parts)) : null; }).filter(x => x !== null);
+  const edits = done.filter(r => r.packetNote !== 'packet from the spec' && original(r) && r.seed === 0).map(r => { const b = baselineOf(list, r); return b ? [r, changed(allText(b.parts), allText(r.parts))] : null; }).filter(Boolean);
   if (noise.length) notes.push(`A fresh sample of the same input changes ${pct(noise.reduce((a, b) => a + b, 0) / noise.length)} of the words.`);
   const most = noise.length ? Math.max(...noise) : null, samples = `${noise.length} re-sample${noise.length === 1 ? '' : 's'}`;
   for (const [r, x] of edits) notes.push(`Run ${r.n} (${D.esc(r.packetNote)}) changes ${pct(x)} of the words against run ${baselineOf(list, r).n}${most === null ? '; take a new sample to see how much change is just noise.' : x > most ? ` — more than any of the ${samples} so far (at most ${pct(most)})${noise.length < 3 ? '; more samples make this firmer' : ''}.` : ` — no more than the ${samples} (up to ${pct(most)}), so this edit cannot be told apart from a re-sample.`}`);
-  return `<div class="run-table-wrap"><table class="run-table"><tr><th>run</th><th>program</th><th>seed</th><th>packet</th><th>words <span class="muted">(authored ${aw})</span></th><th>changed vs seed-0 run</th><th>changed vs authored</th><th>strict F1</th></tr>${rows}</table></div>${notes.length ? `<p class="sub">${notes.join(' ')}</p>` : ''}`;
+  return `<div class="run-table-wrap"><table class="run-table"><tr><th>run</th><th>program</th><th>seed</th><th>packet</th><th>words <span class="muted">(authored ${aw})</span></th><th>changed vs seed-0 run</th><th>changed vs authored</th><th>strict F1</th></tr>${rows}</table></div>${notes.length ? `<p class="sub">${notes.join(' ')}</p>` : ''}${influence(list, all, resamples)}`;
+}
+
+// Which instruction sentences matter: for each sentence switched off, the parts whose text
+// changed (untouched calls replay byte for byte) and by how much, against how much the same
+// parts change on a plain re-sample.
+function influence(list, all, resamples) {
+  const swept = all.filter(r => r.without);
+  if (!swept.length) return '';
+  // Length change is |log(words / baseline words)|: shape effects (shorter, one sentence) are
+  // far less noisy than wording, which a re-sample alone rewrites by half.
+  const lenShift = (a, b) => Math.abs(Math.log(Math.max(1, words(b).length) / Math.max(1, words(a).length)));
+  const noiseByPart = {}, lenNoise = {};
+  for (const r of resamples) {
+    const b = baselineOf(list, r);
+    if (!b) continue;
+    for (const [label, text] of r.parts) {
+      noiseByPart[label] = Math.max(noiseByPart[label] ?? 0, changed(partText(b.parts, label), text));
+      lenNoise[label] = Math.max(lenNoise[label] ?? 0, lenShift(partText(b.parts, label), text));
+    }
+  }
+  const rows = swept.map(r => {
+    const b = baselineOf(list, r);
+    if (!b) return null;
+    const moved = r.parts.map(([label, text]) => [label, changed(partText(b.parts, label), text)]).filter(([, x]) => x > 0);
+    const effect = moved.length ? Math.max(...moved.map(([, x]) => x)) : 0;
+    const noise = moved.length ? Math.max(...moved.map(([label]) => noiseByPart[label] ?? 0)) : 0;
+    const lens = moved.map(([label]) => [label, lenShift(partText(b.parts, label), partText(r.parts, label))]);
+    const len = lens.length ? lens.reduce((a, c) => (c[1] > a[1] ? c : a)) : null;
+    const lenBeyond = !!len && resamples.length > 0 && len[1] > (lenNoise[len[0]] ?? 0);
+    const lenText = len ? `${words(partText(b.parts, len[0])).length} → ${words(partText(r.parts, len[0])).length} words (${D.esc(len[0])})` : '—';
+    return { r, moved, effect, noise, lenText, lenBeyond, beyond: moved.length > 0 && resamples.length > 0 && effect > noise };
+  }).filter(Boolean).sort((a, b) => (b.effect - b.noise) - (a.effect - a.noise));
+  const beyond = rows.filter(x => x.beyond).length, lenBeyond = rows.filter(x => x.lenBeyond).length;
+  // With k re-samples and no real effect, an ablated run exceeds all k by chance 1 time in k+1.
+  const k = resamples.length, chance = k ? Math.round(rows.length / (k + 1)) : null;
+  const body = rows.map(({ r, moved, effect, noise, beyond, lenText, lenBeyond }) => `<tr class="${beyond && lenBeyond ? 'beyond' : ''}"><td title="${D.esc(r.without.text)}">${D.esc(r.without.text.length > 110 ? r.without.text.slice(0, 108) + '…' : r.without.text)}</td><td>${D.esc(r.without.label)}</td><td>${moved.map(([l]) => D.esc(l)).join(', ') || '—'}</td><td>${moved.length ? pct(effect) : '0%'}${moved.length && k ? ` <span class="muted">/ ${pct(noise)}</span>` : ''}</td><td>${lenText}${lenBeyond ? ' <b>*</b>' : ''}</td><td>${!k ? 'take a re-sample' : beyond && lenBeyond ? 'wording and length beyond re-samples' : lenBeyond ? 'length beyond re-samples' : beyond ? 'wording beyond re-samples' : moved.length ? 'within re-sample noise' : 'no change'}</td></tr>`).join('');
+  return `<h4 class="run-h">Which instructions matter</h4><p class="sub">${rows.length} sentences or instruction groups switched off one at a time. Wording: <b>${beyond}</b> changed a part more than every re-sample did; length: <b>${lenBeyond}</b>.${k ? ` With ${k} re-sample${k === 1 ? '' : 's'} and no real effects, about <b>${chance}</b> would do so by chance — ${Math.max(beyond, lenBeyond) > 1.5 * chance ? 'more than chance, so some of these instructions matter' : 'so this sweep cannot tell real effects from chance; take more re-samples'}.` : ' Take a re-sample to compare against.'} Text change, not correctness: judge a run to see whether a change helps.</p><div class="run-table-wrap"><table class="run-table influence"><tr><th>sentence switched off</th><th>where</th><th>parts re-written</th><th>wording change <span class="muted">/ re-sample</span></th><th>length</th><th>reading</th></tr>${body}</table></div>`;
 }
 
 function card(r, against, auth) {
