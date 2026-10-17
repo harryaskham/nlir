@@ -145,6 +145,23 @@ function changed(a, b) {
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
   return 1 - L[0][0] / Math.max(n, m);
 }
+// Word-level diff (deleted and inserted words interleaved) for short, similar texts such as
+// a proposed field edit. The runner carries its own so hosts need not supply one.
+function wordDiff(a, b) {
+  const A = String(a).split(/(\s+)/), B = String(b).split(/(\s+)/);
+  const n = A.length, m = B.length, L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  let i = 0, j = 0, out = '';
+  while (i < n && j < m) {
+    if (A[i] === B[j]) { out += D.esc(A[i]); i++; j++; }
+    else if (L[i + 1][j] >= L[i][j + 1]) { out += `<del>${D.esc(A[i])}</del>`; i++; }
+    else { out += `<ins>${D.esc(B[j])}</ins>`; j++; }
+  }
+  while (i < n) out += `<del>${D.esc(A[i++])}</del>`;
+  while (j < m) out += `<ins>${D.esc(B[j++])}</ins>`;
+  return out;
+}
+
 // The run's own text, with words that the comparison text lacks highlighted. Deleted words are
 // counted, not interleaved: two mostly different texts stay readable.
 // Shared function words are not underlined: they match everywhere and say nothing.
@@ -365,7 +382,7 @@ function backHtml(r) {
   const rep = b.report;
   if (rep) {
     const data = rep.edits.filter(e => e.kind === 'data'), prog = rep.edits.filter(e => e.kind === 'program');
-    const row = (label, c) => `<li><b>${D.esc(label)}</b> <span class="muted">${D.esc(c.path || '(whole value)')}</span><div class="text">${D.wordDiff(text(c.old), text(c.new))}</div></li>`;
+    const row = (label, c) => `<li><b>${D.esc(label)}</b> <span class="muted">${D.esc(c.path || '(whole value)')}</span><div class="text">${wordDiff(text(c.old), text(c.new))}</div></li>`;
     out += `<div class="back-report">`;
     out += data.length ? `<h4>Proposed input edits</h4><ul>${data.flatMap(e => e.changes.map(c => row(e.target === 'p' ? 'packet' : e.target === 'examples' ? 'worked example' : e.target, c))).join('')}</ul>` : '<p class="muted">No input edit was proposed.</p>';
     if (prog.length) out += `<h4>Edits to the program's own wording</h4><ul>${prog.flatMap(e => e.changes.map(c => row(e.target, c))).join('')}</ul>`;
@@ -389,7 +406,15 @@ function baselineOf(list, run) {
   return list.find(r => r !== run && r.status === 'done' && r.program === run.program && r.src === run.src && r.seed === 0 && r.packetNote === 'packet from the spec');
 }
 
-async function renderRuns() {
+function renderRuns() {
+  try { renderRunsInner(); } catch (e) {
+    // A rendering bug must be visible, not a silent rejected promise.
+    if ($('runCards')) $('runCards').insertAdjacentHTML('afterbegin', `<p class="err">Display error: ${D.esc(e.message || e)}</p>`);
+    console.error(e);
+  }
+}
+
+function renderRunsInner() {
   if (!$('runCards') || !ruleId) return;
   const list = runs[ruleId] || [], auth = authoredCache[ruleId];
   const sel = $('runAgainst'), prev = sel.value;
