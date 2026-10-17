@@ -1,4 +1,5 @@
 import { panzoom } from '../panzoom.js';
+import { initRun, showRun } from './run.js';
 // Spec lab: every projection below is an nlir expression evaluated by the wasm
 // build against the bound spec tree ($spec) plus spec.nlir + profile.nlir. The page only lays out
 // what nlir returns.
@@ -6,7 +7,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const norm = v => (v instanceof Map ? Object.fromEntries(v) : v);
 
-let nlir, cfgJson = '{}', lib = '', spec = null, current = null, edited = false, ruleHeading = null;
+let nlir, cfgJson = '{}', lib = '', profileOnly = '', spec = null, current = null, edited = false, ruleHeading = null;
 
 async function boot() {
   const [m, specText, specLib, profileLib] = await Promise.all([
@@ -20,6 +21,7 @@ async function boot() {
   spec = JSON.parse(specText);
   const strip = t => t.split('\n').filter(l => !l.trim().startsWith('--')).join('\n').trim().replace(/;\s*$/, '');
   lib = `${strip(specLib)};\n${strip(profileLib)}`;
+  profileOnly = strip(profileLib);
   $('libsrc').innerHTML = highlight(`${specLib}\n${profileLib}`);
   try { cfgJson = JSON.stringify(window.jsyaml.load(m.defaultConfigYaml())); } catch (_) {}
 }
@@ -63,7 +65,7 @@ async function select(id) {
   await reparse();
   // Keep the tab the reader is on when switching rules (Profile otherwise).
   const on = document.querySelector('#view [aria-selected=true]')?.dataset.view;
-  setView(on === 'limits' ? 'limits' : 'rule');
+  setView(on === 'limits' || on === 'run' ? on : 'rule');
 }
 
 async function showSpec() {
@@ -255,13 +257,14 @@ async function setView(v) {
   }
   const apply = () => {
     document.querySelectorAll('#view button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
-    for (const k of ['rule', 'policy', 'loop', 'back', 'limits']) $(`pane-${k}`).hidden = v !== k;
+    for (const k of ['rule', 'policy', 'loop', 'run', 'back', 'limits']) $(`pane-${k}`).hidden = v !== k;
   };
   apply();
   if (v === 'policy' && !$('policy').innerHTML) $('policy').innerHTML = mdToHtml(await run('$policymd'));
   if (v === 'loop' && !$('loop').innerHTML) await showLoop();
   if (v === 'back' && !$('back').innerHTML) await showBack();
   if (v === 'limits') await showLimits();
+  if (v === 'run') await showRun(current);
   if (token === viewToken) apply(); // re-assert after awaits; a newer call owns the view otherwise
 }
 
@@ -357,6 +360,7 @@ document.querySelectorAll('#view button').forEach(b => b.onclick = () => setView
 
 try {
   await boot();
+  await initRun({ nlir, cfgJson, profileLib: profileOnly, run, runJson, esc, norm, wordDiff, mdParts });
   await buildRail();
   await select('CR V 1.1');
   roundTripBadge();

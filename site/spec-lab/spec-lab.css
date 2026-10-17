@@ -72,6 +72,7 @@ del { color: var(--amber); text-decoration-color: color-mix(in srgb, var(--amber
 
 /* ---- whole policy + loop --------------------------------------------------- */
 .doc-pane { max-width: 52rem; }
+#pane-run { max-width: 96rem; }
 .doc-pane .policy h2 { display: block; font: 500 1.9rem/1.2 var(--serif); color: var(--ink); margin: 0 0 .5rem; text-transform: none; letter-spacing: -.01em; min-height: 0; }
 .policy h3 { font: 500 1.4rem/1.25 var(--serif); color: var(--ink); margin: 2.2rem 0 .5rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
 .policy h4 { font: 600 1rem/1.35 var(--sans); color: var(--ink); margin: 1.6rem 0 .4rem; }
@@ -135,3 +136,65 @@ ol.limits { list-style: none; padding: 0; margin: 1rem 0; }
 .lim .pl { font: 600 .68rem/1 var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .lim details { margin-top: .3rem; font-size: .88rem; }
 .lim blockquote { margin: .3rem 0; padding: .3rem .6rem; border-left: 2px solid var(--line, #d8dee9); }
+
+/* ---- Run program: a learned program on the selected rule, through the reader's endpoint ---- */
+#pane-run button.ghost { font-size: .78rem; padding: .35rem .6rem; color: var(--ink-2); }
+.endpoint { border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: .6rem .8rem; margin: 0 0 1rem; background: var(--paper-2); }
+.endpoint summary { cursor: pointer; font: 600 .8rem/1.4 var(--sans); color: var(--ink); }
+.endpoint summary .muted { font-weight: 400; margin-left: .4rem; }
+.ep-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .6rem .9rem; margin: .7rem 0 .5rem; }
+.ep-grid label { display: flex; flex-direction: column; gap: .25rem; font: 500 .72rem/1.2 var(--mono); color: var(--muted); }
+.ep-grid input, #pane-run select, #pane-run textarea { font: 400 .82rem/1.4 var(--mono); color: var(--ink); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: .4rem .5rem; min-width: 0; }
+.ep-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem; font-size: .8rem; }
+.ep-actions .check { display: inline-flex; gap: .35rem; align-items: center; color: var(--ink-2); }
+.endpoint > p { font-size: .78rem; margin: .5rem 0 0; }
+.run-grid { display: grid; grid-template-columns: minmax(18rem, 2fr) minmax(0, 3fr); gap: 1.4rem; align-items: start; margin-top: .8rem; }
+@media (max-width: 1100px) { .run-grid { grid-template-columns: 1fr; } }
+.run-inputs { display: flex; flex-direction: column; gap: .45rem; min-width: 0; }
+.run-label { font: 600 .72rem/1.3 var(--mono); color: var(--ink); margin-top: .4rem; }
+.run-label .muted { font-weight: 400; }
+#runPacket { min-height: 16rem; resize: vertical; }
+#runSrc { width: 100%; min-height: 14rem; resize: vertical; box-sizing: border-box; }
+.run-src summary, .run-graph summary { cursor: pointer; font-size: .8rem; color: var(--ink-2); }
+.run-graph .graph { max-height: 26rem; overflow: auto; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--paper); }
+.run-graph .graph svg { max-width: 100%; height: auto; }
+.run-perturb, .run-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.run-actions { margin-top: .4rem; }
+.run-steps { max-height: 22rem; overflow: auto; font: 400 .74rem/1.4 var(--mono); }
+.run-steps .step summary { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.run-steps .step .n { color: var(--muted); margin-right: .3rem; }
+.run-steps pre, .run-io pre { white-space: pre-wrap; word-break: break-word; font: 400 .72rem/1.45 var(--mono); max-height: 18rem; overflow: auto; background: var(--paper-2); padding: .5rem; border-radius: var(--r-sm); margin: .3rem 0; }
+.run-results { min-width: 0; }
+.run-compare { font-size: .82rem; color: var(--ink-2); display: flex; gap: .5rem; align-items: center; }
+.run-table { width: 100%; border-collapse: collapse; font-size: .78rem; margin: .7rem 0 .3rem; }
+.run-table th, .run-table td { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.run-table th { font: 600 .68rem/1.3 var(--mono); color: var(--muted); }
+.run-card { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: .6rem .9rem; margin: .8rem 0; background: var(--paper); }
+.run-card.failed { border-color: var(--amber); }
+.run-head { font-size: .8rem; color: var(--ink-2); }
+.run-judge { margin: .4rem 0 .2rem; }
+.run-card .field .label { flex-wrap: wrap; }
+.run-card .field .label span { color: var(--muted); font-weight: 400; }
+.run-calls { margin-top: .5rem; font-size: .8rem; }
+.run-calls summary { cursor: pointer; color: var(--ink-2); }
+.run-calls details { margin: .3rem 0 .3rem .8rem; }
+.run-calls details summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 400 .74rem/1.4 var(--mono); }
+.run-io { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+@media (max-width: 700px) { .run-io { grid-template-columns: 1fr; } }
+.run-io .label { font: 600 .68rem/1 var(--mono); color: var(--muted); }
+.run-judged { margin-top: .4rem; font-size: .8rem; }
+.run-judged summary { cursor: pointer; color: var(--ink-2); font-family: var(--mono); font-size: .74rem; }
+.run-judged ul { list-style: none; padding: 0; margin: .4rem 0; }
+.run-judged li { padding: .15rem 0 .15rem .5rem; border-left: 3px solid var(--rule-strong); margin: .2rem 0; }
+.run-judged li b { font: 600 .66rem/1 var(--mono); text-transform: uppercase; margin-right: .3rem; }
+.run-judged .j-present, .run-judged .j-supported { border-color: var(--accent); }
+.run-judged .j-weakened { border-color: var(--amber); }
+.run-judged .j-missing, .run-judged .j-extra { border-color: var(--rule-strong); color: var(--muted); }
+.run-judged .j-contradicted { border-color: var(--danger); }
+.run-table-wrap { overflow-x: auto; max-width: 100%; }
+#view { max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
+#view button { white-space: nowrap; flex: 0 0 auto; }
+.run-stats { font: 400 .74rem/1.4 var(--sans); color: var(--muted); margin: -.2rem 0 .35rem; }
+.run-card mark.same { background: none; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.run-card .field .label { margin-bottom: .25rem; }
+#runProgram { width: 100%; }

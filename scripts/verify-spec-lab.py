@@ -71,8 +71,33 @@ def check_witness(name='witness.json'):
     print(f"{name}: 12 rules, {total} clauses, {opened} confirmed open; citations quote the toy spec")
 
 
+PARTS=['APPLICABILITY','DECISION BOUNDARY','MET','NOT MET','UNCERTAIN']
+
+
+def check_run_assets():
+    """Run tab: the toy clauses the browser judge scores against, the judge program itself, and
+    no endpoint or key baked into the page (readers bring their own)."""
+    clauses=json.loads((ROOT/'clauses.json').read_text())
+    if sorted(clauses)!=sorted(f'CR V {a}.{b}' for a,b in [(1,1),(1,2),(1,3),(1,4),(2,1),(2,2),(2,3),(3,1),(3,2),(3,3),(4,1),(4,2)]):
+        raise ValueError('clauses.json: expected exactly the 12 invented CR rules')
+    for rule,parts in clauses.items():
+        if sorted(parts)!=sorted(PARTS):raise ValueError(f'clauses.json: {rule} parts {sorted(parts)}')
+        if not all(isinstance(c,str) and c.strip() for v in parts.values() for c in v) or not all(parts.values()):
+            raise ValueError(f'clauses.json: {rule} has an empty part or clause')
+    judge=(ROOT/'judge.nlir').read_text()
+    for need in ('recall=($0.present + 0.5 * $0.weakened) / $0.n','precision=$if%($0.statements > 0, $0.supported / $0.statements, 0)','score=$fold%({$0 + $1.f1}, $out, 0) / #$out'):
+        if need not in judge:raise ValueError(f'judge.nlir no longer computes the published metric: {need}')
+    import re
+    for f in ROOT.glob('*.js'):
+        text=f.read_text()
+        if re.search(r'ts\.net|helsinki|sk-[A-Za-z0-9]{8,}|Bearer [A-Za-z0-9]{8,}',text):raise ValueError(f'{f.name}: hardcoded endpoint or key')
+    n=sum(len(v) for parts in clauses.values() for v in parts.values())
+    print(f'run assets: 12 rules, {n} authored clauses; judge formula intact; no endpoint or key in page scripts')
+
+
 if __name__=='__main__':
     check('trace.json','similarity')
     check('trace-strict-a.json','strict',0)
     check('trace-strict-b.json','strict',2)
     if (ROOT/'witness.json').exists():check_witness()
+    check_run_assets()
