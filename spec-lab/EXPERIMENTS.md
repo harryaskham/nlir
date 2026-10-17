@@ -97,3 +97,11 @@ learned B and four re-samples: no single sentence of 31 changed wording beyond r
 noise (2 changed length; about 6 expected by chance), while whole instructions did (the
 decision-boundary instruction: 20 -> 60 words without it; 3 of 6 groups beyond noise, about
 1 expected). Concepts sit in whole instructions, and mostly constrain form and length.
+
+### Style: is a run shaped like the authored profile?
+
+Every run shows a style score next to strict F1: per part, length match (min/max words) ×
+sentence-count match × 1/(1 + leaks), geometric mean, averaged over the authored parts.
+Leaks are things the authored profiles never do: repeating the part's own label, a quote
+marker, a rule code, a heading. Once a run is judged, combined = √(strict F1 × style). Style
+is deterministic (no model calls) and mirrors the private harness's `style.py`.
