@@ -216,3 +216,4 @@ ol.limits { list-style: none; padding: 0; margin: 1rem 0; }
 .run-table.influence tr.beyond td { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 .run-table.influence td:first-child { max-width: 30rem; }
 .runhost button.ghost.mini { font-size: .66rem; padding: .1rem .35rem; margin-left: .3rem; }
+.run-stats b.leak { color: var(--amber); font-weight: 600; }

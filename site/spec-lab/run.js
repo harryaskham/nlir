@@ -179,6 +179,31 @@ function marked(a, b, sharedMode = false) {
   for (; i < n; i++) if (A[i].trim()) removed++;
   return { html: out, removed };
 }
+// ---- style: is the output shaped like the authored profile? (mirrors style.py) -------------
+// Per part: length match (min/max words) × sentence-count match × 1/(1+leaks), geometric mean;
+// leaks are things authors never do (repeat the part's label, a quote marker, a rule code, a
+// heading). Profile style = mean over the authored parts; combined = sqrt(strict F1 × style).
+const sentenceCount = t => { t = String(t || '').trim(); return t ? Math.max(1, t.split(/(?<=[.!?])\s+/).filter(x => x.trim()).length) : 0; };
+function partLeaks(label, text) {
+  const head = label.toLowerCase() === 'decision boundary' ? 'Decision boundary' : label.split(' ')[0];
+  const out = [];
+  if (new RegExp('^\\W*' + head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(text || '')) out.push('echoed label');
+  if (String(text || '').trimStart().startsWith('>')) out.push('quote marker');
+  if (/\b[A-Z]{2} [VP] \d+(?:\.\d+)*\b/.test(text || '')) out.push('rule code');
+  if (/(^|\n)\s*#{1,6} /.test(text || '')) out.push('heading');
+  return out;
+}
+function styleOf(parts, authParts) {
+  const ratio = (a, b) => (Math.max(a, b) ? Math.min(a, b) / Math.max(a, b) : 1);
+  const per = (authParts || []).map(([label, gold]) => {
+    const cand = partText(parts, label);
+    if (!String(cand).trim()) return { label, style: 0, leaks: [] };
+    const leaks = partLeaks(label, cand);
+    return { label, leaks, style: Math.cbrt(ratio(words(cand).length, words(gold).length) * ratio(sentenceCount(cand), sentenceCount(gold)) / (1 + leaks.length)) };
+  });
+  return { style: per.length ? per.reduce((a, p) => a + p.style, 0) / per.length : 0, parts: per };
+}
+
 const partText = (parts, label) => (parts || []).find(p => p[0].toUpperCase() === label.toUpperCase())?.[1] ?? '';
 const allText = parts => (parts || []).map(p => p[1]).join(' ');
 const pct = x => `${Math.round(100 * x)}%`;
@@ -561,7 +586,8 @@ function summary(list, auth) {
   const rows = done.map(r => {
     const base = baselineOf(list, r);
     const w = words(allText(r.parts)).length;
-    return `<tr><td>run ${r.n}</td><td>${D.esc(r.programLabel)}</td><td>${r.seed}</td><td>${D.esc(r.packetNote)}</td><td>${w} <span class="muted">(${(w / Math.max(1, aw)).toFixed(1)}×)</span></td><td>${base ? pct(changed(allText(base.parts), allText(r.parts))) : '—'}</td><td>${pct(changed(allText(auth.parts), allText(r.parts)))}</td><td>${r.judge?.status === 'done' ? r.judge.score.toFixed(2) : '—'}</td></tr>`;
+    const st = styleOf(r.parts, auth.parts).style, f1 = r.judge?.status === 'done' ? r.judge.score : null;
+    return `<tr><td>run ${r.n}</td><td>${D.esc(r.programLabel)}</td><td>${r.seed}</td><td>${D.esc(r.packetNote)}</td><td>${w} <span class="muted">(${(w / Math.max(1, aw)).toFixed(1)}×)</span></td><td>${base ? pct(changed(allText(base.parts), allText(r.parts))) : '—'}</td><td>${pct(changed(allText(auth.parts), allText(r.parts)))}</td><td>${f1 !== null ? f1.toFixed(2) : '—'}</td><td>${st.toFixed(2)}</td><td>${f1 !== null ? Math.sqrt(f1 * st).toFixed(2) : '—'}</td></tr>`;
   }).join('');
   // Plain reading: sampling noise vs the effect of a packet edit, for the same program.
   const notes = [];
@@ -571,7 +597,7 @@ function summary(list, auth) {
   if (noise.length) notes.push(`A fresh sample of the same input changes ${pct(noise.reduce((a, b) => a + b, 0) / noise.length)} of the words.`);
   const most = noise.length ? Math.max(...noise) : null, samples = `${noise.length} re-sample${noise.length === 1 ? '' : 's'}`;
   for (const [r, x] of edits) notes.push(`Run ${r.n} (${D.esc(r.packetNote)}) changes ${pct(x)} of the words against run ${baselineOf(list, r).n}${most === null ? '; take a new sample to see how much change is just noise.' : x > most ? ` — more than any of the ${samples} so far (at most ${pct(most)})${noise.length < 3 ? '; more samples make this firmer' : ''}.` : ` — no more than the ${samples} (up to ${pct(most)}), so this edit cannot be told apart from a re-sample.`}`);
-  return `<div class="run-table-wrap"><table class="run-table"><tr><th>run</th><th>program</th><th>seed</th><th>packet</th><th>words <span class="muted">(authored ${aw})</span></th><th>changed vs seed-0 run</th><th>changed vs authored</th><th>strict F1</th></tr>${rows}</table></div>${notes.length ? `<p class="sub">${notes.join(' ')}</p>` : ''}${influence(list, all, resamples)}`;
+  return `<div class="run-table-wrap"><table class="run-table"><tr><th>run</th><th>program</th><th>seed</th><th>packet</th><th>words <span class="muted">(authored ${aw})</span></th><th>changed vs seed-0 run</th><th>changed vs authored</th><th title="meaning: authored clauses reproduced, statements supported">strict F1</th><th title="shape: length and sentence count against the authored parts, and no leaks (echoed labels, quote markers, rule codes, headings)">style</th><th title="sqrt(strict F1 × style)">combined</th></tr>${rows}</table></div>${notes.length ? `<p class="sub">${notes.join(' ')}</p>` : ''}${influence(list, all, resamples)}`;
 }
 
 // Which instruction sentences matter: for each sentence switched off, the parts whose text
@@ -617,13 +643,14 @@ function card(r, against, auth) {
   if (r.status === 'failed') return `<article class="run-card failed">${head}<p class="err">${D.esc(r.error || 'failed')}</p>${calls}</article>`;
   if (r.status !== 'done') return `<article class="run-card">${head}${calls}</article>`;
   const verdicts = r.judge?.status === 'done' ? Object.fromEntries(r.judge.parts.map(p => [p.label.toUpperCase(), p])) : {};
+  const styleParts = styleOf(r.parts, auth?.parts).parts;
   const parts = r.parts.map(([label, text]) => {
     const other = partText(against.parts, label), aw = words(partText(auth?.parts, label)).length, w = words(text).length;
     const v = verdicts[label.toUpperCase()];
     const judged = v ? `<details class="run-judged"><summary>F1 ${v.f1.toFixed(2)} · recall ${v.recall.toFixed(2)} · precision ${v.precision.toFixed(2)}</summary><ul>${v.reference.map(c => `<li class="j-${D.esc(c.status)}"><b>${D.esc(c.status)}</b> ${D.esc(c.clause)}${c.note ? ` <span class="muted">— ${D.esc(c.note)}</span>` : ''}</li>`).join('')}</ul><ul>${(v.candidate || []).map(c => `<li class="j-${D.esc(c.status)}"><b>${D.esc(c.status)}</b> ${D.esc(c.text)}</li>`).join('')}</ul></details>` : '';
     const ch = changed(other, text), m = marked(other, text, ch > 0.5);
-    const codes = ruleCodes(text);
-    return `<div class="field"><div class="label">${D.esc(label)}</div><div class="run-stats">${w} words · ${sentences(text)} sentence${sentences(text) === 1 ? '' : 's'} (authored ${aw} words)${codes ? ` · ${codes} rule code${codes === 1 ? '' : 's'}` : ''}${other ? ` · ${pct(ch)} changed vs ${D.esc(against.name)} · ${ch > 0.5 ? 'underlined: content words shared with it' : 'highlighted: new'} · ${m.removed} of its words absent` : ''}</div><div class="text">${other ? m.html : D.esc(text)}</div>${judged}</div>`;
+    const codes = ruleCodes(text), sp = styleParts.find(x => x.label === label);
+    return `<div class="field"><div class="label">${D.esc(label)}</div><div class="run-stats">${w} words · ${sentences(text)} sentence${sentences(text) === 1 ? '' : 's'} (authored ${aw} words)${sp ? ` · style ${sp.style.toFixed(2)}` : ''}${sp?.leaks.length ? ` · <b class="leak">${sp.leaks.join(', ')}</b>` : codes ? ` · ${codes} rule code${codes === 1 ? '' : 's'}` : ''}${other ? ` · ${pct(ch)} changed vs ${D.esc(against.name)} · ${ch > 0.5 ? 'underlined: content words shared with it' : 'highlighted: new'} · ${m.removed} of its words absent` : ''}</div><div class="text">${other ? m.html : D.esc(text)}</div>${judged}</div>`;
   }).join('');
   const judgeBtn = !judgeLib || !clauses?.[r.id] ? '' : r.judge?.status === 'running' ? '<span class="state">judging…</span>' : r.judge?.status === 'failed' ? `<p class="err">Judge failed: ${D.esc(r.judge.error)}</p><button class="ghost" data-judge="${r.n}">Retry judge</button>` : r.judge?.status === 'done' ? `<span class="state ok">strict F1 ${r.judge.score.toFixed(2)} · ${D.esc(r.judge.model)}</span>` : `<button class="ghost" data-judge="${r.n}" title="One judge call per part: each authored clause present / weakened / missing; each written statement supported / extra">Judge (strict clause F1)</button>`;
   r.back ||= { edited: r.md, open: false };
