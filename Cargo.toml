@@ -2,7 +2,7 @@
 name = "nlir"
 version = "0.1.4"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"  # std File::lock (store writer lock)
 license = "MIT"
 description = "nlir — natural-language IR: transpile a terse, sigil-laden shorthand into fluent English via a config-defined stack machine (deterministic or LLM per operator). Built on the harryaskham CLI stack."
 repository = "https://github.com/harryaskham/nlir"

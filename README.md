@@ -237,8 +237,8 @@ operator's full definition (prompt, frame, resolved model), its operands and `_s
 so a recorded call replays exactly and identical calls cost nothing:
 
 ```sh
-nlir --cache-file runs/store.jsonl -e "=>'Name a lighthouse keeper''s cat'"   # 3.9 s, recorded
-nlir --cache-file runs/store.jsonl -e "=>'Name a lighthouse keeper''s cat'"   # 0.03 s, replayed
+nlir --cache-file runs/store.jsonl -e "=>'Name a cat for a lighthouse keeper'"  # 3.9 s, recorded
+nlir --cache-file runs/store.jsonl -e "=>'Name a cat for a lighthouse keeper'"  # 0.03 s, replayed
 nlir --cache-file runs/store.jsonl --replay strict -f program.nlir            # fail on any unrecorded call
 nlir --cache-file runs/store.jsonl --cache-stats -f program.nlir             # stderr: {"replayed":N,"fresh":M}
 nlir -e "\$draw%({=>'Name a cat'}, 3)"                                         # three explicit samples

@@ -1155,30 +1155,30 @@ fn collect_llm_previews(
     use nlir::parser::Expr;
     match expr {
         Expr::Apply { op, operands, .. } => {
-            if let Some(op_cfg) = cfg.operators.values().find(|o| &o.op == op) {
-                if op_cfg.command.is_none() && op_cfg.reduce.is_none() {
-                    if let Some(prompt) = op_cfg.prompt.as_deref() {
-                        let args: Vec<String> = operands.iter().map(operand_preview).collect();
-                        let rendered = nlir::llm::realise_llm_preview(
-                            op_cfg.model.as_deref(),
-                            prompt,
-                            &args,
-                            cfg,
-                            // `--model` is already applied to cfg as a tier remap.
-                            None,
-                            |name| std::env::var(name).ok(),
-                        );
-                        let frame = op_cfg
-                            .system
-                            .as_deref()
-                            .map(|s| format!("\n    system frame: prompts.{s}"))
-                            .unwrap_or_default();
-                        match rendered {
-                            Ok(text) => out.push(format!("`{op}` -> {text}{frame}")),
-                            Err(error) => {
-                                out.push(format!("`{op}` -> (cannot preview: {error})"));
-                            }
-                        }
+            if let Some(op_cfg) = cfg.operators.values().find(|o| &o.op == op)
+                && op_cfg.command.is_none()
+                && op_cfg.reduce.is_none()
+                && let Some(prompt) = op_cfg.prompt.as_deref()
+            {
+                let args: Vec<String> = operands.iter().map(operand_preview).collect();
+                let rendered = nlir::llm::realise_llm_preview(
+                    op_cfg.model.as_deref(),
+                    prompt,
+                    &args,
+                    cfg,
+                    // `--model` is already applied to cfg as a tier remap.
+                    None,
+                    |name| std::env::var(name).ok(),
+                );
+                let frame = op_cfg
+                    .system
+                    .as_deref()
+                    .map(|s| format!("\n    system frame: prompts.{s}"))
+                    .unwrap_or_default();
+                match rendered {
+                    Ok(text) => out.push(format!("`{op}` -> {text}{frame}")),
+                    Err(error) => {
+                        out.push(format!("`{op}` -> (cannot preview: {error})"));
                     }
                 }
             }
@@ -2371,22 +2371,22 @@ fn run_repl_interactive(cli: &Cli) -> Result<(), i32> {
     // Attach the live deterministic preview helper (bd-970e05): shows the current
     // line's det result-so-far as a dim ` → …` hint as you type. Best-effort — if
     // config/context can't load, plain line-editing still works.
-    if let Ok(cfg) = resolve_config(cli) {
-        if let Ok(ctx) = open_context(cli) {
-            let sep = ctx.sep();
-            let command_sigils = cfg
-                .operators
-                .iter()
-                .filter(|(_name, op)| op.command.is_some())
-                .map(|(_name, op)| op.op.clone())
-                .collect();
-            editor.set_helper(Some(ReplHelper {
-                cfg,
-                ctx,
-                sep,
-                command_sigils,
-            }));
-        }
+    if let Ok(cfg) = resolve_config(cli)
+        && let Ok(ctx) = open_context(cli)
+    {
+        let sep = ctx.sep();
+        let command_sigils = cfg
+            .operators
+            .iter()
+            .filter(|(_name, op)| op.command.is_some())
+            .map(|(_name, op)| op.op.clone())
+            .collect();
+        editor.set_helper(Some(ReplHelper {
+            cfg,
+            ctx,
+            sep,
+            command_sigils,
+        }));
     }
 
     // Persist command history across sessions (best-effort; a missing file on
@@ -2441,11 +2441,11 @@ fn run_repl_interactive(cli: &Cli) -> Result<(), i32> {
                 // Refresh the preview helper's context snapshot so writes from
                 // this submission (`k=v`, `:set`, `:new`/`:resume`) show in
                 // later live previews (bd-970e05).
-                if let Some(helper) = editor.helper_mut() {
-                    if let Ok(ctx) = open_context(cli) {
-                        helper.sep = ctx.sep();
-                        helper.ctx = ctx;
-                    }
+                if let Some(helper) = editor.helper_mut()
+                    && let Ok(ctx) = open_context(cli)
+                {
+                    helper.sep = ctx.sep();
+                    helper.ctx = ctx;
                 }
             }
             // Ctrl-C: abandon the current input, keep the REPL alive.
@@ -2481,12 +2481,11 @@ fn run_repl_interactive(cli: &Cli) -> Result<(), i32> {
 /// when no home directory is available and no context path is configured.
 fn repl_history_path(cli: &Cli) -> Option<PathBuf> {
     let home = std::env::var_os("HOME");
-    if let Ok(cfg) = resolve_config(cli) {
-        if let Some(ctx_path) = nlir::context::default_context_path(&cfg.context, home.as_deref()) {
-            if let Some(dir) = ctx_path.parent() {
-                return Some(dir.join("repl_history.txt"));
-            }
-        }
+    if let Ok(cfg) = resolve_config(cli)
+        && let Some(ctx_path) = nlir::context::default_context_path(&cfg.context, home.as_deref())
+        && let Some(dir) = ctx_path.parent()
+    {
+        return Some(dir.join("repl_history.txt"));
     }
     home.map(|home| PathBuf::from(home).join(".config/nlir/repl_history.txt"))
 }

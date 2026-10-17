@@ -119,10 +119,10 @@ fn flatten_content(content: Option<&Value>) -> String {
                 let Some(obj) = part.as_object() else {
                     continue;
                 };
-                if obj.get("type").and_then(Value::as_str) == Some("text") {
-                    if let Some(text) = obj.get("text").and_then(Value::as_str) {
-                        buf.push_str(text);
-                    }
+                if obj.get("type").and_then(Value::as_str) == Some("text")
+                    && let Some(text) = obj.get("text").and_then(Value::as_str)
+                {
+                    buf.push_str(text);
                 }
             }
             buf

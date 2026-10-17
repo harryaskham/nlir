@@ -798,14 +798,14 @@ pub fn default_config_path() -> Option<PathBuf> {
 /// `unsafe_code = "forbid"`).
 #[must_use]
 fn config_path_from_env(xdg_config_home: Option<&OsStr>, home: Option<&OsStr>) -> Option<PathBuf> {
-    if let Some(xdg) = xdg_config_home {
-        if !xdg.is_empty() {
-            return Some(
-                PathBuf::from(xdg)
-                    .join(CONFIG_DIR_NAME)
-                    .join(CONFIG_FILE_NAME),
-            );
-        }
+    if let Some(xdg) = xdg_config_home
+        && !xdg.is_empty()
+    {
+        return Some(
+            PathBuf::from(xdg)
+                .join(CONFIG_DIR_NAME)
+                .join(CONFIG_FILE_NAME),
+        );
     }
     let home = home.filter(|h| !h.is_empty())?;
     Some(
@@ -1312,8 +1312,8 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
             ));
         }
         // A `builtin:` operator (bd-44c294) must name a known higher-order builtin.
-        if let Some(builtin) = &op.builtin {
-            if !matches!(
+        if let Some(builtin) = &op.builtin
+            && !matches!(
                 builtin.as_str(),
                 "map"
                     | "fold"
@@ -1329,32 +1329,32 @@ pub fn validate(config: &Config) -> Vec<ValidationError> {
                     | "len"
                     | "mtimes"
                     | "compose"
-            ) {
-                errs.push(ValidationError::new(
+            )
+        {
+            errs.push(ValidationError::new(
                     &loc,
                     format!("builtin {builtin:?} is unknown (expected `map`, `fold`, `access`, `union`, `inter`, `diff`, `elem`, `and`, `or`, `not`, `sqrt`, `len`, `mtimes`, or `compose`)"),
                 ));
-            }
         }
 
-        if let Some(model) = &op.model {
-            if !model_alias_is_valid(config, model) {
-                errs.push(ValidationError::new(
-                    &loc,
-                    format!("model {model:?} is not defined in `models` (or a configured tier)"),
-                ));
-            }
+        if let Some(model) = &op.model
+            && !model_alias_is_valid(config, model)
+        {
+            errs.push(ValidationError::new(
+                &loc,
+                format!("model {model:?} is not defined in `models` (or a configured tier)"),
+            ));
         }
     }
 
     for (name, ty) in &config.types {
-        if let Some(model) = &ty.model {
-            if !model_alias_is_valid(config, model) {
-                errs.push(ValidationError::new(
-                    format!("types.{name}"),
-                    format!("model {model:?} is not defined in `models` (or a configured tier)"),
-                ));
-            }
+        if let Some(model) = &ty.model
+            && !model_alias_is_valid(config, model)
+        {
+            errs.push(ValidationError::new(
+                format!("types.{name}"),
+                format!("model {model:?} is not defined in `models` (or a configured tier)"),
+            ));
         }
     }
 

@@ -163,7 +163,34 @@ pub struct CacheStats {
 /// The append-only file behind a persistent [`EvaluationCache`].
 struct CacheStore {
     path: std::path::PathBuf,
-    lock: std::sync::Mutex<()>,
+    /// In-process writer lock; also guards `read_to`, the byte offset of the store
+    /// already merged into memory (other processes may append after it).
+    lock: std::sync::Mutex<u64>,
+}
+
+/// Merge complete store lines into `values`, keeping the FIRST record of each key, so
+/// every process replaying a store sees the realisation recorded first. Returns the
+/// number of bytes consumed (an incomplete trailing line is left for later).
+fn merge_store_lines(text: &str, values: &mut std::collections::HashMap<String, Value>) -> usize {
+    let mut consumed = 0;
+    for line in text.split_inclusive('\n') {
+        if !line.ends_with('\n') {
+            break;
+        }
+        consumed += line.len();
+        // Skip a malformed record (e.g. a line torn by a crash mid-write) rather than
+        // refuse the whole store: it only costs a re-realisation.
+        let Ok(record) = serde_json::from_str::<Json>(line.trim()) else {
+            continue;
+        };
+        if let (Some(key), Some(value)) = (record.get("k").and_then(Json::as_str), record.get("v"))
+        {
+            values
+                .entry(key.to_owned())
+                .or_insert_with(|| json_to_value_with(value, None));
+        }
+    }
+    consumed
 }
 
 impl EvaluationCache {
@@ -176,30 +203,17 @@ impl EvaluationCache {
     pub fn persistent(path: impl Into<std::path::PathBuf>) -> Result<Self, String> {
         let path = path.into();
         let mut values = std::collections::HashMap::new();
+        let mut read_to = 0;
         if path.exists() {
             let text = std::fs::read_to_string(&path)
                 .map_err(|error| format!("cache store {}: {error}", path.display()))?;
-            for line in text.lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                // Skip a malformed record (e.g. a line torn by a crash mid-write)
-                // rather than refuse the whole store: it only costs a re-realisation.
-                let Ok(record) = serde_json::from_str::<Json>(line) else {
-                    continue;
-                };
-                if let (Some(key), Some(value)) =
-                    (record.get("k").and_then(Json::as_str), record.get("v"))
-                {
-                    values.insert(key.to_owned(), json_to_value_with(value, None));
-                }
-            }
+            read_to = merge_store_lines(&text, &mut values) as u64;
         }
         Ok(Self {
             values: std::sync::Arc::new(std::sync::Mutex::new(values)),
             store: Some(std::sync::Arc::new(CacheStore {
                 path,
-                lock: std::sync::Mutex::new(()),
+                lock: std::sync::Mutex::new(read_to),
             })),
             strict: false,
             counters: std::sync::Arc::default(),
@@ -265,26 +279,70 @@ impl EvaluationCache {
             .cloned()
     }
 
-    /// Record a realisation. `effectful` realisations (model / command calls) are
-    /// also appended to the store file when there is one; a store never evicts.
-    fn record(&self, key: String, value: Value, effectful: bool, label: &str) {
-        if effectful {
-            if let Some(store) = &self.store {
-                let line = serde_json::json!({ "k": key, "v": value_to_json(&value), "op": label });
-                let _guard = store.lock.lock().expect("cache store mutex");
-                use std::io::Write as _;
-                // One write per record on an O_APPEND file: concurrent nlir processes
-                // sharing a store interleave whole lines, never fragments.
-                if let Ok(mut file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&store.path)
-                {
-                    let _ = file.write_all(format!("{line}\n").as_bytes());
-                }
+    /// Record a realisation and return the value callers must use. `effectful`
+    /// realisations (model / command calls) are also appended to the store file when
+    /// there is one; a store never evicts.
+    ///
+    /// Writers sharing a store take an exclusive file lock, first merge records other
+    /// processes appended since this cache last read, and if the same key was recorded
+    /// meanwhile they return THAT value instead of appending their own: concurrent
+    /// identical calls converge on the first recorded realisation, and replays agree.
+    fn record(&self, key: String, value: Value, effectful: bool, label: &str) -> Value {
+        if effectful
+            && let Some(store) = &self.store
+            && let Some(winner) = self.append_first_wins(store, &key, &value, label)
+        {
+            self.insert(key, winner.clone());
+            return winner;
+        }
+        self.insert(key, value.clone());
+        value
+    }
+
+    /// Append under the store lock unless another writer already recorded `key`;
+    /// returns that earlier value when it did. I/O failures fall back to `value`.
+    fn append_first_wins(
+        &self,
+        store: &CacheStore,
+        key: &str,
+        value: &Value,
+        label: &str,
+    ) -> Option<Value> {
+        use std::io::{Read as _, Seek as _, Write as _};
+        let mut read_to = store.lock.lock().expect("cache store mutex");
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .append(true)
+            .open(&store.path)
+            .ok()?;
+        file.lock().ok()?;
+        let mut tail = String::new();
+        if file.seek(std::io::SeekFrom::Start(*read_to)).is_ok()
+            && file.read_to_string(&mut tail).is_ok()
+        {
+            let mut values = self.values.lock().expect("evaluation cache mutex");
+            let consumed = merge_store_lines(&tail, &mut values);
+            *read_to += consumed as u64;
+            if let Some(existing) = values.get(key) {
+                let existing = existing.clone();
+                drop(values);
+                let _ = file.unlock();
+                return Some(existing);
             }
         }
-        self.insert(key, value);
+        // Start a fresh line if the file ends in a torn fragment, so this record parses.
+        let torn = tail
+            .rsplit('\n')
+            .next()
+            .is_some_and(|rest| !rest.is_empty());
+        let line = serde_json::json!({ "k": key, "v": value_to_json(value), "op": label });
+        let record = format!("{}{line}\n", if torn { "\n" } else { "" });
+        if file.write_all(record.as_bytes()).is_ok() {
+            *read_to = file.metadata().map(|m| m.len()).unwrap_or(*read_to);
+        }
+        let _ = file.unlock();
+        None
     }
 
     fn insert(&self, key: String, value: Value) {
@@ -776,15 +834,16 @@ impl<'a> Evaluator<'a> {
             // seed applies to it — `echo doc | nlir -e '(# & ~)'` runs the train on
             // stdin, `echo doc | nlir -e '{~$0}'` runs the form. A bare `nlir -e
             // '{…}'` (no pipe, empty stack) leaves the form as a first-class value.
-            if let Value::Form(body) = &value {
-                if seed_depth > 0 && self.stack.len() == seed_depth {
-                    let body = (**body).clone();
-                    let args = self.stack.pop_all();
-                    self.arg_frames.push(args);
-                    let applied = self.eval(&body);
-                    self.arg_frames.pop();
-                    value = applied?;
-                }
+            if let Value::Form(body) = &value
+                && seed_depth > 0
+                && self.stack.len() == seed_depth
+            {
+                let body = (**body).clone();
+                let args = self.stack.pop_all();
+                self.arg_frames.push(args);
+                let applied = self.eval(&body);
+                self.arg_frames.pop();
+                value = applied?;
             }
             self.stack.push(value.clone());
             last = Some(value);
@@ -1089,14 +1148,13 @@ impl<'a> Evaluator<'a> {
     }
 
     fn read_positional(&self, index: i64) -> Result<Value, EvalError> {
-        if index >= 0 {
-            if let Some(value) = self
+        if index >= 0
+            && let Some(value) = self
                 .arg_frames
                 .last()
                 .and_then(|frame| frame.get(index as usize))
-            {
-                return Ok(value.clone());
-            }
+        {
+            return Ok(value.clone());
         }
         self.stack
             .peek_index(index)
@@ -1769,13 +1827,13 @@ fn pre_realise(
             _ => None,
         };
     }
-    if op == ".." {
-        if let (Some(a), Some(b)) = (
+    if op == ".."
+        && let (Some(a), Some(b)) = (
             operands.first().and_then(as_integer),
             operands.get(1).and_then(as_integer),
-        ) {
-            return Some(Ok(numeric_range(a, b)));
-        }
+        )
+    {
+        return Some(Ok(numeric_range(a, b)));
     }
     None
 }
@@ -2001,13 +2059,13 @@ impl<'a> Evaluator<'a> {
         // semantic accessor `..` (indexing a number is nonsensical); the
         // `'str'..N` semantic-access path is untouched — a non-Number or
         // non-integral operand falls through to the normal realisation below.
-        if op == ".." {
-            if let (Some(a), Some(b)) = (
+        if op == ".."
+            && let (Some(a), Some(b)) = (
                 operands.first().and_then(as_integer),
                 operands.get(1).and_then(as_integer),
-            ) {
-                return Ok(numeric_range(a, b));
-            }
+            )
+        {
+            return Ok(numeric_range(a, b));
         }
 
         // Glyph operators (bd-44c294): a `builtin:`/`form:`-realised operator
@@ -2022,10 +2080,10 @@ impl<'a> Evaluator<'a> {
         // A `det:` form is a det-mode-only realisation (bd-6f9c1d): applied like
         // `form:` but ONLY in Mode::Det, so an llm op (`~>`) gets a computed det
         // stub (a real Bool) while its model still realises in llm mode.
-        if self.mode == Mode::Det {
-            if let Some(det_src) = op_cfg.det.as_deref() {
-                return self.apply_form_op(det_src, &operands);
-            }
+        if self.mode == Mode::Det
+            && let Some(det_src) = op_cfg.det.as_deref()
+        {
+            return self.apply_form_op(det_src, &operands);
         }
 
         let sep = self.sep();
@@ -2354,13 +2412,13 @@ impl<'a> Evaluator<'a> {
 
             // Numeric range (bd-791410), async twin: `a..b` with both operands
             // integral Numbers → the inclusive range list (see sync path).
-            if op == ".." {
-                if let (Some(a), Some(b)) = (
+            if op == ".."
+                && let (Some(a), Some(b)) = (
                     operands.first().and_then(as_integer),
                     operands.get(1).and_then(as_integer),
-                ) {
-                    return Ok(numeric_range(a, b));
-                }
+                )
+            {
+                return Ok(numeric_range(a, b));
             }
 
             // Glyph operators (bd-44c294), async: same pre-coercion dispatch as
@@ -2395,14 +2453,14 @@ impl<'a> Evaluator<'a> {
                 return result;
             }
             // Det-mode-only `det:` form (bd-6f9c1d), async twin.
-            if self.mode == Mode::Det {
-                if let Some(det_src) = op_cfg.det.clone() {
-                    let body = self.parse_op_form(&det_src)?;
-                    self.arg_frames.push(operands.clone());
-                    let result = self.eval_async(&body, realiser).await;
-                    self.arg_frames.pop();
-                    return result;
-                }
+            if self.mode == Mode::Det
+                && let Some(det_src) = op_cfg.det.clone()
+            {
+                let body = self.parse_op_form(&det_src)?;
+                self.arg_frames.push(operands.clone());
+                let result = self.eval_async(&body, realiser).await;
+                self.arg_frames.pop();
+                return result;
             }
 
             let sep = self.sep();
@@ -2553,25 +2611,24 @@ fn coerce_operand(
     if let Some(coerced) = value.coerce_deterministic(target, sep) {
         return Ok(coerced);
     }
-    if matches!(mode, Mode::Llm) {
-        if let Some(type_cfg) = config.types.get(target.as_str()) {
-            if let Some(prompt) = type_cfg.prompt.as_deref() {
-                let rendered = value.render(sep);
-                let answer = crate::llm::realise_llm(
-                    type_cfg.model.as_deref(),
-                    prompt,
-                    std::slice::from_ref(&rendered),
-                    config,
-                    None,
-                    seed,
-                    |name| std::env::var(name).ok(),
-                )
-                .map_err(|error| EvalError::Llm(error.to_string()))?;
-                return Value::string(answer)
-                    .coerce(target, sep)
-                    .map_err(EvalError::Coerce);
-            }
-        }
+    if matches!(mode, Mode::Llm)
+        && let Some(type_cfg) = config.types.get(target.as_str())
+        && let Some(prompt) = type_cfg.prompt.as_deref()
+    {
+        let rendered = value.render(sep);
+        let answer = crate::llm::realise_llm(
+            type_cfg.model.as_deref(),
+            prompt,
+            std::slice::from_ref(&rendered),
+            config,
+            None,
+            seed,
+            |name| std::env::var(name).ok(),
+        )
+        .map_err(|error| EvalError::Llm(error.to_string()))?;
+        return Value::string(answer)
+            .coerce(target, sep)
+            .map_err(EvalError::Coerce);
     }
     value.coerce(target, sep).map_err(EvalError::Coerce)
 }
@@ -2763,31 +2820,30 @@ async fn coerce_operand_async<R: crate::realiser::Realiser>(
     if let Some(coerced) = value.coerce_deterministic(target, sep) {
         return Ok(coerced);
     }
-    if matches!(mode, Mode::Llm) {
-        if let Some(type_cfg) = config.types.get(target.as_str()) {
-            if let Some(prompt) = type_cfg.prompt.as_deref() {
-                let rendered = value.render(sep);
-                let call = crate::llm::assemble_llm(
-                    type_cfg.model.as_deref(),
-                    prompt,
-                    std::slice::from_ref(&rendered),
-                    config,
-                    None,
-                    seed,
-                    |name| std::env::var(name).ok(),
-                )
-                .map_err(|error| EvalError::Llm(error.to_string()))?;
-                let answer = realiser
-                    .llm(&call)
-                    .await
-                    .map_err(|error| EvalError::Llm(error.to_string()))?;
-                // Same seam-level wrapper strip for the llm type-coercion path (bd-cb761e).
-                let answer = crate::llm::strip_text_tags(&answer);
-                return Value::string(answer)
-                    .coerce(target, sep)
-                    .map_err(EvalError::Coerce);
-            }
-        }
+    if matches!(mode, Mode::Llm)
+        && let Some(type_cfg) = config.types.get(target.as_str())
+        && let Some(prompt) = type_cfg.prompt.as_deref()
+    {
+        let rendered = value.render(sep);
+        let call = crate::llm::assemble_llm(
+            type_cfg.model.as_deref(),
+            prompt,
+            std::slice::from_ref(&rendered),
+            config,
+            None,
+            seed,
+            |name| std::env::var(name).ok(),
+        )
+        .map_err(|error| EvalError::Llm(error.to_string()))?;
+        let answer = realiser
+            .llm(&call)
+            .await
+            .map_err(|error| EvalError::Llm(error.to_string()))?;
+        // Same seam-level wrapper strip for the llm type-coercion path (bd-cb761e).
+        let answer = crate::llm::strip_text_tags(&answer);
+        return Value::string(answer)
+            .coerce(target, sep)
+            .map_err(EvalError::Coerce);
     }
     value.coerce(target, sep).map_err(EvalError::Coerce)
 }
@@ -3011,8 +3067,7 @@ fn realise_cached(
     if effectful {
         cache.count(false);
     }
-    cache.record(key, result.clone(), effectful, op);
-    Ok(result)
+    Ok(cache.record(key, result, effectful, op))
 }
 
 /// Whether a realisation leaves the process (a model or command call) — the only
@@ -3066,7 +3121,7 @@ async fn realise_cached_async<R: crate::realiser::Realiser>(
         if effectful {
             cache.count(false);
         }
-        cache.record(key, result.clone(), effectful, op);
+        return Ok(cache.record(key, result, effectful, op));
     }
     Ok(result)
 }
@@ -3473,10 +3528,10 @@ fn spread_lists(operands: Vec<Value>, grouped: Vec<bool>) -> (Vec<Value>, Vec<bo
 /// JSON string. With a config, tagged persisted forms are reparsed at any
 /// depth (a dict of named forms is a library).
 fn json_to_value_with(json: &Json, config: Option<&Config>) -> Value {
-    if let (Some(config), Some(source)) = (config, form_tag_source(json)) {
-        if let Some(expr) = parse_stored_form(source, config) {
-            return Value::form(expr);
-        }
+    if let (Some(config), Some(source)) = (config, form_tag_source(json))
+        && let Some(expr) = parse_stored_form(source, config)
+    {
+        return Value::form(expr);
     }
     match json {
         Json::String(text) => Value::string(text.clone()),
@@ -3845,12 +3900,11 @@ fn parse_json_lenient(text: &str) -> Option<Json> {
         return Some(json);
     }
     for (open, close) in [('{', '}'), ('[', ']')] {
-        if let (Some(start), Some(end)) = (trimmed.find(open), trimmed.rfind(close)) {
-            if start < end {
-                if let Ok(json) = serde_json::from_str::<Json>(&trimmed[start..=end]) {
-                    return Some(json);
-                }
-            }
+        if let (Some(start), Some(end)) = (trimmed.find(open), trimmed.rfind(close))
+            && start < end
+            && let Ok(json) = serde_json::from_str::<Json>(&trimmed[start..=end])
+        {
+            return Some(json);
         }
     }
     None
@@ -4618,6 +4672,60 @@ operators:
         // Argument-frame hygiene: inside a form `$0` is the ARG, not the stack
         // top — `9;{$0}%7` -> 7, not 9 (bd-5dd86f).
         assert_eq!(det("9;{$0}%7"), "7");
+    }
+
+    #[test]
+    fn store_replays_the_first_recorded_realisation_across_writers() {
+        // Two processes (here: two caches opened on one store before either writes) make the
+        // same impure call. The second writer must adopt the first recorded value, not append
+        // its own; a fresh load must agree; duplicate keys already on disk resolve to the first.
+        let yaml = r##"
+operators:
+  rnd: { op: "⚄", arity: 1, fixity: prefix, command: "echo \"$RANDOM-$RANDOM-${NLIR_ARGS[0]}\"" }
+"##;
+        let cfg =
+            crate::config::parse_str(yaml, std::path::Path::new("test.yaml")).expect("config");
+        let path = crate::test_support::unique_temp_path("nlir-store-race", "jsonl");
+        let run = |cache: &EvaluationCache| {
+            let mut ctx = Context::empty(&cfg.context);
+            evaluate_with_cache("⚄a", &cfg, &mut ctx, Mode::Llm, cache)
+                .expect("eval")
+                .render("\n")
+        };
+        let first_writer = EvaluationCache::persistent(&path).expect("store");
+        let second_writer = EvaluationCache::persistent(&path).expect("store");
+        let a = run(&first_writer);
+        let b = run(&second_writer);
+        assert_eq!(
+            a, b,
+            "the second writer must converge on the first recorded value"
+        );
+        assert_eq!(
+            second_writer.stats(),
+            CacheStats {
+                replayed: 0,
+                fresh: 1
+            }
+        );
+        let text = std::fs::read_to_string(&path).expect("store");
+        assert_eq!(
+            text.lines().count(),
+            1,
+            "only the first realisation is recorded: {text}"
+        );
+        assert_eq!(run(&EvaluationCache::persistent(&path).expect("store")), a);
+        // Duplicate keys written by older binaries: the first line wins on load.
+        let line = text.lines().next().expect("record").to_owned();
+        let mut other: Json = serde_json::from_str(&line).expect("json");
+        other["v"] = Json::String("later-duplicate".into());
+        std::fs::write(&path, format!("{line}\n{other}\n")).expect("write");
+        assert_eq!(run(&EvaluationCache::persistent(&path).expect("store")), a);
+        // A torn trailing fragment does not swallow the next record.
+        std::fs::write(&path, "{\"k\":\"torn").expect("write");
+        let after_torn = EvaluationCache::persistent(&path).expect("store");
+        let c = run(&after_torn);
+        assert_eq!(run(&EvaluationCache::persistent(&path).expect("store")), c);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

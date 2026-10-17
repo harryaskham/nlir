@@ -669,15 +669,15 @@ impl Put<'_, '_> {
         w: &mut Writes,
     ) -> Result<Vec<Option<Value>>, EvalError> {
         let n = arg_values.len();
-        if let Expr::ContextRead(name) = form {
-            if let (Some(inverse), 1) = (self.inverses.get(name).cloned(), n) {
-                let call = Expr::FormApply {
-                    form: Box::new(Expr::ContextRead(inverse)),
-                    args: vec![Expr::Value(new)],
-                };
-                let back = self.eval(&call)?;
-                return Ok(vec![Some(back)]);
-            }
+        if let Expr::ContextRead(name) = form
+            && let (Some(inverse), 1) = (self.inverses.get(name).cloned(), n)
+        {
+            let call = Expr::FormApply {
+                form: Box::new(Expr::ContextRead(inverse)),
+                args: vec![Expr::Value(new)],
+            };
+            let back = self.eval(&call)?;
+            return Ok(vec![Some(back)]);
         }
         let Value::Form(evaluated) = self.eval(form)? else {
             self.stuck(w, at, "applies something that is not a form", old, &new);

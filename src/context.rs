@@ -471,13 +471,13 @@ impl Context {
         let Some(path) = self.file.as_ref() else {
             return Ok(());
         };
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|source| ContextError::Write {
-                    path: path.clone(),
-                    source,
-                })?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|source| ContextError::Write {
+                path: path.clone(),
+                source,
+            })?;
         }
         // Transient keys are evaluation-only: never written through.
         let persisted;
@@ -517,10 +517,10 @@ pub fn expand_tilde(path: &str, home: Option<&OsStr>) -> PathBuf {
         if let Some(home) = home {
             return PathBuf::from(home);
         }
-    } else if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = home {
-            return PathBuf::from(home).join(rest);
-        }
+    } else if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = home
+    {
+        return PathBuf::from(home).join(rest);
     }
     PathBuf::from(path)
 }

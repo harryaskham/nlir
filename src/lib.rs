@@ -396,17 +396,17 @@ pub fn feedback_config() -> FeedbackConfig {
     // <base>/<project>. So when no explicit URL was set but a base URL is present,
     // target this project's own sub-path — keeping nlir / omni-cli / tendril / ...
     // feedback on separate hooks instead of spamming one shared board.
-    if matches!(config.strategy, ReportStrategy::Stderr) {
-        if let Ok(base) = std::env::var("FEEDBACK_WEBHOOK_BASE_URL") {
-            let base = base.trim();
-            if !base.is_empty() {
-                let sub_path = config.project.as_deref().unwrap_or(TOOL_NAME).to_owned();
-                config.strategy = ReportStrategy::Webhook(WebhookConfig {
-                    url: feedback_webhook_url(base, &sub_path),
-                    token_env: std::env::var("FEEDBACK_WEBHOOK_TOKEN_ENV").ok(),
-                    ..WebhookConfig::default()
-                });
-            }
+    if matches!(config.strategy, ReportStrategy::Stderr)
+        && let Ok(base) = std::env::var("FEEDBACK_WEBHOOK_BASE_URL")
+    {
+        let base = base.trim();
+        if !base.is_empty() {
+            let sub_path = config.project.as_deref().unwrap_or(TOOL_NAME).to_owned();
+            config.strategy = ReportStrategy::Webhook(WebhookConfig {
+                url: feedback_webhook_url(base, &sub_path),
+                token_env: std::env::var("FEEDBACK_WEBHOOK_TOKEN_ENV").ok(),
+                ..WebhookConfig::default()
+            });
         }
     }
     config

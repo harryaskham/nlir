@@ -449,35 +449,34 @@ fn parse_number_str(raw: &str) -> Option<f64> {
     } else {
         (1.0_f64, s.strip_prefix('+').unwrap_or(s))
     };
-    if let Some(hex) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
-        if let Ok(n) = i64::from_str_radix(hex, 16) {
-            return Some(sign * n as f64);
-        }
+    if let Some(hex) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X"))
+        && let Ok(n) = i64::from_str_radix(hex, 16)
+    {
+        return Some(sign * n as f64);
     }
-    if let Some(bin) = body.strip_prefix("0b").or_else(|| body.strip_prefix("0B")) {
-        if let Ok(n) = i64::from_str_radix(bin, 2) {
-            return Some(sign * n as f64);
-        }
+    if let Some(bin) = body.strip_prefix("0b").or_else(|| body.strip_prefix("0B"))
+        && let Ok(n) = i64::from_str_radix(bin, 2)
+    {
+        return Some(sign * n as f64);
     }
     // Comma-grouped thousands: "1,000" -> 1000.
-    if s.contains(',') {
-        if let Ok(n) = s.replace(',', "").parse::<f64>() {
-            return Some(n);
-        }
+    if s.contains(',')
+        && let Ok(n) = s.replace(',', "").parse::<f64>()
+    {
+        return Some(n);
     }
     // Percentage: "50%" -> 0.5.
-    if let Some(pct) = s.strip_suffix('%') {
-        if let Ok(n) = pct.trim().parse::<f64>() {
-            return Some(n / 100.0);
-        }
+    if let Some(pct) = s.strip_suffix('%')
+        && let Ok(n) = pct.trim().parse::<f64>()
+    {
+        return Some(n / 100.0);
     }
     // Simple fraction: "1/2" -> 0.5 (guards divide-by-zero).
-    if let Some((num, den)) = s.split_once('/') {
-        if let (Ok(a), Ok(b)) = (num.trim().parse::<f64>(), den.trim().parse::<f64>()) {
-            if b != 0.0 {
-                return Some(a / b);
-            }
-        }
+    if let Some((num, den)) = s.split_once('/')
+        && let (Ok(a), Ok(b)) = (num.trim().parse::<f64>(), den.trim().parse::<f64>())
+        && b != 0.0
+    {
+        return Some(a / b);
     }
     None
 }

@@ -494,7 +494,10 @@ when their regions do not overlap — and still contradict each other).
   evaluation (default); a host-held cache across runs (below); or a **store file**
   (`--cache-file PATH`, `NLIR_CACHE_FILE`, or `_cache_file` with `_cache=persist`)
   of JSON lines shared across runs, evals and hill-climb rounds — it only grows,
-  records effectful realisations only, and never evicts. `--replay strict` turns an
+  records effectful realisations only, and never evicts. The first record of a key wins: writers
+  sharing a store take a file lock, adopt a value another process recorded for the same call
+  meanwhile instead of appending their own, and loads keep the first of any duplicates, so
+  concurrent identical calls converge and replays agree. `--replay strict` turns an
   unrecorded model/command call into an error, and `--cache-stats` prints
   `nlir cache-stats {"replayed":N,"fresh":M}` to stderr after evaluation (effectful
   calls only; shown with `--quiet` and on errors). `_cache=off` disables caching (the

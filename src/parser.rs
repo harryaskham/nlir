@@ -1024,14 +1024,14 @@ impl Parser<'_> {
                     // '?'` pulls the seeded stdin). Only when nothing following can
                     // start an operand — else an infix/postfix op in prefix
                     // position is still an error.
-                    if let Some(inf) = self.table.get(&op).copied() {
-                        if !self.next_starts_operand() {
-                            return Ok(Expr::Apply {
-                                op,
-                                fixity: inf.fixity,
-                                operands: Vec::new(),
-                            });
-                        }
+                    if let Some(inf) = self.table.get(&op).copied()
+                        && !self.next_starts_operand()
+                    {
+                        return Ok(Expr::Apply {
+                            op,
+                            fixity: inf.fixity,
+                            operands: Vec::new(),
+                        });
                     }
                     Err(ParseError {
                         position: start,

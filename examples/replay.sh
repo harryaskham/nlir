@@ -4,7 +4,7 @@ set -euo pipefail
 NLIR=${NLIR:-nlir}
 store=$(mktemp -t nlir-store.XXXXXX)
 trap 'rm -f "$store"' EXIT
-expr="=>'Invent a name for a lighthouse keeper''s cat'"
+expr="=>'Invent a name for a cat that lives with a lighthouse keeper'"
 time "$NLIR" --quiet --cache-file "$store" -e "$expr"      # recorded
 time "$NLIR" --quiet --cache-file "$store" -e "$expr"      # replayed: identical, instant
 "$NLIR" --quiet --cache-file "$store" --replay strict -e "$expr"
