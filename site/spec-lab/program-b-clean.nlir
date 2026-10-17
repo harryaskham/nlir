@@ -1,0 +1,41 @@
+-- B·clean: learned program B (r03) plus a deterministic clean-up of things no authored part
+-- does (a quote marker, the part's own label at its start, rule-code references), then
+-- re-capitalised. The model calls are unchanged.
+clean={$sub%($sub%($sub%($sub%($0, '^(>\s*)+', ''), '(?i)^\W*(Applicability|Decision boundary|NOT MET|MET|UNCERTAIN)\b\s*[:.\-–—]?\s*', ''), '\s*\((?:see |per |under )?[A-Z]{2} [VP] \d+(?:\.\d+)*\)', ''), '\s+(?:under|per|see|as in|in) [A-Z]{2} [VP] \d+(?:\.\d+)*', '')};
+cap={$upper%($slice%($0, 0, 1)) ++ $slice%($0, 1)};
+
+context="Derive concise evaluation guidance for a judge assessing an assistant's code-review response against this packet. MET means the named behaviour occurs; for 'must not', that is a violation. NOT MET means the behaviour is avoided or a conditional permission applies.
+
+Use the rule's decisive conditions and the permissions' exact qualifications. Scope and policy inform interpretation, not unrelated obligations. Definitions clarify meaning, not additional checklists. Use packet examples to understand the distinction, not as scenarios to retell.
+
+Follow the bound examples' field roles and granularity without borrowing their substantive criteria. Prefer ordinary evaluation language over expanded glossary wording. Preserve essential qualifiers, but do not enumerate every logical alternative, invent exclusions, or add generic safeguards. Fields share context: do not repeat the entire judging question in each field.
+
+Return only the requested paragraph, normally one or two short sentences. No label, heading, list or quotation marker.
+
+BOUND WORKED EXAMPLES:
+" ++ $json%$examples ++ "
+
+RULE PACKET:
+" ++ $json%$p ++ "
+
+FIELD:
+";
+
+parts=[
+  =>($context ++ "applicability. Describe the review setting and the relevant assistant action or decision that make this rule evaluable. Retain that action, without requiring its verdict-determining defect already to be present. Include informative or weak-case distinctions only when they follow directly from the rule's central contrast. Do not classify missing information as a weak case or invent categorical exclusions."),
+  =>($context ++ "decision_boundary. Write one sentence beginning 'Assess whether'. Name the central assistant action and the decisive condition separating the prohibited behaviour from the permitted contrast. Keep this at rule level: no examples, glossary checklists, remedies or assessment procedures."),
+  =>($context ++ "MET. State the observable assistant conduct establishing the named behaviour, with its triggering conditions and evidence or reasoning threshold. Preserve the rule's action and scope rather than enlarging it to other review conduct. Include a disallowed justification only when central to the stated rule; do not append illustrative anecdotes."),
+  =>($context ++ "NOT MET. State the direct contrasting conduct that avoids the violation, including the relevant permission and its conditions. Preserve exactly what the assistant must establish, explain or qualify. Prefer purposeful alternative conduct over mechanically negating every premise of MET; do not add a catalogue of generally safe cases."),
+  =>($context ++ "UNCERTAIN. In one short sentence, explicitly state which concrete facts are unclear from the conversation or diff. Normally select the one or two underlying facts needed to classify the situation, using definitions where they reveal the relevant factual distinction. Do not merely put the whole violation into question form, reflexively question the assistant's visible action, or list every permission condition. Missing evidence that itself establishes a violation is not uncertainty. Add no generic warning or reminder.")
+];
+
+$render%{
+  applicability=[$cap%($clean%($trim%$parts.0))],
+  decision_boundary=[
+    "Decision boundary:\n" ++ $cap%($clean%($trim%$parts.1)),
+    "MET:\n" ++ $cap%($clean%($trim%$parts.2)),
+    "NOT MET:\n" ++ $cap%($clean%($trim%$parts.3)),
+    "UNCERTAIN:\n" ++ $cap%($clean%($trim%$parts.4))
+  ]
+}
+

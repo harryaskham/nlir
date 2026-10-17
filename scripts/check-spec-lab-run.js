@@ -128,6 +128,13 @@ async page => {
   await page.locator('#runSweepGroups').click();
   await page.waitForFunction(n => (document.querySelector('#runSweepState')?.textContent || '').includes('done: ' + n + ' groups'), nGroups, { timeout: 120000 });
   if ((await page.locator('.run-table.influence tr').count() - 1) !== nSent + nGroups) throw new Error('Group rows missing from the influence table');
+  // B·clean: learned B plus the clean-up runs in the browser like any program.
+  await page.locator('#runProgram').selectOption('B·clean');
+  const before = await page.locator('.run-card').count();
+  await page.locator('#runGo').click();
+  await page.waitForFunction(n => document.querySelectorAll('.run-card').length > n && !document.querySelector('.run-card .state:not(.ok)'), before, { timeout: 60000 });
+  if (!(await page.locator('#runCards > .run-card').first().innerText()).includes('B·clean')) throw new Error('B·clean run missing');
+  await page.locator('#runProgram').selectOption('B');
   // Narrow layout must not overflow.
   await page.setViewportSize({ width: 390, height: 844 });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Narrow overflow in Run tab');

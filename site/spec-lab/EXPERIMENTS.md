@@ -105,3 +105,12 @@ sentence-count match × 1/(1 + leaks), geometric mean, averaged over the authore
 Leaks are things the authored profiles never do: repeating the part's own label, a quote
 marker, a rule code, a heading. Once a run is judged, combined = √(strict F1 × style). Style
 is deterministic (no model calls) and mirrors the private harness's `style.py`.
+
+### B·clean: fixing shape without touching meaning
+
+`program-b-clean.nlir` is learned B plus a deterministic clean-up of things no authored profile
+does — a leading quote marker, the part's own label repeated at its start, rule-code references —
+re-capitalised (`verify-spec-lab.py` checks nothing else changed). Its prompts are identical to
+B's, so in the Run tab it replays B's model calls and only the final text differs. On the private
+health policy the same clean-up improved style by 0.047 [0.039, 0.056] on 20 untouched rules with
+no measurable change in meaning (strict F1 −0.002 [−0.008, +0.004]).

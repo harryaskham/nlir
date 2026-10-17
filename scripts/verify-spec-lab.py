@@ -95,9 +95,28 @@ def check_run_assets():
     print(f'run assets: 12 rules, {n} authored clauses; judge formula intact; no endpoint or key in page scripts')
 
 
+def check_b_clean():
+    """program-b-clean.nlir must be exactly learned B (the accepted strict-B round) plus the
+    clean-up forms wrapped around its five part texts — nothing else may change."""
+    trace = json.loads((ROOT / 'trace-strict-b.json').read_text())
+    accepted = [r for r in trace['rounds'] if r['accepted']]
+    src = accepted[-1]['program']
+    clean = (ROOT / 'program-b-clean.nlir').read_text()
+    body = clean.split('\n\n', 1)[1] if '\n\n' in clean else clean
+    expected = src
+    for i in range(5):
+        expected = expected.replace(f'$trim%$parts.{i}', f'$cap%($clean%($trim%$parts.{i}))')
+    if body.strip() != expected.strip():
+        raise ValueError('program-b-clean.nlir is not learned B plus the clean-up')
+    if 'clean={' not in clean or 'cap={' not in clean:
+        raise ValueError('program-b-clean.nlir lacks the clean-up forms')
+    print('program-b-clean.nlir: learned B r0%d plus the clean-up, nothing else changed' % accepted[-1]['round'])
+
+
 if __name__=='__main__':
     check('trace.json','similarity')
     check('trace-strict-a.json','strict',0)
     check('trace-strict-b.json','strict',2)
     if (ROOT/'witness.json').exists():check_witness()
     check_run_assets()
+    check_b_clean()
