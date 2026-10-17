@@ -1643,6 +1643,22 @@ tests:
     }
 
     #[test]
+    fn example_config_round_trips_through_json_without_an_environment() {
+        // The browser takes the config as JSON produced by this path (nlir-wasm
+        // `defaultConfigJson`); it must parse back to exactly the same config, and
+        // template references must survive an empty environment.
+        let cfg = parse_str_with_env(EXAMPLE_CONFIG, Path::new("config.example.yaml"), &|_| None)
+            .expect("example config parses with no environment");
+        let json = serde_json::to_string(&cfg).expect("serialise");
+        let back: Config = serde_json::from_str(&json).expect("deserialise");
+        assert_eq!(back, cfg);
+        assert!(
+            json.contains("${NLIR_PROMPT}"),
+            "prompt templates kept literally"
+        );
+    }
+
+    #[test]
     fn config_path_prefers_xdg_then_home() {
         // XDG_CONFIG_HOME wins when set.
         let p = config_path_from_env(Some(OsStr::new("/x/cfg")), Some(OsStr::new("/home/u")))

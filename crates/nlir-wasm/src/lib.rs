@@ -282,6 +282,31 @@ pub fn default_config_yaml() -> String {
     nlir::config::EXAMPLE_CONFIG.to_string()
 }
 
+/// `defaultConfigJson() -> String` — the shipped `config.example.yaml`, parsed by the
+/// same Rust loader as the CLI (with no environment: `${NLIR_PROMPT}`-style templates are
+/// kept literally) and serialised to the JSON every other export takes as `configJson`.
+/// Pages no longer need a JavaScript YAML parser; empty string on a (never expected) error.
+#[wasm_bindgen(js_name = defaultConfigJson)]
+pub fn default_config_json() -> String {
+    config_json_from_yaml_inner(nlir::config::EXAMPLE_CONFIG).unwrap_or_default()
+}
+
+/// `configJsonFromYaml(yaml) -> { ok, json | error }` — any YAML config to `configJson`,
+/// through the CLI's loader (same validation, no environment interpolation).
+#[wasm_bindgen(js_name = configJsonFromYaml)]
+pub fn config_json_from_yaml(yaml: &str) -> JsValue {
+    match config_json_from_yaml_inner(yaml) {
+        Ok(json) => payload(&serde_json::json!({ "ok": true, "json": json })),
+        Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
+fn config_json_from_yaml_inner(yaml: &str) -> Result<String, String> {
+    let cfg = nlir::config::parse_str_with_env(yaml, std::path::Path::new("config.yaml"), &|_| None)
+        .map_err(|error| error.to_string())?;
+    serde_json::to_string(&cfg).map_err(|error| error.to_string())
+}
+
 /// `evaluate(expr, configJson, contextJson, mode, realisers) -> Promise<{ ok, result|error }>`.
 /// DET evaluates on the sync core (key-free); LLM drives `evaluate_async` with
 /// the [`JsRealiser`] built from the `realisers` object.

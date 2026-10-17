@@ -7,6 +7,19 @@
 // keyed by the filled prompt and `_seed`); a new seed draws a fresh sample.
 
 const LS = 'nlir.endpoint.v1', WS = 'nlir.workspace.v1';
+// The endpoint panel, for hosts without their own markup (the spec lab ships it in index.html).
+const ENDPOINT_HTML = `<details class="endpoint" id="endpoint">
+  <summary>Model endpoint <span class="muted" id="epStatus"></span></summary>
+  <div class="ep-grid">
+    <label>Base URL <input id="epBase" type="url" placeholder="https://your-proxy.example/v1" autocomplete="off" spellcheck="false"></label>
+    <label>API key <input id="epKey" type="password" placeholder="optional" autocomplete="off" spellcheck="false"></label>
+    <label>Writer model <input id="epWriter" list="epModels" spellcheck="false"></label>
+    <label>Judge model <input id="epJudge" list="epModels" spellcheck="false"></label>
+    <datalist id="epModels"></datalist>
+  </div>
+  <div class="ep-actions"><label class="check"><input type="checkbox" id="epRemember"> Remember the key in this browser</label><button class="ghost" id="epTest">Test connection</button><button class="ghost" id="epForget">Forget key</button><span class="muted" id="epTestOut"></span></div>
+  <p class="muted">Any OpenAI-compatible endpoint (for example a LiteLLM proxy). Requests go straight from this page to it; the URL and key are kept only in this browser. The endpoint must allow cross-origin requests from this page.</p>
+</details>`;
 const DEFAULTS = { baseUrl: '', apiKey: '', remember: true, writer: 'gpt-6-luna', judge: 'gpt-6.1-sol' };
 const PERTURB = {
   permissions: ['Remove permissions', p => { delete p.permissions; }],
@@ -63,8 +76,18 @@ function realiser(model, log) {
   };
 }
 
+// A host page passes its evaluator and helpers, and may supply its own data: `programs`
+// [{key,label,src,graph,examples,train}], `splitOf(id) -> [label, why]`, `packetOf(id)`,
+// `authoredOf(id) -> {md, fields}`, `fieldsOf(md)`, `clauses` {id: {PART: [clause]}} and
+// `judgeLib`. Anything omitted falls back to the spec lab's toy files and projections.
 export async function initRun(deps) {
   D = deps; ep = loadEndpoint();
+  if (!$('endpoint') && D.endpointHost) D.endpointHost.insertAdjacentHTML('afterbegin', ENDPOINT_HTML);
+  if (D.programs) {
+    programs = D.programs; clauses = D.clauses || null; judgeLib = D.judgeLib ? strip(D.judgeLib) : '';
+    wireEndpoint();
+    return;
+  }
   const [a, b, cl, judge] = await Promise.all(['trace-strict-a.json', 'trace-strict-b.json', 'clauses.json', 'judge.nlir'].map(f =>
     fetch(f).then(r => (r.ok ? (f.endsWith('.json') ? r.json() : r.text()) : null)).catch(() => null)));
   const chosen = t => t.rounds[Math.max(0, t.rounds.map((r, i) => (r.accepted ? i : -1)).filter(i => i >= 0).pop() ?? 0)];
@@ -86,19 +109,21 @@ function strip(src) {
 }
 
 function splitOf(id) {
-  if (!splits) return '';
+  if (D.splitOf) return D.splitOf(id);
+  if (!splits) return ['', ''];
   if (splits.train.includes(id)) return ['training rule', 'the editor saw this rule\'s authored profile while learning; scores here are optimistic'];
   if (splits.test.includes(id)) return ['held-out rule', 'never seen while learning or choosing the program'];
   return ['validation rule', 'used to choose between program versions, never shown to the editor'];
 }
 
 async function specPacket(id) {
-  if (!packetCache[id]) packetCache[id] = await D.runJson('$packet%$id', { id });
+  if (!packetCache[id]) packetCache[id] = D.packetOf ? structuredClone(await D.packetOf(id)) : await D.runJson('$packet%$id', { id });
   return packetCache[id];
 }
 async function authored(id) {
   if (!authoredCache[id]) {
-    const [md, fields] = await Promise.all([D.run('$render%(($node%$id).profile)', { id }), D.runJson('($node%$id).profile', { id })]);
+    const { md, fields } = D.authoredOf ? await D.authoredOf(id)
+      : { md: await D.run('$render%(($node%$id).profile)', { id }), fields: await D.runJson('($node%$id).profile', { id }) };
     authoredCache[id] = { md, fields, parts: D.mdParts(md) };
   }
   return authoredCache[id];
@@ -272,7 +297,7 @@ async function judge(run) {
   run.judge = { status: 'running', calls: [] };
   renderRuns();
   const gold = (await authored(run.id)).fields;
-  const cand = await D.runJson('$fields%$md', { md: run.md });
+  const cand = D.fieldsOf ? await D.fieldsOf(run.md) : await D.runJson('$fields%$md', { md: run.md });
   const log = entry => { if (!run.judge.calls.includes(entry)) run.judge.calls.push(entry); renderRuns(); };
   try {
     const r = D.norm(await D.nlir.evaluate(judgeLib, D.cfgJson, JSON.stringify({ gold, cand, clauses: clauses[run.id], _seed: 0 }), 'llm', realiser(ep.judge, log)));
