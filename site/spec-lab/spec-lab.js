@@ -61,7 +61,9 @@ async function select(id) {
   await showSpec();
   $('prose').value = await run('$render%(($node%$id).profile)', { id });
   await reparse();
-  setView('rule');
+  // Keep the tab the reader is on when switching rules (Profile otherwise).
+  const on = document.querySelector('#view [aria-selected=true]')?.dataset.view;
+  setView(on === 'limits' ? 'limits' : 'rule');
 }
 
 async function showSpec() {
@@ -244,16 +246,46 @@ async function showLoop(file = LOOP_RUNS[0].file) {
 }
 
 // ---- views ---------------------------------------------------------------------------
+let viewToken = 0;
 async function setView(v) {
+  const token = ++viewToken; // a later view choice wins over a slower earlier one
   if (ruleHeading) {
     $('title').innerHTML = v === 'loop' ? 'Learning profile programs' : ruleHeading.title;
     $('crumbs').innerHTML = v === 'loop' ? 'Code review assistant <span>·</span> 12-rule dataset' : ruleHeading.crumbs;
   }
-  document.querySelectorAll('#view button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
-  for (const k of ['rule', 'policy', 'loop', 'back']) $(`pane-${k}`).hidden = v !== k;
+  const apply = () => {
+    document.querySelectorAll('#view button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
+    for (const k of ['rule', 'policy', 'loop', 'back', 'limits']) $(`pane-${k}`).hidden = v !== k;
+  };
+  apply();
   if (v === 'policy' && !$('policy').innerHTML) $('policy').innerHTML = mdToHtml(await run('$policymd'));
   if (v === 'loop' && !$('loop').innerHTML) await showLoop();
   if (v === 'back' && !$('back').innerHTML) await showBack();
+  if (v === 'limits') await showLimits();
+  if (token === viewToken) apply(); // re-assert after awaits; a newer call owns the view otherwise
+}
+
+// ---- what the spec cannot give: the counterexample test (recorded) ------------------
+// For each authored clause one model either quotes spec text that determines it, or writes a
+// counter-choice that fits the spec but changes some verdict; a second model checks it.
+let limitsDoc = null;
+const VERDICT = { 'determined': 'spec determines it', 'partly determined': 'partly determined', 'witnessed open': 'counterexample confirmed',
+  'open, witness rejected': 'counterexample rejected', 'derivation rejected': 'derivation rejected', 'unverifiable': 'citation invalid' };
+async function showLimits() {
+  const box = $('limits');
+  if (!limitsDoc) {
+    try { const r = await fetch('witness.json'); if (!r.ok) throw new Error(); limitsDoc = await r.json(); }
+    catch (_) { box.innerHTML = '<p class="muted">No recorded counterexample test.</p>'; return; }
+  }
+  const rule = limitsDoc.rules.find(r => r.id === current) || limitsDoc.rules[0];
+  const all = limitsDoc.rules.flatMap(r => r.clauses), open = all.filter(c => c.final === 'witnessed open').length;
+  const mine = rule.clauses.filter(c => c.final === 'witnessed open').length;
+  box.innerHTML = `<p class="lede">Which parts of an authored profile could the spec not have implied? For every clause, one model either quotes spec text that determines it, or writes a <b>counter-choice</b>: a different requirement that still fits the spec but would change some verdict. A second model checks each. A confirmed counter-choice shows the spec leaves that clause open.</p>
+    <div class="loop-head"><div class="stat"><b>${open} / ${all.length}</b><span>clauses with a confirmed counterexample, all 12 rules</span></div><div class="stat"><b>${mine} / ${rule.clauses.length}</b><span>in ${esc(rule.id)}</span></div></div>
+    <ol class="limits">${rule.clauses.map(c => `<li class="lim ${c.final === 'witnessed open' ? 'open' : c.final === 'determined' ? 'det' : 'part'}">
+      <div><span class="pl">${esc(c.label.toLowerCase())}</span> <span class="state ${c.final === 'determined' ? 'ok' : ''}">${esc(VERDICT[c.final] || c.final)}</span> ${esc(c.text)}</div>
+      <details><summary>why</summary><p>${esc(c.rationale)}</p>${c.counter_choice ? `<p><b>Open question:</b> ${esc(c.open_question)}</p><p><b>Counter-choice:</b> ${esc(c.counter_choice)}</p><p><b>Judged differently:</b> ${esc(c.differs_on)}</p>` : (c.citations || []).map(q => `<blockquote><code>${esc(q.source)}</code> \u201c${esc(q.quote)}\u201d</blockquote>`).join('')}${c.check ? `<p class="muted">Check: ${esc(c.check)}</p>` : ''}</details></li>`).join('')}</ol>
+    <p class="muted">Recorded with ${esc(limitsDoc.models.derive_or_counter)} and ${esc(limitsDoc.models.check)}. Model judgements, not formal proofs. Pick another rule on the left to see its clauses.</p>`;
 }
 
 // ---- recorded backward pass through a learned (model-backed) program ---------------

@@ -40,7 +40,39 @@ def check(name, mode, profiles=None):
     print(f"{name}: {mode}, {len(trace['rounds'])-1} proposals, held-out {trace['held_out']['best']['mean']:.3f}")
 
 
+VERDICTS={'determined','partly determined','witnessed open','open, witness rejected','derivation rejected','unverifiable'}
+
+
+def check_witness(name='witness.json'):
+    """Recorded counterexample test on the invented spec: toy IDs only, complete rules,
+    citations quote the toy spec verbatim, open clauses carry a counter-choice."""
+    doc=json.loads((ROOT/name).read_text())
+    spec=json.loads((ROOT/'toy-spec.json').read_text())
+    def strings(v):
+        if isinstance(v,dict):
+            for x in v.values():yield from strings(x)
+        elif isinstance(v,list):
+            for x in v:yield from strings(x)
+        elif isinstance(v,str):yield v
+    corpus='\n'.join(strings(spec))
+    ids=[r['id'] for r in doc['rules']]
+    if len(ids)!=12 or len(set(ids))!=12 or not all(i.startswith('CR V') for i in ids):raise ValueError('witness: expected the 12 invented CR rules')
+    table={}
+    for r in doc['rules']:
+        for c in r['clauses']:
+            if c['final'] not in VERDICTS:raise ValueError(f"witness: unknown verdict {c['final']}")
+            if c['final']=='witnessed open' and not (c.get('counter_choice') or '').strip():raise ValueError('witness: open clause without counter-choice')
+            for q in c.get('citations') or []:
+                if q['quote'] not in corpus:raise ValueError(f"witness: quote not in toy spec: {q['quote'][:60]}")
+            table.setdefault(c['origin'],{}).setdefault(c['final'],0)
+            table[c['origin']][c['final']]+=1
+    if table!=doc['by_origin']:raise ValueError('witness: summary table differs from rows')
+    total=sum(len(r['clauses']) for r in doc['rules']);opened=sum(c['final']=='witnessed open' for r in doc['rules'] for c in r['clauses'])
+    print(f"{name}: 12 rules, {total} clauses, {opened} confirmed open; citations quote the toy spec")
+
+
 if __name__=='__main__':
     check('trace.json','similarity')
     check('trace-strict-a.json','strict',0)
     check('trace-strict-b.json','strict',2)
+    if (ROOT/'witness.json').exists():check_witness()
