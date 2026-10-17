@@ -45,3 +45,25 @@ a counter-choice does not prove a clause is implied. `scripts/export-toy-witness
 the file from recorded results; `scripts/verify-spec-lab.py` checks that every quotation
 appears verbatim in `toy-spec.json`. The same method applied to the private health policy
 found 155 of 681 clauses open.
+
+## Run program — learned programs, live, with your own endpoint
+
+The Run program tab executes a recorded program (learned B r03, learned A r04 or the seed) on
+the selected rule in the browser, through any OpenAI-compatible endpoint the reader enters
+(base URL, optional key, writer and judge model; defaults `gpt-6-luna` and `gpt-6.1-sol`).
+The URL and key are kept in this browser's `localStorage` (`nlir.endpoint.v1`; the key only
+when "Remember" is ticked) and sent only to that endpoint, which must allow cross-origin
+requests. Nothing is hardcoded; `verify-spec-lab.py` rejects page scripts containing one.
+
+- Same program, packet and seed replay every model call from the evaluator's cache; "New
+  sample" takes the next seed, so its change against seed 0 is the sampling noise.
+- Packet edits (remove permissions, spec examples, definitions or scope, or free editing) re-run
+  only the calls whose prompts changed; the summary compares their effect with the re-samples.
+- "Step through" streams each reduction; every model call is logged with prompt and reply.
+- "Judge" runs `judge.nlir` — the same strict clause judge as the recorded experiments, one call
+  per part — against `clauses.json` (the authored clauses of the 12 invented rules), and shows
+  each clause as present, weakened, missing or contradicted and each written statement as
+  supported or extra.
+- Word counts, sentence counts and rule-code counts per part are surface statistics, not scores.
+
+`scripts/check-spec-lab-run.js` exercises the whole tab against a mocked endpoint (no network).

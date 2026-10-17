@@ -32,6 +32,7 @@
         <button role="tab" data-view="rule" aria-selected="true">Profile</button>
         <button role="tab" data-view="policy" aria-selected="false">Policy</button>
         <button role="tab" data-view="loop" aria-selected="false">Learning loop</button>
+        <button role="tab" data-view="run" aria-selected="false">Run program</button>
         <button role="tab" data-view="back" aria-selected="false">Backward pass</button>
         <button role="tab" data-view="limits" aria-selected="false">Spec limits</button>
       </div>
@@ -62,6 +63,22 @@
 
     <section class="doc-pane" id="pane-loop" hidden>
       <div id="loop"></div>
+    </section>
+
+    <section class="doc-pane" id="pane-run" hidden>
+      <details class="endpoint" id="endpoint">
+        <summary>Model endpoint <span class="muted" id="epStatus"></span></summary>
+        <div class="ep-grid">
+          <label>Base URL <input id="epBase" type="url" placeholder="https://your-proxy.example/v1" autocomplete="off" spellcheck="false"></label>
+          <label>API key <input id="epKey" type="password" placeholder="optional" autocomplete="off" spellcheck="false"></label>
+          <label>Writer model <input id="epWriter" list="epModels" spellcheck="false"></label>
+          <label>Judge model <input id="epJudge" list="epModels" spellcheck="false"></label>
+          <datalist id="epModels"></datalist>
+        </div>
+        <div class="ep-actions"><label class="check"><input type="checkbox" id="epRemember"> Remember the key in this browser</label><button class="ghost" id="epTest">Test connection</button><button class="ghost" id="epForget">Forget key</button><span class="muted" id="epTestOut"></span></div>
+        <p class="muted">Any OpenAI-compatible endpoint (for example a LiteLLM proxy). Requests go straight from this page to it; the URL and key are kept only in this browser. The endpoint must allow cross-origin requests from this site.</p>
+      </details>
+      <div id="run"></div>
     </section>
 
     <section class="doc-pane" id="pane-back" hidden>

@@ -1,0 +1,25 @@
+-- judge.nlir — strict, clause-level fidelity of candidate fields to the gold fields.
+--
+-- Binds: $gold, $cand — {applicability: [text], decision_boundary: ["Label:\ntext", …]};
+--        $clauses — {LABEL: [reference clause, …]} from clauses.nlir (fixed per rule).
+-- For each gold part, one judge call classifies every reference clause as present /
+-- weakened / missing / contradicted in the candidate, and every candidate statement as
+-- supported / extra. recall = (present + 0.5·weakened) / clauses; precision = supported /
+-- statements; f1 per part; score = mean f1. A missing candidate part scores 0.
+-- Output: JSON {score, parts:[{label, f1, recall, precision, contradicted, reference, candidate}]}.
+
+lab={$trim%($match%($0, '^([^\n:]+):'))};
+body={$trim%($sub%($0, '^[^\n:]+:[ \t]*\n?', ''))};
+norm={$upper%($sub%($0, '[*_`#]', ''))};
+parts={$flat%[[{label='APPLICABILITY', text=$trim%($join%($get%($0, 'applicability', []), ' '))}], {{label=$norm%($lab%$0), text=$body%$0}}↦($get%($0, 'decision_boundary', []))]};
+G=$parts%$gold;
+C=$parts%$cand;
+pairs={{label=$0.label, c=$get%($filter%({$0.label == $$0.label}, $C), 0, {text=''}).text, k=$get%($clauses, $0.label, [$0.text])}}↦$G;
+-- One judge call per part; the map body holds only model and data ops, so the calls fan out.
+verdicts={$if%($trim%$0.c, $parse%(=>("You compare a CANDIDATE paragraph with a REFERENCE paragraph of evaluation guidance. The reference wording is normative: its conditions, qualifiers, scope, exclusions and polarity must be preserved exactly. Different wording is fine when the meaning is exactly the same.\n\nREFERENCE CLAUSES:\n" ++ $join%({$0.0 ++ '. ' ++ $0.1}↦($zip%(1..(#$0.k), $0.k)), "\n") ++ "\n\nCANDIDATE:\n" ++ $0.c ++ "\n\n1. For each numbered reference clause, decide whether the candidate expresses it: \"present\" (same meaning, every qualifier kept, same polarity); \"weakened\" (expressed, but a qualifier, condition or scope is dropped, broadened, narrowed or softened); \"missing\" (not expressed); \"contradicted\" (the candidate states the opposite or something incompatible).\n2. Split the candidate into its atomic statements and mark each \"supported\" (the reference states or directly implies it) or \"extra\" (it adds a condition, requirement, example, exclusion or claim the reference does not make).\n\nReply with JSON only: {\"reference\": [{\"n\": 1, \"status\": \"present\", \"note\": \"<what differs, when not present>\"}], \"candidate\": [{\"text\": \"<statement>\", \"status\": \"supported\"}]}")), {reference=[], candidate=[]})}↦$pairs;
+count={#($filter%({$0.status == $$1}, $0))};
+part={{label=$0.0.label, n=#$0.0.k, present=$count%($get%($0.1, 'reference', []), 'present'), weakened=$count%($get%($0.1, 'reference', []), 'weakened'), contradicted=$count%($get%($0.1, 'reference', []), 'contradicted'), supported=$count%($get%($0.1, 'candidate', []), 'supported'), statements=#($get%($0.1, 'candidate', [])), reference={{clause=$get%($$0.0.k, $0.n - 1, ''), status=$0.status, note=$get%($0, 'note', '')}}↦($get%($0.1, 'reference', [])), candidate=$get%($0.1, 'candidate', [])}}↦($zip%($pairs, $verdicts));
+f1={$if%($0.r + $0.p > 0, 2 * $0.r * $0.p / ($0.r + $0.p), 0)};
+scored={{label=$0.label, recall=($0.present + 0.5 * $0.weakened) / $0.n, precision=$if%($0.statements > 0, $0.supported / $0.statements, 0), contradicted=$0.contradicted, reference=$0.reference, candidate=$0.candidate}}↦$part;
+out={$0 ++ {f1=$f1%{r=$0.recall, p=$0.precision}}}↦$scored;
+$json%{score=$fold%({$0 + $1.f1}, $out, 0) / #$out, parts=$out}
