@@ -93,7 +93,7 @@ export async function initRun(deps) {
     programs = D.programs; clauses = D.clauses || null; judgeLib = D.judgeLib ? strip(D.judgeLib) : '';
     return;
   }
-  const [a, b, cl, judge] = await Promise.all(['trace-strict-a.json', 'trace-strict-b.json', 'clauses.json', 'judge.nlir'].map(f =>
+  const [a, b, cl, judge, clean] = await Promise.all(['trace-strict-a.json', 'trace-strict-b.json', 'clauses.json', 'judge.nlir', 'program-b-clean.nlir'].map(f =>
     fetch(f).then(r => (r.ok ? (f.endsWith('.json') ? r.json() : r.text()) : null)).catch(() => null)));
   const chosen = t => t.rounds[Math.max(0, t.rounds.map((r, i) => (r.accepted ? i : -1)).filter(i => i >= 0).pop() ?? 0)];
   if (a && b) {
@@ -103,6 +103,8 @@ export async function initRun(deps) {
       { key: 'A', label: `Learned A — no worked examples (r0${ra.round})`, src: ra.program, graph: ra.graph, examples: 0, train: a.train_ids },
       { key: 'seed', label: 'Seed — one generic instruction (r00)', src: a.rounds[0].program, graph: a.rounds[0].graph, examples: 0, train: a.train_ids },
     ];
+    // B·clean: learned B plus a deterministic clean-up of shape leaks (same model calls).
+    if (clean) programs.splice(1, 0, { key: 'B·clean', label: 'B·clean — learned B plus a clean-up of shape leaks', src: clean, examples: b.weights?.examples ?? 2, train: b.train_ids });
     splits = { train: b.train_ids, test: b.test_ids };
   }
   clauses = cl; judgeLib = judge ? strip(judge) : '';
