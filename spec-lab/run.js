@@ -82,10 +82,8 @@ function realiser(model, log) {
 // `judgeLib`. Anything omitted falls back to the spec lab's toy files and projections.
 export async function initRun(deps) {
   D = deps; ep = loadEndpoint();
-  if (!$('endpoint') && D.endpointHost) D.endpointHost.insertAdjacentHTML('afterbegin', ENDPOINT_HTML);
   if (D.programs) {
     programs = D.programs; clauses = D.clauses || null; judgeLib = D.judgeLib ? strip(D.judgeLib) : '';
-    wireEndpoint();
     return;
   }
   const [a, b, cl, judge] = await Promise.all(['trace-strict-a.json', 'trace-strict-b.json', 'clauses.json', 'judge.nlir'].map(f =>
@@ -101,7 +99,6 @@ export async function initRun(deps) {
     splits = { train: b.train_ids, test: b.test_ids };
   }
   clauses = cl; judgeLib = judge ? strip(judge) : '';
-  wireEndpoint();
 }
 
 function strip(src) {
@@ -143,13 +140,15 @@ function changed(a, b) {
 }
 // The run's own text, with words that the comparison text lacks highlighted. Deleted words are
 // counted, not interleaved: two mostly different texts stay readable.
+// Shared function words are not underlined: they match everywhere and say nothing.
+const STOP = new Set('a an and are as at be by for from has have in is it its of on or that the their this to was were which with'.split(' '));
 function marked(a, b, sharedMode = false) {
   const A = String(a || '').split(/(\s+)/), B = String(b || '').split(/(\s+)/), key = w => w.toLowerCase().replace(/[^a-z0-9'’-]/g, '');
   const n = A.length, m = B.length, L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = key(A[i]) === key(B[j]) ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
   let i = 0, j = 0, out = '', removed = 0;
   while (j < m) {
-    if (i < n && key(A[i]) === key(B[j])) { out += sharedMode && B[j].trim() ? `<mark class="same">${D.esc(B[j])}</mark>` : D.esc(B[j]); i++; j++; }
+    if (i < n && key(A[i]) === key(B[j])) { out += sharedMode && B[j].trim() && !STOP.has(key(B[j])) ? `<mark class="same">${D.esc(B[j])}</mark>` : D.esc(B[j]); i++; j++; }
     else if (i < n && L[i + 1][j] >= L[i][j + 1]) { if (A[i].trim()) removed++; i++; }
     else { out += B[j].trim() && !sharedMode ? `<ins>${D.esc(B[j])}</ins>` : D.esc(B[j]); j++; }
   }
@@ -174,6 +173,10 @@ function packetChange(p, base) {
 // ---- the pane ------------------------------------------------------------------------
 export async function showRun(id) {
   ruleId = id;
+  // Hosts that re-render their page (the health lab) get the endpoint panel back each time.
+  const host = typeof D.endpointHost === 'function' ? D.endpointHost() : D.endpointHost;
+  if (!$('endpoint') && host) host.insertAdjacentHTML('afterbegin', ENDPOINT_HTML);
+  if ($('endpoint') && !$('endpoint').dataset.wired) { wireEndpoint(); $('endpoint').dataset.wired = '1'; }
   const token = ++request, box = $('run');
   if (!programs.length) { box.innerHTML = '<p class="muted">The recorded programs could not be loaded.</p>'; return; }
   const [packet, auth] = await Promise.all([specPacket(id), authored(id)]);
@@ -181,7 +184,7 @@ export async function showRun(id) {
   const [split, why] = splitOf(id);
   const progKey = $('runProgram')?.value || 'B';
   box.innerHTML = `
-    <p class="sub">Run a learned program on <b>${D.esc(id)}</b> with your own model endpoint, then compare: the same input with a new seed shows sampling noise; an edited packet shows what the packet controls; the strict judge shows what a score means clause by clause. <span class="state ${split === 'held-out rule' ? 'ok' : 'warn'}" title="${D.esc(why)}">${split}</span></p>
+    <p class="sub">Run a learned program on <b>${D.esc(id)}</b> with your own model endpoint, then compare: the same input with a new seed shows sampling noise; an edited packet shows what the packet controls; the strict judge shows what a score means clause by clause. <span class="state ${/held-out|fresh/.test(split) ? 'ok' : 'warn'}" title="${D.esc(why)}">${split}</span></p>
     <div class="run-grid">
       <div class="run-inputs">
         <label class="run-label" for="runProgram">Program</label>
@@ -221,7 +224,9 @@ function wirePane(packet) {
   const loadProgram = () => {
     const p = programs.find(x => x.key === $('runProgram').value) || programs[0];
     $('runSrc').value = p.src; $('runSrcState').textContent = '';
-    $('runGraph').innerHTML = p.graph || '<p class="muted">No graph recorded for this program.</p>';
+    let graph = p.graph;
+    if (!graph && D.nlir.graph) { const g = D.norm(D.nlir.graph(`${D.profileLib};\n${strip(p.src)}`, D.cfgJson)); graph = g?.ok ? g.svg : ''; }
+    $('runGraph').innerHTML = graph || '<p class="muted">No graph for this program.</p>';
     const ex = (p.train || []).filter(x => x !== ruleId).slice(0, p.examples);
     $('runExamples').innerHTML = ex.length ? `Worked examples bound as <code>$examples</code>: ${ex.map(D.esc).join(', ')} (training rules: their packets and authored profiles).` : 'No worked examples: <code>$examples</code> is empty for this program.';
   };
@@ -355,7 +360,7 @@ function card(r, against, auth) {
     const judged = v ? `<details class="run-judged"><summary>F1 ${v.f1.toFixed(2)} · recall ${v.recall.toFixed(2)} · precision ${v.precision.toFixed(2)}</summary><ul>${v.reference.map(c => `<li class="j-${D.esc(c.status)}"><b>${D.esc(c.status)}</b> ${D.esc(c.clause)}${c.note ? ` <span class="muted">— ${D.esc(c.note)}</span>` : ''}</li>`).join('')}</ul><ul>${(v.candidate || []).map(c => `<li class="j-${D.esc(c.status)}"><b>${D.esc(c.status)}</b> ${D.esc(c.text)}</li>`).join('')}</ul></details>` : '';
     const ch = changed(other, text), m = marked(other, text, ch > 0.5);
     const codes = ruleCodes(text);
-    return `<div class="field"><div class="label">${D.esc(label)}</div><div class="run-stats">${w} words · ${sentences(text)} sentence${sentences(text) === 1 ? '' : 's'} (authored ${aw} words)${codes ? ` · ${codes} rule code${codes === 1 ? '' : 's'}` : ''}${other ? ` · ${pct(ch)} changed vs ${D.esc(against.name)} · ${ch > 0.5 ? 'underlined: shared with it' : 'highlighted: new'} · ${m.removed} of its words absent` : ''}</div><div class="text">${other ? m.html : D.esc(text)}</div>${judged}</div>`;
+    return `<div class="field"><div class="label">${D.esc(label)}</div><div class="run-stats">${w} words · ${sentences(text)} sentence${sentences(text) === 1 ? '' : 's'} (authored ${aw} words)${codes ? ` · ${codes} rule code${codes === 1 ? '' : 's'}` : ''}${other ? ` · ${pct(ch)} changed vs ${D.esc(against.name)} · ${ch > 0.5 ? 'underlined: content words shared with it' : 'highlighted: new'} · ${m.removed} of its words absent` : ''}</div><div class="text">${other ? m.html : D.esc(text)}</div>${judged}</div>`;
   }).join('');
   const judgeBtn = !judgeLib || !clauses?.[r.id] ? '' : r.judge?.status === 'running' ? '<span class="state">judging…</span>' : r.judge?.status === 'failed' ? `<p class="err">Judge failed: ${D.esc(r.judge.error)}</p><button class="ghost" data-judge="${r.n}">Retry judge</button>` : r.judge?.status === 'done' ? `<span class="state ok">strict F1 ${r.judge.score.toFixed(2)} · ${D.esc(r.judge.model)}</span>` : `<button class="ghost" data-judge="${r.n}" title="One judge call per part: each authored clause present / weakened / missing; each written statement supported / extra">Judge (strict clause F1)</button>`;
   return `<article class="run-card">${head}<div class="run-judge">${judgeBtn}</div>${parts}${calls}</article>`;
