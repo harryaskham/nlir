@@ -70,6 +70,9 @@ pub enum EvalError {
     EmptyProgram,
     /// A realisation / feature that has its own not-yet-landed bead.
     Unsupported(String),
+    /// A suspending cache (see [`EvaluationCache::suspending`]) met a model or command
+    /// call it has not recorded: the caller makes the call and runs again.
+    Suspended(String),
 }
 
 impl fmt::Display for EvalError {
@@ -94,6 +97,10 @@ impl fmt::Display for EvalError {
             EvalError::Llm(m) => write!(f, "llm realisation failed: {m}"),
             EvalError::EmptyProgram => write!(f, "empty program has no result"),
             EvalError::Unsupported(m) => write!(f, "unsupported: {m}"),
+            EvalError::Suspended(op) => write!(
+                f,
+                "suspended: `{op}` needs a call the caller makes before running again"
+            ),
         }
     }
 }
@@ -139,7 +146,33 @@ pub struct EvaluationCache {
     values: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>,
     store: Option<std::sync::Arc<CacheStore>>,
     strict: bool,
+    suspend: bool,
+    pending: std::sync::Arc<std::sync::Mutex<Vec<PendingRealisation>>>,
     counters: std::sync::Arc<CacheCounters>,
+}
+
+/// An effectful call a suspending cache could not answer: everything needed to make it
+/// later with [`realise_pending`], which records it under the same key. This is how a
+/// synchronous pass (the lens) runs where calls can only be made asynchronously (a
+/// browser): run, make the calls it was missing, run again — recorded calls replay.
+#[derive(Clone, Debug)]
+pub struct PendingRealisation {
+    op: String,
+    op_cfg: OperatorConfig,
+    operands: Vec<Value>,
+    grouped: Vec<bool>,
+    sep: String,
+    mode: Mode,
+    seed: Option<i64>,
+    key: String,
+}
+
+impl PendingRealisation {
+    /// The operator sigil whose call is pending.
+    #[must_use]
+    pub fn op(&self) -> &str {
+        &self.op
+    }
 }
 
 /// Effectful (model / command) realisations served from the cache vs actually made.
@@ -216,8 +249,35 @@ impl EvaluationCache {
                 lock: std::sync::Mutex::new(read_to),
             })),
             strict: false,
+            suspend: false,
+            pending: std::sync::Arc::default(),
             counters: std::sync::Arc::default(),
         })
+    }
+
+    /// A view of this cache (same recorded values) that, instead of making an
+    /// unrecorded effectful call, records it as pending and fails the realisation with
+    /// [`EvalError::Suspended`]. Collect the calls with [`Self::take_pending`].
+    #[must_use]
+    pub fn suspending(&self) -> Self {
+        let mut view = self.clone();
+        view.suspend = true;
+        view.pending = std::sync::Arc::default();
+        view
+    }
+
+    /// The calls a suspending view met but could not answer, once each, in order.
+    pub fn take_pending(&self) -> Vec<PendingRealisation> {
+        std::mem::take(&mut *self.pending.lock().expect("pending calls mutex"))
+    }
+
+    fn suspend_call(&self, pending: PendingRealisation) -> EvalError {
+        let op = pending.op.clone();
+        let mut list = self.pending.lock().expect("pending calls mutex");
+        if !list.iter().any(|p| p.key == pending.key) {
+            list.push(pending);
+        }
+        EvalError::Suspended(op)
     }
 
     /// Fail any effectful (llm / command) realisation the cache has not recorded.
@@ -3036,6 +3096,18 @@ fn realise_cached(
     if effectful && cache.strict {
         return Err(unrecorded(op));
     }
+    if effectful && cache.suspend {
+        return Err(cache.suspend_call(PendingRealisation {
+            op: op.to_owned(),
+            op_cfg: op_cfg.clone(),
+            operands: operands.to_vec(),
+            grouped: grouped.to_vec(),
+            sep: sep.to_owned(),
+            mode,
+            seed,
+            key,
+        }));
+    }
     let result = realise(op, op_cfg, operands, grouped, sep, mode, config, seed)?;
     if effectful {
         cache.count(false);
@@ -3054,6 +3126,34 @@ fn unrecorded(op: &str) -> EvalError {
     EvalError::Unsupported(format!(
         "strict replay: `{op}` would make an unrecorded call (not in the cache store)"
     ))
+}
+
+/// Make a call a suspending pass was missing, through `realiser`, and record it in
+/// `cache` (a non-suspending cache sharing the suspending view's values) under the key
+/// the pass will look up when it runs again.
+///
+/// # Errors
+/// Returns the realiser's error.
+pub async fn realise_pending<R: crate::realiser::Realiser>(
+    pending: &PendingRealisation,
+    config: &Config,
+    cache: &EvaluationCache,
+    realiser: &R,
+) -> Result<Value, EvalError> {
+    realise_cached_async(
+        &pending.op,
+        &pending.op_cfg,
+        &pending.operands,
+        &pending.grouped,
+        &pending.sep,
+        pending.mode,
+        config,
+        pending.seed,
+        true,
+        cache,
+        realiser,
+    )
+    .await
 }
 
 /// Async cached realisation for incremental previews. Cache lookup/insertion is

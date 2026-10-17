@@ -525,6 +525,42 @@ pub fn put(expr: &str, config_json: &str, context_json: &str, edited: &str) -> J
     }
 }
 
+/// `putAsync(expr, configJson, contextJson, edited, realisers) -> Promise<{ ok, report | error }>`
+/// — the backward pass in llm mode: model operators get model-backed backward requests
+/// (minimal find/replace patches to their inputs), the edits are pushed on to the bound
+/// inputs, and PutGet is re-run and judged. Calls are made through the JS `llm` realiser
+/// by suspend-and-resume over the page's shared cache, so forward calls the page already
+/// made replay and a repeated request costs nothing.
+#[wasm_bindgen(js_name = putAsync)]
+pub async fn put_async(
+    expr: String,
+    config_json: String,
+    context_json: String,
+    edited: String,
+    realisers: JsValue,
+) -> JsValue {
+    let result = async {
+        let cfg = parse_config(&config_json)?;
+        let ctx = parse_context(&context_json, &cfg)?;
+        let sigils = nlir::config::operator_sigils(&cfg);
+        let tokens = nlir::lexer::tokenize(&expr, &sigils).map_err(|e| e.to_string())?;
+        let program =
+            nlir::parser::parse_program(&tokens, &cfg.operators).map_err(|e| e.to_string())?;
+        let realiser = JsRealiser::from_js(&realisers);
+        let cache = evaluation_cache();
+        let report =
+            nlir::lens::put_program_async(&program, &cfg, &ctx, &edited, &cache, &realiser, 64)
+                .await
+                .map_err(|e| e.to_string())?;
+        serde_json::to_value(&report).map_err(|e| e.to_string())
+    }
+    .await;
+    match result {
+        Ok(report) => payload(&serde_json::json!({ "ok": true, "report": report })),
+        Err(error) => payload(&serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
 /// `outline(expr, configJson) -> { ok, svg, text, statements | error }` — the
 /// statement-level graph (v2 §G): one node per top-level statement, edges for
 /// `$name` reads, inputs for bound data and prelude forms. Legible for programs

@@ -1326,6 +1326,43 @@ pub fn put_program(
     )
 }
 
+/// [`put_program_with`] in llm mode where model calls can only be made asynchronously
+/// (a browser): run the backward pass against a suspending view of `cache`; when it meets
+/// calls the cache has not recorded — the forward run, each backward request, the PutGet
+/// re-run, the similarity and tension checks — make them through `realiser`, record them,
+/// and run again. Recorded calls replay, so each pass gets further; the pass that needs
+/// nothing new returns the report. At most `max_passes` passes.
+///
+/// # Errors
+/// Returns an [`EvalError`] when a call fails, the forward run fails for another reason,
+/// or the pass is still waiting on calls after `max_passes`.
+pub async fn put_program_async<R: crate::realiser::Realiser>(
+    program: &Program,
+    config: &Config,
+    context: &Context,
+    edited: &str,
+    cache: &crate::eval::EvaluationCache,
+    realiser: &R,
+    max_passes: usize,
+) -> Result<PutReport, EvalError> {
+    for _ in 0..max_passes {
+        let view = cache.suspending();
+        let result = put_program_with(program, config, context, edited, crate::Mode::Llm, &view);
+        // Checks that swallow their own errors (similarity, tensions, a failed PutGet run)
+        // still leave their missing calls here, so the pending list decides, not `result`.
+        let pending = view.take_pending();
+        if pending.is_empty() {
+            return result;
+        }
+        for call in &pending {
+            crate::eval::realise_pending(call, config, cache, realiser).await?;
+        }
+    }
+    Err(EvalError::Unsupported(format!(
+        "backward pass still waiting on model calls after {max_passes} passes"
+    )))
+}
+
 /// [`put_program`] in a given mode with a caller's realisation cache: in llm mode,
 /// model operators get model-backed backward passes, and the forward run, the
 /// backward requests and the PutGet re-run all share `cache` (so unchanged model
@@ -1472,6 +1509,8 @@ pub fn put_program_with(
                 let text = value.render(&sep);
                 (Some(text == edited), Some(text))
             }
+            // A resumable pass must make the missing call, not judge an error message.
+            Err(EvalError::Suspended(op)) => return Err(EvalError::Suspended(op)),
             Err(error) => (Some(false), Some(format!("error: {error}"))),
         }
     } else {
@@ -1664,6 +1703,85 @@ operators:
         assert_eq!(r.edits[0].changes[0].path, "topic");
         assert_eq!(r.edits[0].changes[0].new, "dogs");
         assert_eq!(r.put_get, Some(true), "{r:?}");
+    }
+
+    /// Answers like the command models above, but only asynchronously.
+    struct AsyncFake {
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl crate::realiser::Realiser for AsyncFake {
+        fn llm<'a>(&'a self, call: &'a crate::llm::LlmCall) -> crate::realiser::RealiseFuture<'a> {
+            self.calls.set(self.calls.get() + 1);
+            let prompt = call.vars.get("NLIR_PROMPT").cloned().unwrap_or_default();
+            let reply = if prompt.contains("BACKWARD pass") {
+                r#"{"edits":[{"input":0,"find":"cats","replace":"dogs"}]}"#.to_owned()
+            } else if prompt.contains("contradicts itself") {
+                r#"{"tensions":[]}"#.to_owned()
+            } else {
+                prompt
+            };
+            Box::pin(async move { Ok(reply) })
+        }
+
+        fn command<'a>(
+            &'a self,
+            _command: &'a str,
+            _operands: &'a [String],
+        ) -> crate::realiser::RealiseFuture<'a> {
+            Box::pin(async move { Ok(String::new()) })
+        }
+    }
+
+    #[test]
+    fn backward_pass_resumes_through_an_async_realiser() {
+        // No model is callable synchronously (the command models would fail): every
+        // call reaches the async realiser through suspend-and-resume, and the result
+        // matches the synchronous lens on the same program.
+        let yaml = r##"
+defaults: { mode: llm, model: { small: none, medium: none, large: none } }
+models:
+  none: { type: command, format: text, command: "exit 7" }
+prompts:
+  generative: { text: "" }
+operators:
+  respond: { op: "=>", arity: 1, fixity: prefix, model: medium, prompt: "%" }
+  concat: { op: "++", arity: ">0", fixity: mixfix, priority: 10, operands: any, reduce: concat }
+  access: { op: ".", arity: 2, fixity: infix, priority: 19, builtin: access }
+"##;
+        let cfg = crate::config::parse_str(yaml, std::path::Path::new("t.yaml")).expect("config");
+        let sigils = crate::config::operator_sigils(&cfg);
+        let src = "=>('Write about ' ++ $d.topic ++ '.')";
+        let tokens = crate::lexer::tokenize(src, &sigils).expect("lex");
+        let program = crate::parser::parse_program(&tokens, &cfg.operators).expect("parse");
+        let mut ctx = Context::empty(&cfg.context);
+        ctx.set_transient("d".to_owned(), serde_json::json!({"topic": "cats"}));
+        let cache = crate::eval::EvaluationCache::default();
+        let fake = AsyncFake {
+            calls: std::cell::Cell::new(0),
+        };
+        let run = |edited: &str| {
+            crate::realiser::block_on_ready(put_program_async(
+                &program, &cfg, &ctx, edited, &cache, &fake, 16,
+            ))
+            .expect("put")
+        };
+        let forward = run("x");
+        assert!(forward.output.contains("Write about cats."), "{forward:?}");
+        let r = run(&forward.output.replace("cats", "dogs"));
+        assert_eq!(r.edits.len(), 1, "{r:?}");
+        assert_eq!(r.edits[0].target, "d");
+        assert_eq!(r.edits[0].changes[0].path, "topic");
+        assert_eq!(r.edits[0].changes[0].new, "dogs");
+        assert_eq!(r.put_get, Some(true), "{r:?}");
+        let made = fake.calls.get();
+        let again = run(&forward.output.replace("cats", "dogs"));
+        assert_eq!(again.edits.len(), 1);
+        assert_eq!(
+            fake.calls.get(),
+            made,
+            "a repeated backward pass replays every call"
+        );
     }
 
     #[test]

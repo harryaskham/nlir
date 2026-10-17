@@ -32,6 +32,13 @@ let D, ep, programs = [], splits = null, clauses = null, judgeLib = '', ruleId =
 const runs = {}, packetCache = {}, authoredCache = {};
 const $ = id => document.getElementById(id);
 const unmap = v => (v instanceof Map ? Object.fromEntries(v) : v);
+// wasm payloads nest JS Maps inside plain objects and arrays: convert all the way down.
+const deep = v => (v instanceof Map ? Object.fromEntries([...v].map(([k, x]) => [k, deep(x)]))
+  : Array.isArray(v) ? v.map(deep)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)])) : v);
+// The lens's own requests (backward patches, the tension check, the PutGet similarity
+// rating) go to the judge model; re-running the program goes to the writer.
+const LENS_PROMPT = /You are computing a BACKWARD pass|Check whether the edited source now contradicts itself|The first <text> is a REFERENCE; the second <text> is a CANDIDATE/;
 const words = t => (String(t || '').match(/[A-Za-z0-9'’-]+/g) || []);
 const sentences = t => (String(t || '').match(/[^.!?]+[.!?]+(\s|$)/g) || [t]).filter(s => s.trim()).length;
 const ruleCodes = t => (String(t || '').match(/\b[A-Z]{2} [VP] \d+(\.\d+)*\b/g) || []).length;
@@ -225,7 +232,8 @@ function wirePane(packet) {
     const p = programs.find(x => x.key === $('runProgram').value) || programs[0];
     $('runSrc').value = p.src; $('runSrcState').textContent = '';
     let graph = p.graph;
-    if (!graph && D.nlir.graph) { const g = D.norm(D.nlir.graph(`${D.profileLib};\n${strip(p.src)}`, D.cfgJson)); graph = g?.ok ? g.svg : ''; }
+    // The statement-level outline stays legible for long programs; the expression graph does not.
+    if (!graph && D.nlir.outline) { const g = D.norm(D.nlir.outline(strip(p.src), D.cfgJson)); graph = g?.ok ? g.svg : ''; }
     $('runGraph').innerHTML = graph || '<p class="muted">No graph for this program.</p>';
     const ex = (p.train || []).filter(x => x !== ruleId).slice(0, p.examples);
     $('runExamples').innerHTML = ex.length ? `Worked examples bound as <code>$examples</code>: ${ex.map(D.esc).join(', ')} (training rules: their packets and authored profiles).` : 'No worked examples: <code>$examples</code> is empty for this program.';
@@ -271,6 +279,7 @@ async function execute({ resample = false, step = false }) {
   const examples = await examplesFor(prog, id);
   const expr = `${D.profileLib};\n${strip(prog.src)}`;
   const ctx = JSON.stringify({ p, examples, _seed: seed });
+  run.expr = expr; run.ctx = ctx;
   const log = entry => { if (!run.calls.includes(entry)) run.calls.push(entry); renderRuns(); };
   try {
     let r;
@@ -312,6 +321,69 @@ async function judge(run) {
   renderRuns();
 }
 
+// ---- backward: an edit to the output -> the packet edits that would produce it -----------
+async function propose(run) {
+  const back = run.back;
+  back.status = 'running'; back.calls = []; back.report = null; back.error = null;
+  renderRuns();
+  const log = entry => { if (!back.calls.includes(entry)) back.calls.push(entry); renderRuns(); };
+  const writer = realiser(ep.writer, log), judgeModel = realiser(ep.judge, log);
+  const route = { llm: call => ((unmap(unmap(call).vars) || {}).NLIR_PROMPT || '').match(LENS_PROMPT) ? judgeModel.llm(call) : writer.llm(call) };
+  try {
+    const r = deep(D.norm(await D.nlir.putAsync(run.expr, D.cfgJson, run.ctx, back.edited, route)));
+    if (!r.ok) throw new Error(r.error);
+    back.report = r.report; back.status = 'done';
+  } catch (e) { back.status = 'failed'; back.error = String(e.message || e); }
+  renderRuns();
+}
+
+// Set `value` at a '/'-separated path inside `obj` (numeric segments index lists).
+function setPath(obj, path, value) {
+  const keys = path.split('/').filter(Boolean);
+  if (!keys.length) return value;
+  let o = obj;
+  for (const k of keys.slice(0, -1)) o = o[Array.isArray(o) ? +k : k];
+  const last = keys.at(-1);
+  o[Array.isArray(o) ? +last : last] = value;
+  return obj;
+}
+
+function applyPacketEdits(run) {
+  let p; try { p = JSON.parse($('runPacket').value); } catch (_) { return; }
+  for (const e of run.back.report.edits.filter(e => e.kind === 'data' && e.target === 'p')) for (const c of e.changes) p = setPath(p, c.path, c.new);
+  $('runPacket').value = JSON.stringify(p, null, 1);
+  $('runPacket').dispatchEvent(new Event('input'));
+  $('runPacket').scrollIntoView({ block: 'center' });
+}
+
+function backHtml(r) {
+  const b = r.back;
+  const text = v => (typeof v === 'string' ? v : JSON.stringify(v));
+  let out = '';
+  if (b.status === 'running') out += `<p><span class="state">working · ${b.calls.length} call${b.calls.length === 1 ? '' : 's'}</span></p>`;
+  if (b.error) out += `<p class="err">${D.esc(b.error)}</p>`;
+  const rep = b.report;
+  if (rep) {
+    const data = rep.edits.filter(e => e.kind === 'data'), prog = rep.edits.filter(e => e.kind === 'program');
+    const row = (label, c) => `<li><b>${D.esc(label)}</b> <span class="muted">${D.esc(c.path || '(whole value)')}</span><div class="text">${D.wordDiff(text(c.old), text(c.new))}</div></li>`;
+    out += `<div class="back-report">`;
+    out += data.length ? `<h4>Proposed input edits</h4><ul>${data.flatMap(e => e.changes.map(c => row(e.target === 'p' ? 'packet' : e.target === 'examples' ? 'worked example' : e.target, c))).join('')}</ul>` : '<p class="muted">No input edit was proposed.</p>';
+    if (prog.length) out += `<h4>Edits to the program's own wording</h4><ul>${prog.flatMap(e => e.changes.map(c => row(e.target, c))).join('')}</ul>`;
+    if (rep.stuck?.length) out += `<h4>Could not be pushed back</h4><ul>${rep.stuck.map(x => `<li>${D.esc(x.reason)} <span class="muted">at ${D.esc(String(x.at).slice(0, 80))}</span></li>`).join('')}</ul>`;
+    if (rep.conflicts?.length) out += `<h4>Conflicting edits</h4><ul>${rep.conflicts.map(x => `<li>${D.esc(x)}</li>`).join('')}</ul>`;
+    if (rep.tensions?.length) out += `<h4>Edits that pull against each other</h4><ul>${rep.tensions.map(x => `<li>${D.esc(x)}</li>`).join('')}</ul>`;
+    const pg = rep.put_get === true ? 'Re-running the program on the edited inputs reproduces your text exactly.'
+      : rep.put_get === false ? `Re-running the program on the edited inputs gives different text${rep.put_get_similarity != null ? ` (judged ${rep.put_get_similarity.toFixed(2)} similar in meaning)` : ''}: model steps are not exact inverses.`
+      : 'Not re-run: some edits could not be pushed back.';
+    out += `<p class="sub">${pg}</p>`;
+    if (rep.put_get === false && rep.put_get_output) { const m = marked(b.edited, rep.put_get_output, changed(b.edited, rep.put_get_output) > 0.5); out += `<details><summary>Re-run output</summary><div class="text">${m.html}</div></details>`; }
+    if (data.some(e => e.target === 'p')) out += `<div class="run-actions"><button class="ghost" data-apply="${r.n}">Apply the packet edits</button><span class="muted">then Run to see the forward result.</span></div>`;
+    out += `</div>`;
+  }
+  if (b.calls?.length) out += `<details class="run-calls"><summary>Lens calls (${b.calls.length})</summary>${b.calls.map((c, i) => `<details><summary>${i + 1}. ${D.esc(c.model)} · ${D.esc(c.status)}${c.ms !== undefined ? ` · ${(c.ms / 1000).toFixed(1)}s` : ''}</summary><div class="run-io"><div><div class="label">prompt</div><pre>${D.esc(c.prompt)}</pre></div><div><div class="label">reply</div><pre>${D.esc(c.reply ?? '')}</pre></div></div></details>`).join('')}</details>`;
+  return out;
+}
+
 // ---- results ---------------------------------------------------------------------------
 function baselineOf(list, run) {
   return list.find(r => r !== run && r.status === 'done' && r.program === run.program && r.src === run.src && r.seed === 0 && r.packetNote === 'packet from the spec');
@@ -326,7 +398,12 @@ async function renderRuns() {
   const against = sel.value === 'authored' ? { parts: auth?.parts, name: 'authored' } : (() => { const r = list.find(x => String(x.n) === sel.value); return { parts: r?.parts, name: `run ${r?.n}` }; })();
   $('runSummary').innerHTML = summary(list, auth);
   $('runCards').innerHTML = list.slice().reverse().map(r => card(r, against, auth)).join('') || '<p class="muted">No runs yet for this rule.</p>';
-  $('runCards').querySelectorAll('[data-judge]').forEach(b => b.onclick = () => judge(list.find(r => String(r.n) === b.dataset.judge)));
+  const byN = n => list.find(r => String(r.n) === n);
+  $('runCards').querySelectorAll('[data-judge]').forEach(b => b.onclick = () => judge(byN(b.dataset.judge)));
+  $('runCards').querySelectorAll('[data-back]').forEach(d => d.ontoggle = () => { byN(d.dataset.back).back.open = d.open; });
+  $('runCards').querySelectorAll('[data-back-edit]').forEach(t => t.oninput = () => { byN(t.dataset.backEdit).back.edited = t.value; });
+  $('runCards').querySelectorAll('[data-put]').forEach(b => b.onclick = () => propose(byN(b.dataset.put)));
+  $('runCards').querySelectorAll('[data-apply]').forEach(b => b.onclick = () => applyPacketEdits(byN(b.dataset.apply)));
 }
 
 function summary(list, auth) {
@@ -363,7 +440,12 @@ function card(r, against, auth) {
     return `<div class="field"><div class="label">${D.esc(label)}</div><div class="run-stats">${w} words · ${sentences(text)} sentence${sentences(text) === 1 ? '' : 's'} (authored ${aw} words)${codes ? ` · ${codes} rule code${codes === 1 ? '' : 's'}` : ''}${other ? ` · ${pct(ch)} changed vs ${D.esc(against.name)} · ${ch > 0.5 ? 'underlined: content words shared with it' : 'highlighted: new'} · ${m.removed} of its words absent` : ''}</div><div class="text">${other ? m.html : D.esc(text)}</div>${judged}</div>`;
   }).join('');
   const judgeBtn = !judgeLib || !clauses?.[r.id] ? '' : r.judge?.status === 'running' ? '<span class="state">judging…</span>' : r.judge?.status === 'failed' ? `<p class="err">Judge failed: ${D.esc(r.judge.error)}</p><button class="ghost" data-judge="${r.n}">Retry judge</button>` : r.judge?.status === 'done' ? `<span class="state ok">strict F1 ${r.judge.score.toFixed(2)} · ${D.esc(r.judge.model)}</span>` : `<button class="ghost" data-judge="${r.n}" title="One judge call per part: each authored clause present / weakened / missing; each written statement supported / extra">Judge (strict clause F1)</button>`;
-  return `<article class="run-card">${head}<div class="run-judge">${judgeBtn}</div>${parts}${calls}</article>`;
+  r.back ||= { edited: r.md, open: false };
+  const back = `<details class="run-back" data-back="${r.n}" ${r.back.open ? 'open' : ''}><summary>Backward: edit this output and see which packet change would produce it</summary>
+    <p class="muted">Each model step is asked for the smallest edit to its own inputs that would give your text; the edits are pushed back through the program to the packet (or to the worked examples, or the program's own wording), then the program is re-run to check. About two calls per model step, plus a re-run.</p>
+    <textarea class="back-edit" data-back-edit="${r.n}" spellcheck="false">${D.esc(r.back.edited)}</textarea>
+    <div class="run-actions"><button class="ghost" data-put="${r.n}" ${r.back.status === 'running' ? 'disabled' : ''}>Propose packet edits</button></div>${backHtml(r)}</details>`;
+  return `<article class="run-card">${head}<div class="run-judge">${judgeBtn}</div>${parts}${back}${calls}</article>`;
 }
 
 // ---- endpoint settings (shared by every page on this origin) ---------------------------------

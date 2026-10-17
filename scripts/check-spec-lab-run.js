@@ -4,12 +4,19 @@
 async page => {
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
-  let calls = 0, judged = 0;
+  let calls = 0, judged = 0, lens = 0, lensModels = new Set();
   await page.route('https://mock.nlir.test/v1/**', async route => {
     const url = route.request().url();
     if (url.endsWith('/models')) return route.fulfill({ json: { data: [{ id: 'gpt-6-luna' }, { id: 'gpt-6.1-sol' }] } });
     const body = JSON.parse(route.request().postData() || '{}');
     const prompt = body.messages.at(-1).content;
+    // The lens's own requests: a backward patch, the tension check, the PutGet rating.
+    if (prompt.includes('You are computing a BACKWARD pass')) {
+      lens++; lensModels.add(body.model);
+      return route.fulfill({ json: { choices: [{ message: { content: JSON.stringify({ edits: [{ input: 0, find: 'Approving over unresolved blocking feedback', replace: 'Approving over unresolved blocking review feedback' }], why: 'the edit names review feedback' }) } }] } });
+    }
+    if (prompt.includes('contradicts itself')) { lens++; lensModels.add(body.model); return route.fulfill({ json: { choices: [{ message: { content: '{"tensions": []}' } }] } }); }
+    if (prompt.includes('The first <text> is a REFERENCE')) { lens++; lensModels.add(body.model); return route.fulfill({ json: { choices: [{ message: { content: '0.80' } }] } }); }
     if (prompt.includes('You compare a CANDIDATE paragraph')) {
       judged++;
       const n = (prompt.split('REFERENCE CLAUSES:\n')[1] || '').split('\n\nCANDIDATE:')[0].split('\n').filter(Boolean).length;
@@ -79,6 +86,20 @@ async page => {
   if (judged !== 5) throw new Error('Judge should make one call per part, made ' + judged);
   const table = await page.locator('.run-table').innerText();
   if (!/0\.\d\d/.test(table)) throw new Error('Strict F1 missing from the table');
+  // Backward: edit run 1's output; the lens proposes a packet edit and re-runs.
+  const card1 = page.locator('.run-card').last();
+  await card1.locator('.run-back > summary').click();
+  const edit = card1.locator('[data-back-edit]');
+  await edit.fill((await edit.inputValue()).replace('Mock applicability paragraph', 'Mock applicability paragraph about review feedback'));
+  await card1.locator('[data-put]').click();
+  await page.waitForFunction(() => document.querySelector('.run-card:last-child .back-report') || document.querySelector('.run-card:last-child .run-back .err'), null, { timeout: 60000 });
+  const back = await page.locator('.run-card').last().locator('.run-back').innerText();
+  if (!/proposed input edits/i.test(back) || !back.includes('title') || !back.includes('review')) throw new Error('Backward report: ' + back.slice(0, 600));
+  if ([...lensModels].some(m => m !== 'gpt-6.1-sol')) throw new Error('Lens calls must use the judge model: ' + [...lensModels]);
+  if (!/similar in meaning|reproduces your text/.test(back)) throw new Error('PutGet result missing');
+  await page.locator('.run-card').last().locator('[data-apply]').click();
+  if (!(await page.locator('#runPacket').inputValue()).includes('blocking review feedback')) throw new Error('Apply did not edit the packet');
+  if (!(await page.locator('#runPacketState').innerText()).includes('title edited')) throw new Error('Packet state not updated after apply');
   // Compare against another run.
   await page.locator('#runAgainst').selectOption('1');
   if (!(await page.locator('.run-card').first().innerText()).includes('changed vs run 1')) throw new Error('Compare selector ignored');
@@ -87,5 +108,5 @@ async page => {
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Narrow overflow in Run tab');
   await page.setViewportSize({ width: 1440, height: 1000 });
   if (errors.length) throw new Error(errors.join('\n'));
-  return { ok: true, modelCalls: calls, judgeCalls: judged, steps, summary: summary.split('\n').slice(-1)[0] };
+  return { ok: true, modelCalls: calls, judgeCalls: judged, lensCalls: lens, steps, summary: summary.split('\n').slice(-1)[0] };
 }
