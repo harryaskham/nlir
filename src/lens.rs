@@ -623,6 +623,30 @@ impl Put<'_, '_> {
                             w,
                         );
                     }
+                    ("sub", 3) | ("lower" | "upper", 1) => {
+                        // A normalising rewrite inverts at its fixed points: when it leaves
+                        // the edited text unchanged, that text is itself an input that
+                        // produces it (e.g. a cleanup that joins lines, on a one-line edit).
+                        let mut probe = args.to_vec();
+                        probe[0] = Expr::Value(new.clone());
+                        let again = self.eval(&Expr::FormApply {
+                            form: Box::new(form.clone()),
+                            args: probe,
+                        })?;
+                        if again.render(&self.sep) == new.render(&self.sep) {
+                            return self.put(&args[0], arg_path(0).as_deref(), new, w);
+                        }
+                        self.stuck(
+                            w,
+                            expr,
+                            format!(
+                                "`${name}` would rewrite the edited text again, so no input to it gives exactly this text"
+                            ),
+                            old,
+                            &new,
+                        );
+                        return Ok(());
+                    }
                     ("if", 3) => {
                         let cond = self.eval(&args[0])?;
                         let branch = if truthy(&cond) { 1 } else { 2 };
@@ -1781,6 +1805,31 @@ operators:
             fake.calls.get(),
             made,
             "a repeated backward pass replays every call"
+        );
+    }
+
+    #[test]
+    fn normalising_rewrites_invert_at_their_fixed_points() {
+        // `$sub` joining lines: a one-line edit is its own preimage, so it reaches `$d`;
+        // an edit the rewrite would change again is stuck, with the reason.
+        let r = report(
+            "$sub%($d, '\\s*\\n\\s*', ' ')",
+            "first line second edited",
+            &[("d", serde_json::json!("first line\nsecond"))],
+        );
+        assert_eq!(r.edits.len(), 1, "{r:?}");
+        assert_eq!(r.edits[0].changes[0].new, "first line second edited");
+        assert_eq!(r.put_get, Some(true), "{r:?}");
+        let r = report(
+            "$sub%($d, '\\s*\\n\\s*', ' ')",
+            "first line\nsecond edited",
+            &[("d", serde_json::json!("first line\nsecond"))],
+        );
+        assert!(
+            r.stuck
+                .iter()
+                .any(|s| s.reason.contains("rewrite the edited text again")),
+            "{r:?}"
         );
     }
 
