@@ -145,7 +145,9 @@ enum Command {
     Step(StepArgs),
     /// Backward pass: given an EDITED output, print the edits to the program's
     /// inputs (bound data) and literals that would produce it, with the lens laws
-    /// checked by re-evaluation (JSON). Deterministic constructs only, for now.
+    /// checked by re-evaluation (JSON). In llm mode, model operators get model-backed
+    /// backward requests (minimal edits to their own inputs), conflicting or contradictory
+    /// edits are reported, and PutGet is judged for meaning; in det mode they are reported as stuck.
     Put(PutArgs),
     /// Run the config-defined test suite.
     Test,
