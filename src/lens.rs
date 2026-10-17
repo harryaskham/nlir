@@ -276,13 +276,20 @@ fn merge_text(base: &str, a: &str, b: &str) -> Option<String> {
                 }
             }
         }
-        // Coalesce hunks separated by a short unchanged run, so one edit is one hunk.
+        // Coalesce hunks separated by a short unchanged run, so one edit is one hunk. The diff
+        // can emit an insertion positioned inside a preceding change (seen on long real
+        // texts), so order the hunks first and treat an overlap as touching (no gap).
+        out.sort_by_key(|h| (h.0, h.1));
         let mut merged: Vec<(usize, usize, String)> = Vec::new();
         let base_chars: Vec<char> = base.chars().collect();
         for (s, e, t) in out {
             match merged.last_mut() {
                 Some(last) if s <= last.1 + 3 => {
-                    let gap: String = base_chars[last.1..s].iter().collect();
+                    let gap: String = if s > last.1 {
+                        base_chars[last.1..s].iter().collect()
+                    } else {
+                        String::new()
+                    };
                     last.2 = format!("{}{gap}{t}", last.2);
                     last.1 = e.max(last.1);
                 }
@@ -1806,6 +1813,37 @@ operators:
             made,
             "a repeated backward pass replays every call"
         );
+    }
+
+    #[test]
+    fn merge_text_never_panics_on_arbitrary_edits() {
+        // Regression: a real backward pass panicked slicing a gap between diff hunks whose
+        // ranges overlapped. Deterministic pseudo-random edits of a long text must merge or
+        // report a conflict, never panic.
+        let base: String = (0..400)
+            .map(|i| ["the ", "rule ", "a", "b", "c ", ". "][i % 6])
+            .collect();
+        let mut seed: u64 = 3271;
+        let mut next = |n: usize| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) as usize) % n.max(1)
+        };
+        for _ in 0..300 {
+            let mut edit = |text: &str| {
+                let mut chars: Vec<char> = text.chars().collect();
+                for _ in 0..1 + next(6) {
+                    let at = next(chars.len());
+                    let len = next(12).min(chars.len() - at);
+                    let insert: Vec<char> = "xyz review ".chars().take(next(11)).collect();
+                    chars.splice(at..at + len, insert);
+                }
+                chars.into_iter().collect::<String>()
+            };
+            let (a, b) = (edit(&base), edit(&base));
+            let _ = merge_text(&base, &a, &b);
+        }
     }
 
     #[test]
