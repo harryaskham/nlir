@@ -495,7 +495,9 @@ when their regions do not overlap — and still contradict each other).
   (`--cache-file PATH`, `NLIR_CACHE_FILE`, or `_cache_file` with `_cache=persist`)
   of JSON lines shared across runs, evals and hill-climb rounds — it only grows,
   records effectful realisations only, and never evicts. `--replay strict` turns an
-  unrecorded model/command call into an error. `_cache=off` disables caching (the
+  unrecorded model/command call into an error, and `--cache-stats` prints
+  `nlir cache-stats {"replayed":N,"fresh":M}` to stderr after evaluation (effectful
+  calls only; shown with `--quiet` and on errors). `_cache=off` disables caching (the
   old, nondeterministic behaviour). Editing an operator's prompt or model changes
   its keys, so a store never replays a stale definition.
 - **Explicit randomness:** `$draw%(form, n)` evaluates `form` `n` times (0–64) under
@@ -679,7 +681,7 @@ Assume the last assistant message (`^-1`) is about *a rust-rewrite*.
 nlir -e 'EXPR' [--quiet] [--mode det|llm] [--model haiku | --model medium=haiku,large=opus] [--parallelism 8] [--dry-run]
 nlir -f lib.nlir [-f prog.nlir] [-e 'EXPR']   # program files (`--` comment lines)
 nlir … --bind NAME=PATH           # JSON/YAML → native dict/list `$NAME`; other files → string (transient)
-nlir … --cache-file PATH [--replay strict]   # realisation store (§Execution graph: Caching)
+nlir … --cache-file PATH [--replay strict] [--cache-stats]   # realisation store (§Execution graph: Caching)
 
 # context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
 # (default file loads for the REPL / set / get; a one-shot `-e` skips it — bd-85c49d)

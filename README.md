@@ -240,6 +240,7 @@ so a recorded call replays exactly and identical calls cost nothing:
 nlir --cache-file runs/store.jsonl -e "=>'Name a lighthouse keeper''s cat'"   # 3.9 s, recorded
 nlir --cache-file runs/store.jsonl -e "=>'Name a lighthouse keeper''s cat'"   # 0.03 s, replayed
 nlir --cache-file runs/store.jsonl --replay strict -f program.nlir            # fail on any unrecorded call
+nlir --cache-file runs/store.jsonl --cache-stats -f program.nlir             # stderr: {"replayed":N,"fresh":M}
 nlir -e "\$draw%({=>'Name a cat'}, 3)"                                         # three explicit samples
 ```
 
@@ -356,6 +357,7 @@ nlir --model 'small=luna,large=sol' -e '…'        # remap model tiers (or one 
 # realisation store: deterministic replay of model/command calls
 nlir --cache-file store.jsonl -e '…'             # record, then replay identical calls
 nlir --cache-file store.jsonl --replay strict …  # fail on any unrecorded call
+nlir --cache-file store.jsonl --cache-stats …     # report replayed vs fresh model/command calls
 
 # context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
 nlir … --context-file PATH

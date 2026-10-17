@@ -104,6 +104,11 @@ struct Cli {
     #[arg(long, global = true, value_name = "MODE")]
     replay: Option<String>,
 
+    /// After evaluating, print `nlir cache-stats {"replayed":N,"fresh":M}` to stderr:
+    /// model/command calls answered from the realisation store vs actually made.
+    #[arg(long, global = true)]
+    cache_stats: bool,
+
     /// Print only the stdout result (suppress the stderr expansion trace).
     #[arg(long, global = true)]
     quiet: bool,
@@ -469,6 +474,17 @@ fn apply_binds(cli: &Cli, ctx: &mut nlir::context::Context) -> Result<Vec<String
         names.push(name.to_owned());
     }
     Ok(names)
+}
+
+/// `--cache-stats`: one machine-readable stderr line, printed even with `--quiet` and
+/// on evaluation errors, so harnesses can confirm which calls replayed.
+fn print_cache_stats(cli: &Cli, cache: &nlir::eval::EvaluationCache) {
+    if cli.cache_stats {
+        eprintln!(
+            "nlir cache-stats {}",
+            serde_json::to_string(&cache.stats()).unwrap_or_default()
+        );
+    }
 }
 
 /// The realisation cache for one CLI evaluation: a persistent store when one is
@@ -1014,6 +1030,7 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     let cache = eval_cache(cli, &ctx)?;
     // Evaluate against a MUTABLE context (assignments write through).
     let result = nlir::eval::evaluate_with_cache(expr, &cfg, &mut ctx, settings.mode, &cache);
+    print_cache_stats(cli, &cache);
     // Read `_sep` / `_precision` AFTER eval so a `_sep=` / `_precision=`
     // assignment affects rendering (bd-50f84a: precision is display-only).
     let sep = ctx.sep();
@@ -1712,7 +1729,9 @@ fn run_put(cli: &Cli, args: &PutArgs) -> Result<(), i32> {
     }
     let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
     let cache = eval_cache(cli, &ctx)?;
-    match nlir::lens::put_program_with(&program, &cfg, &ctx, edited, settings.mode, &cache) {
+    let outcome = nlir::lens::put_program_with(&program, &cfg, &ctx, edited, settings.mode, &cache);
+    print_cache_stats(cli, &cache);
+    match outcome {
         Ok(report) => {
             println!(
                 "{}",
@@ -3872,6 +3891,20 @@ mod cli_tests {
         let cli = Cli::try_parse_from(["nlir", "parse", "-1^*0"])
             .expect("parse subcommand must accept a leading-hyphen expr");
         assert!(matches!(cli.command, Some(Command::Parse(_))));
+    }
+
+    #[test]
+    fn cache_stats_flag_is_global() {
+        let cli = Cli::try_parse_from(["nlir", "--cache-stats", "-e", "1"]).expect("flag parses");
+        assert!(cli.cache_stats);
+        let cli = Cli::try_parse_from(["nlir", "put", "--edited", "x", "--cache-stats"])
+            .expect("flag is global");
+        assert!(cli.cache_stats);
+        assert!(
+            !Cli::try_parse_from(["nlir", "-e", "1"])
+                .expect("default")
+                .cache_stats
+        );
     }
 
     // Guard against the fix over-reaching: a genuinely unknown flag must still error.

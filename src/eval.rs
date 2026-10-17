@@ -139,6 +139,25 @@ pub struct EvaluationCache {
     values: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>,
     store: Option<std::sync::Arc<CacheStore>>,
     strict: bool,
+    counters: std::sync::Arc<CacheCounters>,
+}
+
+/// Effectful (model / command) realisations served from the cache vs actually made.
+#[derive(Default)]
+struct CacheCounters {
+    replayed: std::sync::atomic::AtomicUsize,
+    fresh: std::sync::atomic::AtomicUsize,
+}
+
+/// How many effectful realisations (model / command calls) a cache replayed from
+/// memory or its store, and how many it had to make. Deterministic realisations are
+/// not counted. Clones of one cache share the counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct CacheStats {
+    /// Calls answered by a recorded realisation.
+    pub replayed: usize,
+    /// Calls actually made (and recorded).
+    pub fresh: usize,
 }
 
 /// The append-only file behind a persistent [`EvaluationCache`].
@@ -183,6 +202,7 @@ impl EvaluationCache {
                 lock: std::sync::Mutex::new(()),
             })),
             strict: false,
+            counters: std::sync::Arc::default(),
         })
     }
 
@@ -197,6 +217,26 @@ impl EvaluationCache {
     #[must_use]
     pub fn is_persistent(&self) -> bool {
         self.store.is_some()
+    }
+
+    /// Effectful realisations replayed vs made since this cache was created.
+    #[must_use]
+    pub fn stats(&self) -> CacheStats {
+        use std::sync::atomic::Ordering::Relaxed;
+        CacheStats {
+            replayed: self.counters.replayed.load(Relaxed),
+            fresh: self.counters.fresh.load(Relaxed),
+        }
+    }
+
+    fn count(&self, replayed: bool) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let counter = if replayed {
+            &self.counters.replayed
+        } else {
+            &self.counters.fresh
+        };
+        counter.fetch_add(1, Relaxed);
     }
 
     /// Number of realisations held in memory.
@@ -2956,15 +2996,21 @@ fn realise_cached(
     }
     let def = realise_definition(op, op_cfg, config, mode);
     let key = realise_cache_key(&def, operands, grouped, sep, seed);
+    let effectful = is_effectful(op_cfg, mode);
     // Serve a hit without holding the lock across the realisation.
     if let Some(cached) = cache.get(&key) {
+        if effectful {
+            cache.count(true);
+        }
         return Ok(cached);
     }
-    let effectful = is_effectful(op_cfg, mode);
     if effectful && cache.strict {
         return Err(unrecorded(op));
     }
     let result = realise(op, op_cfg, operands, grouped, sep, mode, config, seed)?;
+    if effectful {
+        cache.count(false);
+    }
     cache.record(key, result.clone(), effectful, op);
     Ok(result)
 }
@@ -3003,6 +3049,9 @@ async fn realise_cached_async<R: crate::realiser::Realiser>(
     let effectful = is_effectful(op_cfg, mode);
     if cache_on {
         if let Some(cached) = cache.get(&key) {
+            if effectful {
+                cache.count(true);
+            }
             return Ok(cached);
         }
         if effectful && cache.strict {
@@ -3014,6 +3063,9 @@ async fn realise_cached_async<R: crate::realiser::Realiser>(
     )
     .await?;
     if cache_on {
+        if effectful {
+            cache.count(false);
+        }
         cache.record(key, result.clone(), effectful, op);
     }
     Ok(result)
@@ -4598,6 +4650,46 @@ operators:
         }
         let replayed = run(&EvaluationCache::persistent(&path).expect("store"));
         assert_eq!(first, replayed, "the store must replay the recorded call");
+        // Counts: a fresh store makes the call; a second cache on the same store
+        // replays it; deterministic realisations are never counted.
+        let fresh_path = crate::test_support::unique_temp_path("nlir-store", "jsonl");
+        let fresh_cache = EvaluationCache::persistent(&fresh_path).expect("store");
+        run(&fresh_cache);
+        assert_eq!(
+            fresh_cache.stats(),
+            CacheStats {
+                replayed: 0,
+                fresh: 1
+            }
+        );
+        run(&fresh_cache);
+        assert_eq!(
+            fresh_cache.stats(),
+            CacheStats {
+                replayed: 1,
+                fresh: 1
+            }
+        );
+        let reopened = EvaluationCache::persistent(&path).expect("store");
+        run(&reopened);
+        assert_eq!(
+            reopened.stats(),
+            CacheStats {
+                replayed: 1,
+                fresh: 0
+            }
+        );
+        let det = EvaluationCache::default();
+        let mut ctx = Context::empty(&cfg.context);
+        evaluate_with_cache("'plain'", &cfg, &mut ctx, Mode::Llm, &det).expect("literal");
+        assert_eq!(
+            det.stats(),
+            CacheStats {
+                replayed: 0,
+                fresh: 0
+            }
+        );
+        let _ = std::fs::remove_file(&fresh_path);
         let strict = EvaluationCache::persistent(&path)
             .expect("store")
             .strict(true);
