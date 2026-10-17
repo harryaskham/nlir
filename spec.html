@@ -886,10 +886,12 @@ or a <strong>store file</strong> (<code>--cache-file PATH</code>,
 <code>_cache=persist</code>) of JSON lines shared across runs, evals and
 hill-climb rounds — it only grows, records effectful realisations only,
 and never evicts. <code>--replay strict</code> turns an unrecorded
-model/command call into an error. <code>_cache=off</code> disables
-caching (the old, nondeterministic behaviour). Editing an operator's
-prompt or model changes its keys, so a store never replays a stale
-definition.</li>
+model/command call into an error, and <code>--cache-stats</code> prints
+<code>nlir cache-stats {"replayed":N,"fresh":M}</code> to stderr after
+evaluation (effectful calls only; shown with <code>--quiet</code> and on
+errors). <code>_cache=off</code> disables caching (the old,
+nondeterministic behaviour). Editing an operator's prompt or model
+changes its keys, so a store never replays a stale definition.</li>
 <li><strong>Explicit randomness:</strong> <code>$draw%(form, n)</code>
 evaluates <code>form</code> <code>n</code> times (0–64) under seeds
 <code>_seed, _seed+1, …</code> (from 0 when unset), passing the draw
@@ -1444,7 +1446,7 @@ rust-rewrite</em>.</p>
 <pre><code>nlir -e &#39;EXPR&#39; [--quiet] [--mode det|llm] [--model haiku | --model medium=haiku,large=opus] [--parallelism 8] [--dry-run]
 nlir -f lib.nlir [-f prog.nlir] [-e &#39;EXPR&#39;]   # program files (`--` comment lines)
 nlir … --bind NAME=PATH           # JSON/YAML → native dict/list `$NAME`; other files → string (transient)
-nlir … --cache-file PATH [--replay strict]   # realisation store (§Execution graph: Caching)
+nlir … --cache-file PATH [--replay strict] [--cache-stats]   # realisation store (§Execution graph: Caching)
 
 # context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)
 # (default file loads for the REPL / set / get; a one-shot `-e` skips it — bd-85c49d)

@@ -601,7 +601,8 @@ and identical calls cost nothing:</p>
 class="sourceCode sh"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">-e</span> <span class="st">&quot;=&gt;&#39;Name a lighthouse keeper&#39;&#39;s cat&#39;&quot;</span>   <span class="co"># 3.9 s, recorded</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">-e</span> <span class="st">&quot;=&gt;&#39;Name a lighthouse keeper&#39;&#39;s cat&#39;&quot;</span>   <span class="co"># 0.03 s, replayed</span></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">--replay</span> strict <span class="at">-f</span> program.nlir            <span class="co"># fail on any unrecorded call</span></span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;</span><span class="dt">\$</span><span class="st">draw%({=&gt;&#39;Name a cat&#39;}, 3)&quot;</span>                                         <span class="co"># three explicit samples</span></span></code></pre></div>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">--cache-stats</span> <span class="at">-f</span> program.nlir             <span class="co"># stderr: {&quot;replayed&quot;:N,&quot;fresh&quot;:M}</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;</span><span class="dt">\$</span><span class="st">draw%({=&gt;&#39;Name a cat&#39;}, 3)&quot;</span>                                         <span class="co"># three explicit samples</span></span></code></pre></div>
 <p>The store is JSON lines that only grow, shared across runs,
 evaluations and hill-climb rounds; <code>_seed</code> is the namespace
 (a new seed draws fresh samples) and <code>$draw%(form, n)</code> asks
@@ -717,39 +718,40 @@ class="sourceCode sh"><code class="sourceCode bash"><span id="cb15-1"><a href="#
 <span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a><span class="co"># realisation store: deterministic replay of model/command calls</span></span>
 <span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> store.jsonl <span class="at">-e</span> <span class="st">&#39;…&#39;</span>             <span class="co"># record, then replay identical calls</span></span>
 <span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> store.jsonl <span class="at">--replay</span> strict …  <span class="co"># fail on any unrecorded call</span></span>
-<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a><span class="co"># context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)</span></span>
-<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> … <span class="at">--context-file</span> PATH</span>
-<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> … <span class="at">--session-file</span> PATH        <span class="co"># e.g. a Pi session: roles kept, tool calls dropped</span></span>
-<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a><span class="co"># context write (immediate; set = key replacement)</span></span>
-<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> set KEY VALUE</span>
-<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> set <span class="st">&#39;{&quot;k&quot;:&quot;v&quot;,&quot;_messages&quot;:[…]}&#39;</span></span>
-<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> get KEY</span>
-<span id="cb15-18"><a href="#cb15-18" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> append-message [--role user] <span class="st">&quot;text&quot;</span></span>
-<span id="cb15-19"><a href="#cb15-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-20"><a href="#cb15-20" aria-hidden="true" tabindex="-1"></a><span class="co"># interactive REPL (one expr per submission; trailing `\` continues; :cmd == nlir cmd)</span></span>
-<span id="cb15-21"><a href="#cb15-21" aria-hidden="true" tabindex="-1"></a><span class="co"># on a TTY: command history (persisted to ~/.config/nlir/repl_history.txt), arrow-key</span></span>
-<span id="cb15-22"><a href="#cb15-22" aria-hidden="true" tabindex="-1"></a><span class="co"># line editing (Ctrl-A/Ctrl-E, ↑/↓ history), Ctrl-C cancels a line, Ctrl-D exits.</span></span>
-<span id="cb15-23"><a href="#cb15-23" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> repl [--context-file F] <span class="pp">[--</span><span class="ss">raw</span><span class="pp">]</span></span>
-<span id="cb15-24"><a href="#cb15-24" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-25"><a href="#cb15-25" aria-hidden="true" tabindex="-1"></a><span class="co"># computational dataflow graph (the AST with variable bindings resolved into edges)</span></span>
-<span id="cb15-26"><a href="#cb15-26" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span>                          <span class="co"># print the graph as SVG (in a kitty terminal: the image)</span></span>
-<span id="cb15-27"><a href="#cb15-27" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--png</span> g.png              <span class="co"># rasterise the graph to a PNG</span></span>
-<span id="cb15-28"><a href="#cb15-28" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--frames</span> DIR             <span class="co"># one graph SVG per evaluation step</span></span>
-<span id="cb15-29"><a href="#cb15-29" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--save-animation</span> g.apng  <span class="co"># animated PNG of the step-by-step reduction</span></span>
-<span id="cb15-30"><a href="#cb15-30" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--kitty</span>                  <span class="co"># force the in-terminal kitty display (e.g. through tmux)</span></span>
-<span id="cb15-31"><a href="#cb15-31" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="at">--statements</span> <span class="at">-f</span> lib.nlir <span class="at">-f</span> prog.nlir <span class="at">--png</span> g.png   <span class="co"># statement-level graph of a program</span></span>
-<span id="cb15-32"><a href="#cb15-32" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="at">--statements</span> <span class="at">--text</span> <span class="at">-f</span> prog.nlir                   <span class="co"># the same outline as text (or --json)</span></span>
-<span id="cb15-33"><a href="#cb15-33" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--animate</span> <span class="at">--kitty</span>        <span class="co"># live kitty animation of the reduction</span></span>
-<span id="cb15-34"><a href="#cb15-34" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-35"><a href="#cb15-35" aria-hidden="true" tabindex="-1"></a><span class="co"># plumbing</span></span>
-<span id="cb15-36"><a href="#cb15-36" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> put <span class="at">--edited</span> out.md <span class="at">-f</span> prog.nlir <span class="at">--bind</span> d=data.json   <span class="co"># backward pass (lenses): edits + law checks</span></span>
-<span id="cb15-37"><a href="#cb15-37" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> parse <span class="st">&#39;EXPR&#39;</span>     <span class="co"># tokenise / inspect the parse</span></span>
-<span id="cb15-38"><a href="#cb15-38" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> test             <span class="co"># run the config `tests:` cases</span></span>
-<span id="cb15-39"><a href="#cb15-39" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> mcp stdio        <span class="co"># expose the surface as an MCP server (mcp-cli)</span></span>
-<span id="cb15-40"><a href="#cb15-40" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> self-update …    <span class="co"># updatable-cli</span></span>
-<span id="cb15-41"><a href="#cb15-41" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> feedback …       <span class="co"># feedback-cli</span></span></code></pre></div>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> store.jsonl <span class="at">--cache-stats</span> …     <span class="co"># report replayed vs fresh model/command calls</span></span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a><span class="co"># context read (precedence: --context-file › --session-file › NLIR_CONTEXT env › default file)</span></span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> … <span class="at">--context-file</span> PATH</span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> … <span class="at">--session-file</span> PATH        <span class="co"># e.g. a Pi session: roles kept, tool calls dropped</span></span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a><span class="co"># context write (immediate; set = key replacement)</span></span>
+<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> set KEY VALUE</span>
+<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> set <span class="st">&#39;{&quot;k&quot;:&quot;v&quot;,&quot;_messages&quot;:[…]}&#39;</span></span>
+<span id="cb15-18"><a href="#cb15-18" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> get KEY</span>
+<span id="cb15-19"><a href="#cb15-19" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> append-message [--role user] <span class="st">&quot;text&quot;</span></span>
+<span id="cb15-20"><a href="#cb15-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-21"><a href="#cb15-21" aria-hidden="true" tabindex="-1"></a><span class="co"># interactive REPL (one expr per submission; trailing `\` continues; :cmd == nlir cmd)</span></span>
+<span id="cb15-22"><a href="#cb15-22" aria-hidden="true" tabindex="-1"></a><span class="co"># on a TTY: command history (persisted to ~/.config/nlir/repl_history.txt), arrow-key</span></span>
+<span id="cb15-23"><a href="#cb15-23" aria-hidden="true" tabindex="-1"></a><span class="co"># line editing (Ctrl-A/Ctrl-E, ↑/↓ history), Ctrl-C cancels a line, Ctrl-D exits.</span></span>
+<span id="cb15-24"><a href="#cb15-24" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> repl [--context-file F] <span class="pp">[--</span><span class="ss">raw</span><span class="pp">]</span></span>
+<span id="cb15-25"><a href="#cb15-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-26"><a href="#cb15-26" aria-hidden="true" tabindex="-1"></a><span class="co"># computational dataflow graph (the AST with variable bindings resolved into edges)</span></span>
+<span id="cb15-27"><a href="#cb15-27" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span>                          <span class="co"># print the graph as SVG (in a kitty terminal: the image)</span></span>
+<span id="cb15-28"><a href="#cb15-28" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--png</span> g.png              <span class="co"># rasterise the graph to a PNG</span></span>
+<span id="cb15-29"><a href="#cb15-29" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--frames</span> DIR             <span class="co"># one graph SVG per evaluation step</span></span>
+<span id="cb15-30"><a href="#cb15-30" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--save-animation</span> g.apng  <span class="co"># animated PNG of the step-by-step reduction</span></span>
+<span id="cb15-31"><a href="#cb15-31" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--kitty</span>                  <span class="co"># force the in-terminal kitty display (e.g. through tmux)</span></span>
+<span id="cb15-32"><a href="#cb15-32" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="at">--statements</span> <span class="at">-f</span> lib.nlir <span class="at">-f</span> prog.nlir <span class="at">--png</span> g.png   <span class="co"># statement-level graph of a program</span></span>
+<span id="cb15-33"><a href="#cb15-33" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="at">--statements</span> <span class="at">--text</span> <span class="at">-f</span> prog.nlir                   <span class="co"># the same outline as text (or --json)</span></span>
+<span id="cb15-34"><a href="#cb15-34" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> show <span class="st">&#39;EXPR&#39;</span> <span class="at">--animate</span> <span class="at">--kitty</span>        <span class="co"># live kitty animation of the reduction</span></span>
+<span id="cb15-35"><a href="#cb15-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-36"><a href="#cb15-36" aria-hidden="true" tabindex="-1"></a><span class="co"># plumbing</span></span>
+<span id="cb15-37"><a href="#cb15-37" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> put <span class="at">--edited</span> out.md <span class="at">-f</span> prog.nlir <span class="at">--bind</span> d=data.json   <span class="co"># backward pass (lenses): edits + law checks</span></span>
+<span id="cb15-38"><a href="#cb15-38" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> parse <span class="st">&#39;EXPR&#39;</span>     <span class="co"># tokenise / inspect the parse</span></span>
+<span id="cb15-39"><a href="#cb15-39" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> test             <span class="co"># run the config `tests:` cases</span></span>
+<span id="cb15-40"><a href="#cb15-40" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> mcp stdio        <span class="co"># expose the surface as an MCP server (mcp-cli)</span></span>
+<span id="cb15-41"><a href="#cb15-41" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> self-update …    <span class="co"># updatable-cli</span></span>
+<span id="cb15-42"><a href="#cb15-42" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> feedback …       <span class="co"># feedback-cli</span></span></code></pre></div>
 <h2 id="worked-examples">Worked examples</h2>
 <p>These are the deterministic <code>tests:</code> from the example
 config (run with <code>nlir test</code>):</p>
