@@ -205,3 +205,14 @@ ol.limits { list-style: none; padding: 0; margin: 1rem 0; }
 .back-report ul { list-style: none; padding: 0; margin: 0; }
 .back-report li { padding: .35rem 0 .35rem .6rem; border-left: 3px solid var(--rule-strong); margin: .3rem 0; }
 .back-report li .text { font: 400 .92rem/1.5 var(--serif); margin-top: .2rem; }
+.run-anatomy summary { cursor: pointer; font-size: .8rem; color: var(--ink-2); }
+.run-anatomy > p { font-size: .78rem; margin: .4rem 0; }
+.sent-group { margin: .5rem 0; }
+.sent-group .label { font: 600 .68rem/1.3 var(--mono); color: var(--muted); margin-bottom: .25rem; }
+.runhost button.sent { display: block; width: 100%; text-align: left; font: 400 .8rem/1.4 var(--sans); padding: .3rem .5rem; margin: .15rem 0; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); cursor: pointer; }
+.runhost button.sent.off { text-decoration: line-through; color: var(--muted); background: var(--paper-2); border-style: dashed; }
+.sweep-cards > summary { cursor: pointer; font-size: .82rem; color: var(--ink-2); margin: .6rem 0; }
+.run-h { font: 600 .74rem/1.3 var(--mono); color: var(--muted); margin: 1rem 0 .3rem; text-transform: uppercase; letter-spacing: .03em; }
+.run-table.influence tr.beyond td { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.run-table.influence td:first-child { max-width: 30rem; }
+.runhost button.ghost.mini { font-size: .66rem; padding: .1rem .35rem; margin-left: .3rem; }

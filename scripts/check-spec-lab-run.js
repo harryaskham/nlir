@@ -103,10 +103,35 @@ async page => {
   // Compare against another run.
   await page.locator('#runAgainst').selectOption('1');
   if (!(await page.locator('.run-card').first().innerText()).includes('changed vs run 1')) throw new Error('Compare selector ignored');
+  // Anatomy: the program's instruction sentences can be switched off one by one.
+  await page.locator('#runAnatomy > summary').click();
+  const nSent = await page.locator('#runSentences [data-sent]').count();
+  if (nSent < 10) throw new Error('Too few instruction sentences: ' + nSent);
+  const firstSent = page.locator('#runSentences [data-sent]').first();
+  const sentence = (await firstSent.innerText()).trim();
+  await firstSent.click();
+  const src = await page.locator('#runSrc').inputValue();
+  if (src.replace(/\\n/g, ' ').replace(/\s+/g, ' ').includes(sentence)) throw new Error('Switched-off sentence still in the source');
+  if (!(await page.locator('#runSrcState').innerText()).includes('1 sentence off')) throw new Error('Source state missing');
+  await page.locator('#runSentencesReset').click();
+  // Sweep: one run per sentence, then the influence table.
+  await page.locator('#runSweep').click();
+  await page.waitForFunction(n => (document.querySelector('#runSweepState')?.textContent || '').includes('done: ' + n + ' sentences'), nSent, { timeout: 120000 });
+  const rowsInfl = await page.locator('.run-table.influence tr').count() - 1;
+  if (rowsInfl !== nSent) throw new Error(`Influence rows ${rowsInfl} for ${nSent} sentences`);
+  const infl = await page.locator('.run-table.influence').innerText();
+  if (!/APPLICABILITY.*MET|Applicability, Decision boundary, MET, NOT MET, UNCERTAIN/i.test(infl)) throw new Error('A context sentence should re-write every part: ' + infl.slice(0, 400));
+  const swept = await page.locator('#runSweepCards .run-card').count();
+  if (swept !== nSent) throw new Error('Sweep cards ' + swept);
+  // Group sweep: one run per statement's whole instruction.
+  const nGroups = await page.locator('#runSentences [data-group]').count();
+  await page.locator('#runSweepGroups').click();
+  await page.waitForFunction(n => (document.querySelector('#runSweepState')?.textContent || '').includes('done: ' + n + ' groups'), nGroups, { timeout: 120000 });
+  if ((await page.locator('.run-table.influence tr').count() - 1) !== nSent + nGroups) throw new Error('Group rows missing from the influence table');
   // Narrow layout must not overflow.
   await page.setViewportSize({ width: 390, height: 844 });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Narrow overflow in Run tab');
   await page.setViewportSize({ width: 1440, height: 1000 });
   if (errors.length) throw new Error(errors.join('\n'));
-  return { ok: true, modelCalls: calls, judgeCalls: judged, lensCalls: lens, steps, summary: summary.split('\n').slice(-1)[0] };
+  return { ok: true, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
 }

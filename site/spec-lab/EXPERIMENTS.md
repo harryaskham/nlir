@@ -83,3 +83,17 @@ replay. Example (CR V 1.3, learned B): adding "made by a human reviewer" to the 
 MET text proposed adding "The blocking feedback must have been made by a human reviewer" to
 the rule, flagged that this contradicts the rule's "including the assistant's own earlier
 comments", and the re-run kept 0.90 of the edited meaning.
+
+### Which instructions matter (program anatomy)
+
+"Instruction sentences" lists every sentence inside the program's long string literals,
+grouped by the statement that holds it (the shared context, each field's instruction).
+Switch any off and Run; "Sweep sentences" / "Sweep groups" switch each sentence, or each
+statement's whole instruction, off in turn (seed 0, spec packet; untouched calls replay) and
+rank them by how much the affected parts change in wording and in length, against how much a
+plain re-sample changes the same parts. With k re-samples and no real effect, a run exceeds
+all k by chance one time in k+1; the table states that expected count. On CR V 1.3 with
+learned B and four re-samples: no single sentence of 31 changed wording beyond re-sample
+noise (2 changed length; about 6 expected by chance), while whole instructions did (the
+decision-boundary instruction: 20 -> 60 words without it; 3 of 6 groups beyond noise, about
+1 expected). Concepts sit in whole instructions, and mostly constrain form and length.
