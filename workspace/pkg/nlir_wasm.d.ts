@@ -9,6 +9,20 @@
 export function clearEvaluationCache(): void;
 
 /**
+ * `configJsonFromYaml(yaml) -> { ok, json | error }` — any YAML config to `configJson`,
+ * through the CLI's loader (same validation, no environment interpolation).
+ */
+export function configJsonFromYaml(yaml: string): any;
+
+/**
+ * `defaultConfigJson() -> String` — the shipped `config.example.yaml`, parsed by the
+ * same Rust loader as the CLI (with no environment: `${NLIR_PROMPT}`-style templates are
+ * kept literally) and serialised to the JSON every other export takes as `configJson`.
+ * Pages no longer need a JavaScript YAML parser; empty string on a (never expected) error.
+ */
+export function defaultConfigJson(): string;
+
+/**
  * `defaultConfigYaml() -> String` — the canonical `config.example.yaml`, embedded
  * at build time via `nlir::config::EXAMPLE_CONFIG` (the same const the CLI writes
  * on first run). Lets the workspace seed `DEFAULT_CONFIG` from the REAL config so
@@ -127,6 +141,8 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly configJsonFromYaml: (a: number, b: number) => any;
+    readonly defaultConfigJson: () => [number, number];
     readonly defaultConfigYaml: () => [number, number];
     readonly evaluate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => any;
     readonly graph: (a: number, b: number, c: number, d: number) => any;

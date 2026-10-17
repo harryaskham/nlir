@@ -10,6 +10,39 @@ export function clearEvaluationCache() {
 }
 
 /**
+ * `configJsonFromYaml(yaml) -> { ok, json | error }` — any YAML config to `configJson`,
+ * through the CLI's loader (same validation, no environment interpolation).
+ * @param {string} yaml
+ * @returns {any}
+ */
+export function configJsonFromYaml(yaml) {
+    const ptr0 = passStringToWasm0(yaml, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.configJsonFromYaml(ptr0, len0);
+    return ret;
+}
+
+/**
+ * `defaultConfigJson() -> String` — the shipped `config.example.yaml`, parsed by the
+ * same Rust loader as the CLI (with no environment: `${NLIR_PROMPT}`-style templates are
+ * kept literally) and serialised to the JSON every other export takes as `configJson`.
+ * Pages no longer need a JavaScript YAML parser; empty string on a (never expected) error.
+ * @returns {string}
+ */
+export function defaultConfigJson() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.defaultConfigJson();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * `defaultConfigYaml() -> String` — the canonical `config.example.yaml`, embedded
  * at build time via `nlir::config::EXAMPLE_CONFIG` (the same const the CLI writes
  * on first run). Lets the workspace seed `DEFAULT_CONFIG` from the REAL config so
@@ -451,7 +484,7 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 103, function: Function { arguments: [Externref], shim_idx: 104, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 105, function: Function { arguments: [Externref], shim_idx: 106, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h81ee272d4a435a11, wasm_bindgen__convert__closures_____invoke__h823762d347a85e75);
             return ret;
         },

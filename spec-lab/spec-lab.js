@@ -23,7 +23,8 @@ async function boot() {
   lib = `${strip(specLib)};\n${strip(profileLib)}`;
   profileOnly = strip(profileLib);
   $('libsrc').innerHTML = highlight(`${specLib}\n${profileLib}`);
-  try { cfgJson = JSON.stringify(window.jsyaml.load(m.defaultConfigYaml())); } catch (_) {}
+  // The shipped config, parsed by the same Rust loader as the CLI (no JS YAML parser needed).
+  cfgJson = m.defaultConfigJson?.() || '{}';
 }
 
 // Evaluate `expr` after the libraries, with the spec (and any extra bindings) in context.

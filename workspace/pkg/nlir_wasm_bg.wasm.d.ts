@@ -1,6 +1,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const configJsonFromYaml: (a: number, b: number) => any;
+export const defaultConfigJson: () => [number, number];
 export const defaultConfigYaml: () => [number, number];
 export const evaluate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => any;
 export const graph: (a: number, b: number, c: number, d: number) => any;
