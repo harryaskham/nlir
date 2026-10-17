@@ -30,3 +30,18 @@ The JSON contains replayed programs, reviewer readings, graphs and measurements;
 browser does not invoke a model to reproduce them. `scripts/verify-spec-lab.py` checks
 recording labels and basic consistency; `scripts/check-spec-lab-ui.js` tests the UI in
 an isolated Playwright CLI session, including the stale-fetch race guard.
+
+## Spec limits — the counterexample test (`witness.json`)
+
+For every clause of the 12 invented authored profiles (101 clauses), gpt-6.1-sol, given only
+that rule's spec packet and blind to earlier labels, either quoted spec text that determines
+the clause or wrote a counter-choice: a different requirement for the same part that
+contradicts no spec text and would change some verdict. claude-opus-5.5 checked each quote
+and counter-choice. 52 of 101 clauses have a confirmed counter-choice, so the spec leaves
+them open; 39 are determined by quoted spec text. As a control, 0 of the 18 clauses earlier
+labelled "stated" and 4 of 25 labelled "implied" were shown open, against 48 of 58 labelled
+convention or rule-specific. These are model judgements, not formal proofs; failing to find
+a counter-choice does not prove a clause is implied. `scripts/export-toy-witness.py` builds
+the file from recorded results; `scripts/verify-spec-lab.py` checks that every quotation
+appears verbatim in `toy-spec.json`. The same method applied to the private health policy
+found 155 of 681 clauses open.
