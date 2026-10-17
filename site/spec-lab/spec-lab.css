@@ -138,13 +138,13 @@ ol.limits { list-style: none; padding: 0; margin: 1rem 0; }
 .lim blockquote { margin: .3rem 0; padding: .3rem .6rem; border-left: 2px solid var(--line, #d8dee9); }
 
 /* ---- Run program: a learned program on the selected rule, through the reader's endpoint ---- */
-#pane-run button.ghost { font-size: .78rem; padding: .35rem .6rem; color: var(--ink-2); }
+.runhost button.ghost { font-size: .78rem; padding: .35rem .6rem; color: var(--ink-2); }
 .endpoint { border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: .6rem .8rem; margin: 0 0 1rem; background: var(--paper-2); }
 .endpoint summary { cursor: pointer; font: 600 .8rem/1.4 var(--sans); color: var(--ink); }
 .endpoint summary .muted { font-weight: 400; margin-left: .4rem; }
 .ep-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .6rem .9rem; margin: .7rem 0 .5rem; }
 .ep-grid label { display: flex; flex-direction: column; gap: .25rem; font: 500 .72rem/1.2 var(--mono); color: var(--muted); }
-.ep-grid input, #pane-run select, #pane-run textarea { font: 400 .82rem/1.4 var(--mono); color: var(--ink); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: .4rem .5rem; min-width: 0; }
+.ep-grid input, .runhost select, .runhost textarea { font: 400 .82rem/1.4 var(--mono); color: var(--ink); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: .4rem .5rem; min-width: 0; }
 .ep-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem; font-size: .8rem; }
 .ep-actions .check { display: inline-flex; gap: .35rem; align-items: center; color: var(--ink-2); }
 .endpoint > p { font-size: .78rem; margin: .5rem 0 0; }
