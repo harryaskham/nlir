@@ -1712,51 +1712,22 @@ impl<'a> Evaluator<'a> {
     /// Realise a `builtin:`-backed operator (bd-44c294): dispatch `map`/`fold`
     /// over the already-evaluated `(form, list)` operands.
     fn apply_builtin_op(&mut self, name: &str, operands: &[Value]) -> Result<Value, EvalError> {
-        if name == "access" {
-            return self.apply_access(operands);
-        }
-        if matches!(name, "union" | "inter" | "diff" | "elem") {
-            return apply_set_op(name, operands, &self.sep());
-        }
-        if matches!(name, "and" | "or") {
-            return apply_bool_op(name, operands);
-        }
-        if name == "not" {
-            return apply_bool_not(operands);
-        }
-        if name == "sqrt" {
-            return sqrt_builtin(operands, &self.sep());
-        }
-        if name == "len" {
-            let sep = self.sep();
-            return match operands {
-                [one] => Ok(Value::number(value_len(one, &sep))),
-                many => Ok(Value::number(value_len(&Value::list(many.to_vec()), &sep))),
-            };
-        }
-        if name == "mtimes" {
-            return mtimes(operands, &self.sep());
-        }
-        if name == "compose" {
-            return compose_forms(operands);
+        if let Some(result) = value_builtin(name, operands, &self.sep()) {
+            return result;
         }
         let (body, items) = builtin_op_operands(name, operands)?;
         self.run_higher_order(name, &body, items)
     }
-
-    /// Polymorphic `.` accessor (bd-27739b): `container . key` dispatches on the
-    /// container's type — List → 0-based index (negative counts from the end),
-    /// Dict → key lookup, String → char at index. Out-of-range / missing-key is a
-    /// LOUD error, never silent-empty (the stack-error-loudly discipline). Fully
-    /// deterministic; the LLM twin is `..` (semantic access). Numbers/bools have
-    /// no `.` reading, so indexing into them is an error.
-    fn apply_access(&self, operands: &[Value]) -> Result<Value, EvalError> {
-        access_value(operands, &self.sep())
-    }
 }
 
-/// `.` over already-evaluated operands (see [`Evaluator::apply_access`]); a free
-/// fn so the parallel path can apply it too.
+/// Polymorphic `.` accessor (bd-27739b): `container . key` dispatches on the
+/// container's type — List → 0-based index (negative counts from the end),
+/// Dict → key lookup, String → char at index. Out-of-range / missing-key is a
+/// LOUD error, never silent-empty (the stack-error-loudly discipline). Fully
+/// deterministic; the LLM twin is `..` (semantic access). Numbers/bools have
+/// no `.` reading, so indexing into them is an error.
+///
+/// Shared by every evaluation path through [`value_builtin`].
 fn access_value(operands: &[Value], sep: &str) -> Result<Value, EvalError> {
     {
         let [container, key] = operands else {
@@ -1807,6 +1778,27 @@ const PURE_BUILTIN_OPS: &[&str] = &[
     "access", "union", "inter", "diff", "elem", "and", "or", "not", "sqrt",
 ];
 
+/// Value builtins: `builtin:` operators computed directly from their evaluated operands
+/// (no form to map, no model call). One table serves the sequential, parallel and async
+/// paths, so they cannot drift: `#` once worked in det runs but failed in every async
+/// (browser llm-mode) run because the async copy of this dispatch lacked `len`.
+fn value_builtin(name: &str, operands: &[Value], sep: &str) -> Option<Result<Value, EvalError>> {
+    Some(match name {
+        "access" => access_value(operands, sep),
+        "union" | "inter" | "diff" | "elem" => apply_set_op(name, operands, sep),
+        "and" | "or" => apply_bool_op(name, operands),
+        "not" => apply_bool_not(operands),
+        "sqrt" => sqrt_builtin(operands, sep),
+        "len" => Ok(Value::number(match operands {
+            [one] => value_len(one, sep),
+            many => value_len(&Value::list(many.to_vec()), sep),
+        })),
+        "mtimes" => mtimes(operands, sep),
+        "compose" => compose_forms(operands),
+        _ => return None,
+    })
+}
+
 /// The realisations every evaluation path must apply BEFORE generic operand
 /// coercion + realisation: pure `builtin:` ops and the numeric `a..b` range.
 /// `None` means "realise normally". Shared by the parallel path so a fanned-out
@@ -1818,14 +1810,7 @@ fn pre_realise(
     sep: &str,
 ) -> Option<Result<Value, EvalError>> {
     if let Some(builtin) = op_cfg.builtin.as_deref() {
-        return match builtin {
-            "access" => Some(access_value(operands, sep)),
-            "union" | "inter" | "diff" | "elem" => Some(apply_set_op(builtin, operands, sep)),
-            "and" | "or" => Some(apply_bool_op(builtin, operands)),
-            "not" => Some(apply_bool_not(operands)),
-            "sqrt" => Some(sqrt_builtin(operands, sep)),
-            _ => None,
-        };
+        return value_builtin(builtin, operands, sep);
     }
     if op == ".."
         && let (Some(a), Some(b)) = (
@@ -2425,20 +2410,8 @@ impl<'a> Evaluator<'a> {
             // the sync path, through the async realiser (a form/builtin op may
             // realise llm ops per item).
             if let Some(builtin) = op_cfg.builtin.clone() {
-                if builtin == "access" {
-                    return self.apply_access(&operands);
-                }
-                if matches!(builtin.as_str(), "union" | "inter" | "diff" | "elem") {
-                    return apply_set_op(&builtin, &operands, &self.sep());
-                }
-                if matches!(builtin.as_str(), "and" | "or") {
-                    return apply_bool_op(&builtin, &operands);
-                }
-                if builtin == "not" {
-                    return apply_bool_not(&operands);
-                }
-                if builtin == "sqrt" {
-                    return sqrt_builtin(&operands, &self.sep());
+                if let Some(result) = value_builtin(&builtin, &operands, &self.sep()) {
+                    return result;
                 }
                 let (body, items) = builtin_op_operands(&builtin, &operands)?;
                 return self
@@ -6109,6 +6082,53 @@ operators:
         ) -> crate::realiser::RealiseFuture<'a> {
             Box::pin(async move { Ok(String::new()) })
         }
+    }
+
+    #[test]
+    fn value_builtins_agree_across_sync_and_async_paths() {
+        // Regression: the async dispatch (every browser llm-mode run) lacked `len`,
+        // `mtimes` and `compose`, so `#$x` failed there while det runs passed.
+        let cfg = config::parse_str(
+            crate::config::EXAMPLE_CONFIG,
+            Path::new("config.example.yaml"),
+        )
+        .expect("example config");
+        let realiser = CountingRealiser::default();
+        for expr in [
+            "#[1,2,3]",
+            "#'abc'",
+            "x={k=['x','y']}; #$x.k",
+            "1..(#[1,2])",
+            "[1,2] ∪ [2,3]",
+            "[1,2] ∩ [2,3]",
+            "[1,2] ∖ [2,3]",
+            "2 ∈ [1,2]",
+            "true ∧ false",
+            "true ∨ false",
+            "¬ true",
+            "√ 16",
+            "[1,2,3] . 1",
+            "'ab' _ 3",
+            "f=({$0 ++ '!'} ∘ {$0 ++ '?'}); $f%'x'",
+            "count={#($filter%({$0 == $$1}, $0))}; $count%(['a','b','a'], 'a')",
+        ] {
+            let mut sync_ctx = Context::empty(&cfg.context);
+            let sync = evaluate(expr, &cfg, &mut sync_ctx, Mode::Det)
+                .unwrap_or_else(|e| panic!("sync {expr}: {e}"))
+                .render(&sync_ctx.sep());
+            let mut async_ctx = Context::empty(&cfg.context);
+            let r#async = crate::realiser::block_on_ready(evaluate_async(
+                expr,
+                &cfg,
+                &mut async_ctx,
+                Mode::Llm,
+                &realiser,
+            ))
+            .unwrap_or_else(|e| panic!("async {expr}: {e}"))
+            .render(&async_ctx.sep());
+            assert_eq!(sync, r#async, "{expr}");
+        }
+        assert_eq!(realiser.calls(), 0, "value builtins never call a model");
     }
 
     #[test]
