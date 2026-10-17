@@ -13,6 +13,7 @@ export const operators: (a: number, b: number) => any;
 export const outline: (a: number, b: number, c: number, d: number) => any;
 export const parse: (a: number, b: number, c: number, d: number) => any;
 export const put: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => any;
+export const putAsync: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => any;
 export const step: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => any;
 export const stepStream: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any, j: any) => any;
 export const version: () => any;

@@ -67,3 +67,19 @@ requests. Nothing is hardcoded; `verify-spec-lab.py` rejects page scripts contai
 - Word counts, sentence counts and rule-code counts per part are surface statistics, not scores.
 
 `scripts/check-spec-lab-run.js` exercises the whole tab against a mocked endpoint (no network).
+
+### Backward through model steps
+
+Each run card has a Backward panel: edit the run's output and ask which input change would
+produce it. This is nlir's lens (`put`) in llm mode: every model step is asked for the
+smallest find/replace edit to its own inputs that would give the edited text, those edits
+are pushed back through the program's deterministic structure (`++`, `$json`, field access)
+to the bound packet, the worked examples or the program's own wording, conflicting edits and
+edits that contradict each other are reported, and the program is re-run on the edited
+inputs (PutGet, judged for meaning because model steps are not exact inverses). In the
+browser this runs as a resumable pass (`putAsync`): the lens runs over the page's cache,
+stops where it needs a call, the page makes it, and the lens runs again; calls already made
+replay. Example (CR V 1.3, learned B): adding "made by a human reviewer" to the generated
+MET text proposed adding "The blocking feedback must have been made by a human reviewer" to
+the rule, flagged that this contradicts the rule's "including the assistant's own earlier
+comments", and the re-run kept 0.90 of the edited meaning.

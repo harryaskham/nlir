@@ -264,6 +264,33 @@ export function put(expr, config_json, context_json, edited) {
 }
 
 /**
+ * `putAsync(expr, configJson, contextJson, edited, realisers) -> Promise<{ ok, report | error }>`
+ * — the backward pass in llm mode: model operators get model-backed backward requests
+ * (minimal find/replace patches to their inputs), the edits are pushed on to the bound
+ * inputs, and PutGet is re-run and judged. Calls are made through the JS `llm` realiser
+ * by suspend-and-resume over the page's shared cache, so forward calls the page already
+ * made replay and a repeated request costs nothing.
+ * @param {string} expr
+ * @param {string} config_json
+ * @param {string} context_json
+ * @param {string} edited
+ * @param {any} realisers
+ * @returns {Promise<any>}
+ */
+export function putAsync(expr, config_json, context_json, edited, realisers) {
+    const ptr0 = passStringToWasm0(expr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(config_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(context_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(edited, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.putAsync(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, realisers);
+    return ret;
+}
+
+/**
  * `step(expr, configJson, contextJson, mode, realisers) -> Promise<{ ok, steps|error }>`.
  * DET replays `step_trace` (same engine as `nlir step` / the repl `:step`);
  * LLM drives `step_async` with the [`JsRealiser`] — so the step view unfolds
@@ -484,7 +511,7 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 105, function: Function { arguments: [Externref], shim_idx: 106, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 109, function: Function { arguments: [Externref], shim_idx: 110, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h81ee272d4a435a11, wasm_bindgen__convert__closures_____invoke__h823762d347a85e75);
             return ret;
         },

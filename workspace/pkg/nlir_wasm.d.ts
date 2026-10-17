@@ -114,6 +114,16 @@ export function parse(expr: string, config_json: string): any;
 export function put(expr: string, config_json: string, context_json: string, edited: string): any;
 
 /**
+ * `putAsync(expr, configJson, contextJson, edited, realisers) -> Promise<{ ok, report | error }>`
+ * — the backward pass in llm mode: model operators get model-backed backward requests
+ * (minimal find/replace patches to their inputs), the edits are pushed on to the bound
+ * inputs, and PutGet is re-run and judged. Calls are made through the JS `llm` realiser
+ * by suspend-and-resume over the page's shared cache, so forward calls the page already
+ * made replay and a repeated request costs nothing.
+ */
+export function putAsync(expr: string, config_json: string, context_json: string, edited: string, realisers: any): Promise<any>;
+
+/**
  * `step(expr, configJson, contextJson, mode, realisers) -> Promise<{ ok, steps|error }>`.
  * DET replays `step_trace` (same engine as `nlir step` / the repl `:step`);
  * LLM drives `step_async` with the [`JsRealiser`] — so the step view unfolds
@@ -153,6 +163,7 @@ export interface InitOutput {
     readonly outline: (a: number, b: number, c: number, d: number) => any;
     readonly parse: (a: number, b: number, c: number, d: number) => any;
     readonly put: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => any;
+    readonly putAsync: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => any;
     readonly step: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => any;
     readonly stepStream: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any, j: any) => any;
     readonly version: () => any;
