@@ -128,6 +128,12 @@ async page => {
   await page.locator('#runSweepGroups').click();
   await page.waitForFunction(n => (document.querySelector('#runSweepState')?.textContent || '').includes('done: ' + n + ' groups'), nGroups, { timeout: 120000 });
   if ((await page.locator('.run-table.influence tr').count() - 1) !== nSent + nGroups) throw new Error('Group rows missing from the influence table');
+  // Packet-field sweep: one run per field present (rule text first), ranked against re-samples.
+  const beforeFields = await page.locator('.run-table.influence tr').count() - 1;
+  await page.locator('#runSweepFields').click();
+  await page.waitForFunction(() => /done: \d+ fields/.test(document.querySelector('#runSweepState')?.textContent || ''), null, { timeout: 120000 });
+  const infl2 = await page.locator('.run-table.influence').innerText();
+  if (!infl2.includes('packet without rule') || !infl2.includes('packet without permissions')) throw new Error('Field sweep rows missing: ' + infl2.slice(0, 300));
   // B·clean: learned B plus the clean-up runs in the browser like any program.
   await page.locator('#runProgram').selectOption('B·clean');
   const before = await page.locator('.run-card').count();
@@ -140,5 +146,5 @@ async page => {
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Narrow overflow in Run tab');
   await page.setViewportSize({ width: 1440, height: 1000 });
   if (errors.length) throw new Error(errors.join('\n'));
-  return { ok: true, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
+  return { ok: true, fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
 }

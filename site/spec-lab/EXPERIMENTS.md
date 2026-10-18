@@ -114,3 +114,13 @@ re-capitalised (`verify-spec-lab.py` checks nothing else changed). Its prompts a
 B's, so in the Run tab it replays B's model calls and only the final text differs. On the private
 health policy the same clean-up improved style by 0.047 [0.039, 0.056] on 20 untouched rules with
 no measurable change in meaning (strict F1 −0.002 [−0.008, +0.004]).
+
+### Sweep packet fields
+
+"Sweep packet fields" removes each packet field in turn — the rule text first, as a positive
+control that should change a lot, then permissions, definitions, examples and scope — after a
+baseline and three re-samples, and adds each to the same influence table, so packet fields and
+instructions are read against one noise floor (with three re-samples, a run with no real effect
+exceeds all of them one time in four). On the private health policy the same design found that
+the rule text, scope and permissions (for NOT MET) matter while definitions, examples and policy
+stay within re-sample noise.
