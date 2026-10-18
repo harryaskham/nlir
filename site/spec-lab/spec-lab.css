@@ -217,3 +217,10 @@ ol.limits { list-style: none; padding: 0; margin: 1rem 0; }
 .run-table.influence td:first-child { max-width: 30rem; }
 .runhost button.ghost.mini { font-size: .66rem; padding: .1rem .35rem; margin-left: .3rem; }
 .run-stats b.leak { color: var(--amber); font-weight: 600; }
+
+.runhost .run-table.lottery td.lt-cl{text-align:left;max-width:34rem}
+.runhost .run-table.lottery td.lt-st{text-align:center;font-size:1rem;line-height:1}
+.runhost .run-table.lottery td.lt-present{color:var(--accent,#3b6ea5)}
+.runhost .run-table.lottery td.lt-weakened{color:#C8892E}
+.runhost .run-table.lottery td.lt-missing{color:#9aa3b2}
+.runhost .run-table.lottery th.lt-part{text-align:left;padding-top:.5rem;text-transform:capitalize}

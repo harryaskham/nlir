@@ -644,6 +644,29 @@ function spread(list) {
     if (n) rows.push(`<tr><td>${D.esc(rs[0].programLabel)}</td><td>${rs.length}</td><td>${(tot.mean / n).toFixed(2)}</td><td>${(tot.typical / n).toFixed(2)}</td><td>${(tot.best / n).toFixed(2)}</td></tr>`);
   }
   if (!rows.length) return '';
+  return spreadTable(rows) + lottery(Object.values(groups).find(rs => rs.length >= 3));
+}
+
+// Which authored clauses each judged sample states: rows are the toy profile's clauses, columns
+// samples. Clauses some samples state and others miss are where the authors' selection, not the
+// spec, decides.
+function lottery(rs) {
+  if (!rs) return '';
+  const mark = { present: '●', weakened: '◐', missing: '○', contradicted: '✕' };
+  const counts = { every: 0, some: 0, none: 0 };
+  const parts = rs[0].judge.parts.filter(p => p.reference?.length).map(p0 => {
+    const rows = p0.reference.map(c0 => {
+      const st = rs.map(r => r.judge.parts.find(p => p.label === p0.label)?.reference.find(c => c.clause === c0.clause)?.status ?? 'missing');
+      const n = st.filter(x => x === 'present' || x === 'weakened').length;
+      counts[n === rs.length ? 'every' : n ? 'some' : 'none']++;
+      return `<tr><td class="lt-cl">${D.esc(c0.clause)}</td>${st.map(x => `<td class="lt-st lt-${D.esc(x)}" title="${D.esc(x)}">${mark[x] || '?'}</td>`).join('')}<td class="muted">${n}/${rs.length}</td></tr>`;
+    }).join('');
+    return `<tr><th colspan="${rs.length + 2}" class="lt-part">${D.esc(p0.label.toLowerCase())}</th></tr>${rows}`;
+  }).join('');
+  return `<h4 class="run-h">Which authored clauses each sample states</h4><p class="sub">${D.esc(rs[0].programLabel)}, ${rs.length} judged samples on the spec packet (columns: runs ${rs.map(r => r.n).join(', ')}): ● stated, ◐ stated with a qualifier lost, ○ missing. Stated by every sample: <b>${counts.every}</b>; by some and not others: <b>${counts.some}</b>; by none: <b>${counts.none}</b>. Clauses that only some samples state are within the program's reach but chosen inconsistently.</p><div class="run-table-wrap"><table class="run-table lottery">${parts}</table></div>`;
+}
+
+function spreadTable(rows) {
   return `<h4 class="run-h">Spread across samples</h4><p class="sub">Strict F1 per part, averaged over parts, for judged samples of the same program on the spec packet. <b>Most typical</b> keeps, for each part, the sample whose words agree most with the others' (nlir's <code>$medoid</code>); <b>best</b> keeps the highest-scoring sample of each part — an upper bound that also picks the judge's luck, since two judgements of the same text differ. In a larger private study the best drafts were clearly better even after re-judging, but nothing that could not see the authored text — consensus, features or a model shown everything the writer saw — could pick them.</p><div class="run-table-wrap"><table class="run-table spread"><tr><th>program</th><th>judged samples</th><th>one sample (mean)</th><th>most typical</th><th>best (upper bound)</th></tr>${rows.join('')}</table></div>`;
 }
 

@@ -145,6 +145,8 @@ async page => {
   }
   const spreadText = await page.locator('.run-table.spread').innerText();
   if (!/judged samples/.test(spreadText) || !/\t[3-9]\t/.test(spreadText)) throw new Error('Spread table missing or under three samples: ' + spreadText);
+  const lotteryRows = await page.locator('.run-table.lottery td.lt-cl').count();
+  if (lotteryRows < 5) throw new Error('Clause-by-sample table missing: ' + lotteryRows);
   // B·clean: learned B plus the clean-up runs in the browser like any program.
   await page.locator('#runProgram').selectOption('B·clean');
   const before = await page.locator('.run-card').count();
@@ -157,5 +159,5 @@ async page => {
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Narrow overflow in Run tab');
   await page.setViewportSize({ width: 1440, height: 1000 });
   if (errors.length) throw new Error(errors.join('\n'));
-  return { ok: true, spread: spreadText.split('\n').slice(-1)[0], fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
+  return { ok: true, lotteryRows, spread: spreadText.split('\n').slice(-1)[0], fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
 }
