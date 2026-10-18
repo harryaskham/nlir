@@ -602,15 +602,17 @@ class="sourceCode sh"><code class="sourceCode bash"><span id="cb10-1"><a href="#
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">-e</span> <span class="st">&quot;=&gt;&#39;Name a cat for a lighthouse keeper&#39;&quot;</span>  <span class="co"># 0.03 s, replayed</span></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">--replay</span> strict <span class="at">-f</span> program.nlir            <span class="co"># fail on any unrecorded call</span></span>
 <span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">--cache-file</span> runs/store.jsonl <span class="at">--cache-stats</span> <span class="at">-f</span> program.nlir             <span class="co"># stderr: {&quot;replayed&quot;:N,&quot;fresh&quot;:M}</span></span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;</span><span class="dt">\$</span><span class="st">draw%({=&gt;&#39;Name a cat&#39;}, 3)&quot;</span>                                         <span class="co"># three explicit samples</span></span></code></pre></div>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;</span><span class="dt">\$</span><span class="st">draw%({=&gt;&#39;Name a cat&#39;}, 3)&quot;</span>                                         <span class="co"># three explicit samples</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="ex">nlir</span> <span class="at">-e</span> <span class="st">&quot;</span><span class="dt">\$</span><span class="st">medoid%(</span><span class="dt">\$</span><span class="st">draw%({=&gt;&#39;Describe a cat in one sentence&#39;}, 5))&quot;</span>          <span class="co"># the most typical of five</span></span></code></pre></div>
 <p>The store is JSON lines that only grow, shared across runs,
 evaluations and hill-climb rounds; <code>_seed</code> is the namespace
 (a new seed draws fresh samples) and <code>$draw%(form, n)</code> asks
-for <code>n</code> samples explicitly. <code>_cache=off</code> restores
-the old, nondeterministic behaviour. Hosted models do not honour seeds
-reproducibly, so each model declares
-<code>seed: exact | best-effort | none</code> and the store does the
-work.</p>
+for <code>n</code> samples explicitly, and <code>$medoid%(list)</code>
+keeps the one whose words agree most with the others (consensus
+selection). <code>_cache=off</code> restores the old, nondeterministic
+behaviour. Hosted models do not honour seeds reproducibly, so each model
+declares <code>seed: exact | best-effort | none</code> and the store
+does the work.</p>
 <h2 id="the-composable-core--adverbs-trains-basics">The composable core
 — adverbs, trains, basics</h2>
 <p>Forms unlock a small <strong>composable core</strong>: a handful of
