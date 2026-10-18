@@ -242,9 +242,9 @@ export async function showRun(id) {
         <select id="runProgram">${programs.map(p => `<option value="${p.key}" ${p.key === progKey ? 'selected' : ''}>${D.esc(p.label)}</option>`).join('')}</select>
         <details class="run-src"><summary>Program source <span class="muted" id="runSrcState"></span></summary><textarea id="runSrc" spellcheck="false"></textarea><button class="ghost" id="runSrcReset">Reset program</button></details>
         <details class="run-anatomy" id="runAnatomy"><summary>Instruction sentences <span class="muted" id="runAnatomyState"></span></summary>
-          <p class="muted">Switch a sentence off and Run: with the same seed, only the model calls whose prompt changed are re-made. Sweep switches each sentence off in turn and ranks them by how much they change the output compared with a re-sample.</p>
+          <p class="muted">Switch a sentence off and Run: with the same seed, only the model calls whose prompt changed are re-made. The sweeps remove each sentence, each instruction, or each packet field in turn (after a baseline and three re-samples) and rank them by how much they change the output compared with a re-sample.</p>
           <div id="runSentences"></div>
-          <div class="run-actions"><button class="ghost" id="runSweep" title="Switch each sentence off in turn">Sweep sentences</button><button class="ghost" id="runSweepGroups" title="Switch each statement's whole instruction off in turn">Sweep groups</button><button class="ghost" id="runSentencesReset">All on</button><span class="muted" id="runSweepState"></span></div>
+          <div class="run-actions"><button class="ghost" id="runSweep" title="Switch each sentence off in turn">Sweep sentences</button><button class="ghost" id="runSweepGroups" title="Switch each statement's whole instruction off in turn">Sweep groups</button><button class="ghost" id="runSweepFields" title="Remove each packet field in turn (the rule text first, as a positive control)">Sweep packet fields</button><button class="ghost" id="runSentencesReset">All on</button><span class="muted" id="runSweepState"></span></div>
         </details>
         <details class="run-graph"><summary>Program graph</summary><div id="runGraph" class="graph"></div></details>
         <label class="run-label" for="runPacket">Packet <code>$p</code> <span class="muted" id="runPacketState">from the spec</span></label>
@@ -362,6 +362,7 @@ function wirePane(packet) {
   $('runSentencesReset').onclick = () => { anatomy.off.clear(); applyAblation(); };
   $('runSweep').onclick = () => sweep('sentences');
   $('runSweepGroups').onclick = () => sweep('groups');
+  $('runSweepFields').onclick = () => sweep('fields');
 }
 
 function renderSentences() {
@@ -401,9 +402,18 @@ async function sweep(unit = 'sentences') {
   const plain = r => r.program === p.key && r.src === p.src && r.packetNote === 'packet from the spec' && r.status === 'done';
   try {
     if (!list.some(r => plain(r) && r.seed === 0)) { $('runSweepState').textContent = 'baseline…'; await execute({}); }
-    if (!list.some(r => plain(r) && r.seed > 0)) { $('runSweepState').textContent = 're-sample…'; await execute({ resample: true }); }
-    // A unit is one sentence, or every sentence under one statement (a whole instruction).
-    const units = unit === 'groups'
+    // Three re-samples: with no real effect a run then exceeds all of them one time in four.
+    while (list.filter(r => plain(r) && r.seed > 0).length < 3) {
+      $('runSweepState').textContent = `re-sample ${list.filter(r => plain(r) && r.seed > 0).length + 1}/3…`;
+      await execute({ resample: true });
+    }
+    // A unit is one sentence, every sentence under one statement (a whole instruction), or one
+    // packet field removed (the rule text first: a positive control that should change a lot).
+    const spec = await specPacket(ruleId);
+    const units = unit === 'fields'
+      ? ['rule', 'permissions', 'definitions', 'examples', 'scope', 'policy'].filter(k => spec[k] !== undefined)
+        .map(k => ({ ids: [], packet: Object.fromEntries(Object.entries(spec).filter(([f]) => f !== k)), without: { text: `packet without ${k}`, label: 'packet', group: true } }))
+      : unit === 'groups'
       ? Object.entries(xs.reduce((g, x) => ((g[x.label] ||= []).push(x), g), {})).map(([label, ys]) => ({ ids: ys.map(y => y.id), without: { text: `all ${ys.length} sentences of ${label}`, label, group: true } }))
       : xs.map(x => ({ ids: [x.id], without: x }));
     let done = 0;
@@ -411,7 +421,7 @@ async function sweep(unit = 'sentences') {
     const worker = async () => {
       while (queue.length) {
         const u = queue.shift();
-        await execute({ src: ablate(p.src, xs, new Set(u.ids)), without: u.without });
+        await execute(u.packet ? { packet: u.packet, without: u.without } : { src: ablate(p.src, xs, new Set(u.ids)), without: u.without });
         $('runSweepState').textContent = `${++done}/${units.length} ${unit}`;
       }
     };
@@ -420,11 +430,12 @@ async function sweep(unit = 'sentences') {
   } finally { sweeping = false; }
 }
 
-async function execute({ resample = false, step = false, src = null, without = null }) {
+async function execute({ resample = false, step = false, src = null, without = null, packet = null }) {
   if (!endpointReady()) { $('endpoint').open = true; $('epBase').focus(); return; }
   const id = ruleId, base = currentProgram();
   const prog = src === null ? base : { ...base, src, edited: true };
-  let p; try { p = JSON.parse($('runPacket').value); } catch (e) { $('runNeed').textContent = 'The packet is not valid JSON.'; return; }
+  let p = packet;
+  if (!p) { try { p = JSON.parse($('runPacket').value); } catch (e) { $('runNeed').textContent = 'The packet is not valid JSON.'; return; } }
   const list = (runs[id] ||= []);
   const samePrior = list.filter(r => r.program === prog.key && r.src === prog.src && r.packetJson === JSON.stringify(p));
   const seed = resample ? Math.max(0, ...samePrior.map(r => r.seed)) + 1 : 0;
@@ -636,7 +647,7 @@ function influence(list, all, resamples) {
   // With k re-samples and no real effect, an ablated run exceeds all k by chance 1 time in k+1.
   const k = resamples.length, chance = k ? Math.round(rows.length / (k + 1)) : null;
   const body = rows.map(({ r, moved, effect, noise, beyond, lenText, lenBeyond }) => `<tr class="${beyond && lenBeyond ? 'beyond' : ''}"><td title="${D.esc(r.without.text)}">${D.esc(r.without.text.length > 110 ? r.without.text.slice(0, 108) + '…' : r.without.text)}</td><td>${D.esc(r.without.label)}</td><td>${moved.map(([l]) => D.esc(l)).join(', ') || '—'}</td><td>${moved.length ? pct(effect) : '0%'}${moved.length && k ? ` <span class="muted">/ ${pct(noise)}</span>` : ''}</td><td>${lenText}${lenBeyond ? ' <b>*</b>' : ''}</td><td>${!k ? 'take a re-sample' : beyond && lenBeyond ? 'wording and length beyond re-samples' : lenBeyond ? 'length beyond re-samples' : beyond ? 'wording beyond re-samples' : moved.length ? 'within re-sample noise' : 'no change'}</td></tr>`).join('');
-  return `<h4 class="run-h">Which instructions matter</h4><p class="sub">${rows.length} sentences or instruction groups switched off one at a time. Wording: <b>${beyond}</b> changed a part more than every re-sample did; length: <b>${lenBeyond}</b>.${k ? ` With ${k} re-sample${k === 1 ? '' : 's'} and no real effects, about <b>${chance}</b> would do so by chance — ${Math.max(beyond, lenBeyond) > 1.5 * chance ? 'more than chance, so some of these instructions matter' : 'so this sweep cannot tell real effects from chance; take more re-samples'}.` : ' Take a re-sample to compare against.'} Text change, not correctness: judge a run to see whether a change helps.</p><div class="run-table-wrap"><table class="run-table influence"><tr><th>sentence switched off</th><th>where</th><th>parts re-written</th><th>wording change <span class="muted">/ re-sample</span></th><th>length</th><th>reading</th></tr>${body}</table></div>`;
+  return `<h4 class="run-h">What changes the output</h4><p class="sub">${rows.length} sentences, instruction groups or packet fields removed one at a time. Wording: <b>${beyond}</b> changed a part more than every re-sample did; length: <b>${lenBeyond}</b>.${k ? ` With ${k} re-sample${k === 1 ? '' : 's'} and no real effects, about <b>${chance}</b> would do so by chance — ${Math.max(beyond, lenBeyond) > 1.5 * chance ? 'more than chance, so some of these instructions matter' : 'so this sweep cannot tell real effects from chance; take more re-samples'}.` : ' Take a re-sample to compare against.'} Text change, not correctness: judge a run to see whether a change helps.</p><div class="run-table-wrap"><table class="run-table influence"><tr><th>sentence switched off</th><th>where</th><th>parts re-written</th><th>wording change <span class="muted">/ re-sample</span></th><th>length</th><th>reading</th></tr>${body}</table></div>`;
 }
 
 function card(r, against, auth) {
