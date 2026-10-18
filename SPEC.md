@@ -505,7 +505,10 @@ when their regions do not overlap — and still contradict each other).
   its keys, so a store never replays a stale definition.
 - **Explicit randomness:** `$draw%(form, n)` evaluates `form` `n` times (0–64) under
   seeds `_seed, _seed+1, …` (from 0 when unset), passing the draw index as `$0`, and
-  restores `_seed` afterwards. Fresh samples are always an explicit request. A normal
+  restores `_seed` afterwards. Fresh samples are always an explicit request. `$medoid%(list)` picks the
+  item whose words agree most with the others' (mean word-sequence similarity: longest
+  common subsequence over the longer length; ties to the earliest), so
+  `$medoid%($draw%({=>prompt}, 8))` is consensus selection over eight samples. A normal
   evaluation owns a run-local cache. Incremental/speculative hosts may retain an
   `EvaluationCache` across edits via `evaluate_with_cache`,
   `evaluate_async_with_cache`, or the cached async step/streaming variants:

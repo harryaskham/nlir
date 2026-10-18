@@ -1829,9 +1829,9 @@ fn access_value(operands: &[Value], sep: &str) -> Result<Value, EvalError> {
 pub const BUILTIN_NAMES: &[&str] = &[
     "access", "and", "ceil", "contains", "dict", "diff", "draw", "elem", "entries", "filter",
     "flat", "floor", "fold", "get", "gt", "has", "if", "inter", "join", "json", "keys", "len",
-    "lines", "lower", "lt", "map", "match", "matches", "mod", "not", "nth", "or", "parse",
-    "replace", "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "type", "union", "upper",
-    "values", "zip",
+    "lines", "lower", "lt", "map", "match", "matches", "medoid", "mod", "not", "nth", "or",
+    "parse", "replace", "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "type", "union",
+    "upper", "values", "zip",
 ];
 
 const PURE_BUILTIN_OPS: &[&str] = &[
@@ -3963,6 +3963,7 @@ fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usi
 pub(crate) const DATA_BUILTINS: &[&str] = &[
     "keys", "values", "get", "join", "json", "parse", "type", "trim", "replace", "match",
     "matches", "sub", "lines", "slice", "has", "flat", "entries", "dict", "lower", "upper", "zip",
+    "medoid",
 ];
 
 /// Parse JSON from model-style text: the whole text, else the span from the first
@@ -4024,6 +4025,35 @@ fn type_name(v: &Value) -> &'static str {
     }
 }
 
+/// Lower-cased words (letters, digits, apostrophes, hyphens) for `$medoid`.
+fn medoid_words(text: &str) -> Vec<String> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '\'' || c == '’' || c == '-'))
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// Longest common subsequence of two word sequences over the longer length (1 for two
+/// empty texts): an order-aware agreement score in [0, 1].
+fn word_sequence_similarity(a: &[String], b: &[String]) -> f64 {
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
+    }
+    let mut prev = vec![0usize; b.len() + 1];
+    for x in a.iter().rev() {
+        let mut cur = vec![0usize; b.len() + 1];
+        for (j, y) in b.iter().enumerate().rev() {
+            cur[j] = if x == y {
+                prev[j + 1] + 1
+            } else {
+                prev[j].max(cur[j + 1])
+            };
+        }
+        prev = cur;
+    }
+    prev[0] as f64 / a.len().max(b.len()) as f64
+}
+
 /// Evaluate one of [`DATA_BUILTINS`] over its evaluated arguments.
 ///
 /// - `$keys%d` → the dict's keys (a list's indices); `$values%d` → its values.
@@ -4039,6 +4069,7 @@ fn type_name(v: &Value) -> &'static str {
 /// - `$match%(s, re)` → first match (or its capture group(s)), `''` when none;
 ///   `$matches%(s, re)` → every match; `$sub%(s, re, repl)` → regex replace-all
 ///   (`$1` / `${name}` refer to groups).
+/// - `$medoid%list` → the item whose words agree most with the others' (consensus).
 fn data_builtin(name: &str, mut args: Vec<Value>, sep: &str) -> Result<Value, EvalError> {
     let want = |n: usize, shape: &str, args: &Vec<Value>| -> Result<(), EvalError> {
         if args.len() == n {
@@ -4249,6 +4280,34 @@ fn data_builtin(name: &str, mut args: Vec<Value>, sep: &str) -> Result<Value, Ev
         "lower" => Ok(Value::string(
             unary_operand(args).render(sep).to_lowercase(),
         )),
+        // Consensus selection: the item whose words agree most with the others' (mean
+        // word-sequence similarity, longest common subsequence over the longer length);
+        // ties go to the earliest. With `$draw` it picks the most typical of n samples:
+        // `$medoid%($draw%({=>prompt}, 8))`.
+        "medoid" => {
+            let items = match unary_operand(args) {
+                Value::List(items) => items,
+                other => vec![other],
+            };
+            if items.is_empty() {
+                return Err(EvalError::Unsupported(
+                    "`$medoid` needs a non-empty list".into(),
+                ));
+            }
+            let words: Vec<Vec<String>> =
+                items.iter().map(|v| medoid_words(&v.render(sep))).collect();
+            let mut best = (0usize, f64::MIN);
+            for i in 0..items.len() {
+                let score: f64 = (0..items.len())
+                    .filter(|&j| j != i)
+                    .map(|j| word_sequence_similarity(&words[i], &words[j]))
+                    .sum();
+                if score > best.1 + 1e-12 {
+                    best = (i, score);
+                }
+            }
+            Ok(items[best.0].clone())
+        }
         "upper" => Ok(Value::string(
             unary_operand(args).render(sep).to_uppercase(),
         )),
@@ -6182,6 +6241,37 @@ operators:
         ) -> crate::realiser::RealiseFuture<'a> {
             Box::pin(async move { Ok(String::new()) })
         }
+    }
+
+    #[test]
+    fn medoid_picks_the_consensus_item() {
+        let run = |expr: &str| {
+            let cfg = config::parse_str(
+                crate::config::EXAMPLE_CONFIG,
+                Path::new("config.example.yaml"),
+            )
+            .expect("config");
+            let mut ctx = Context::empty(&cfg.context);
+            evaluate(expr, &cfg, &mut ctx, Mode::Det).map(|v| v.render(&ctx.sep()))
+        };
+        assert_eq!(
+            run("$medoid%['the cat sat on the mat', 'dogs run fast', 'the cat sat on a mat']")
+                .unwrap(),
+            "the cat sat on the mat",
+            "the item agreeing most with the others, ties to the earliest"
+        );
+        assert_eq!(run("$medoid%['b', 'a']").unwrap(), "b");
+        assert_eq!(run("$medoid%'only'").unwrap(), "only");
+        assert!(run("$medoid%[]").is_err());
+        // Word order matters: the same words in another order agree less.
+        assert_eq!(
+            run("$medoid%['x y z', 'z y x', 'x y z w']").unwrap(),
+            "x y z"
+        );
+        assert!(
+            (word_sequence_similarity(&medoid_words("A b"), &medoid_words("a B")) - 1.0).abs()
+                < 1e-12
+        );
     }
 
     #[test]

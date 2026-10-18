@@ -242,11 +242,13 @@ nlir --cache-file runs/store.jsonl -e "=>'Name a cat for a lighthouse keeper'"  
 nlir --cache-file runs/store.jsonl --replay strict -f program.nlir            # fail on any unrecorded call
 nlir --cache-file runs/store.jsonl --cache-stats -f program.nlir             # stderr: {"replayed":N,"fresh":M}
 nlir -e "\$draw%({=>'Name a cat'}, 3)"                                         # three explicit samples
+nlir -e "\$medoid%(\$draw%({=>'Describe a cat in one sentence'}, 5))"          # the most typical of five
 ```
 
 The store is JSON lines that only grow, shared across runs, evaluations and
 hill-climb rounds; `_seed` is the namespace (a new seed draws fresh samples) and
-`$draw%(form, n)` asks for `n` samples explicitly. `_cache=off` restores the old,
+`$draw%(form, n)` asks for `n` samples explicitly, and `$medoid%(list)` keeps the one
+whose words agree most with the others (consensus selection). `_cache=off` restores the old,
 nondeterministic behaviour. Hosted models do not honour seeds reproducibly, so each
 model declares `seed: exact | best-effort | none` and the store does the work.
 
