@@ -124,3 +124,21 @@ instructions are read against one noise floor (with three re-samples, a run with
 exceeds all of them one time in four). On the private health policy the same design found that
 the rule text, scope and permissions (for NOT MET) matter while definitions, examples and policy
 stay within re-sample noise.
+
+### The selection lottery
+
+Judge three or more samples of one program on the spec packet (after a sweep, or with "New
+sample") and the Run tab adds two tables. "Spread across samples" gives strict F1 per part for an
+average sample, the most typical sample of each part (`$medoid`) and the best one — an upper
+bound that also picks the judge's luck. "Which authored clauses each sample states" lays the
+authored clauses against the samples: clauses that every sample states, clauses that only some
+state, and clauses none state.
+
+On the private health policy, with eight drafts per rule on twenty untouched rules, half of the
+authored clauses the specification determines were stated by every draft, about two in five by
+some drafts and not others, and about one in ten by none; clauses the specification leaves open
+were missed by every draft more often. The program can reach most of what the authors wrote, but
+which implied points a draft states is close to chance. Picking among drafts (the most typical,
+a feature model, a model shown everything the writer saw), merging them by majority, more worked
+examples, and even telling the writer which passages the authors built on all failed to change
+that: the authors choose among the implications of a passage, not among passages.
