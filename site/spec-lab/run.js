@@ -610,7 +610,41 @@ function summary(list, auth) {
   if (noise.length) notes.push(`A fresh sample of the same input changes ${pct(noise.reduce((a, b) => a + b, 0) / noise.length)} of the words.`);
   const most = noise.length ? Math.max(...noise) : null, samples = `${noise.length} re-sample${noise.length === 1 ? '' : 's'}`;
   for (const [r, x] of edits) notes.push(`Run ${r.n} (${D.esc(r.packetNote)}) changes ${pct(x)} of the words against run ${baselineOf(list, r).n}${most === null ? '; take a new sample to see how much change is just noise.' : x > most ? ` — more than any of the ${samples} so far (at most ${pct(most)})${noise.length < 3 ? '; more samples make this firmer' : ''}.` : ` — no more than the ${samples} (up to ${pct(most)}), so this edit cannot be told apart from a re-sample.`}`);
-  return `<div class="run-table-wrap"><table class="run-table"><tr><th>run</th><th>program</th><th>seed</th><th>packet</th><th>words <span class="muted">(authored ${aw})</span></th><th>changed vs seed-0 run</th><th>changed vs authored</th><th title="meaning: authored clauses reproduced, statements supported">strict F1</th><th title="shape: length and sentence count against the authored parts, and no leaks (echoed labels, quote markers, rule codes, headings)">style</th><th title="sqrt(strict F1 × style)">combined</th></tr>${rows}</table></div>${notes.length ? `<p class="sub">${notes.join(' ')}</p>` : ''}${influence(list, all, resamples)}`;
+  return `<div class="run-table-wrap"><table class="run-table"><tr><th>run</th><th>program</th><th>seed</th><th>packet</th><th>words <span class="muted">(authored ${aw})</span></th><th>changed vs seed-0 run</th><th>changed vs authored</th><th title="meaning: authored clauses reproduced, statements supported">strict F1</th><th title="shape: length and sentence count against the authored parts, and no leaks (echoed labels, quote markers, rule codes, headings)">style</th><th title="sqrt(strict F1 × style)">combined</th></tr>${rows}</table></div>${notes.length ? `<p class="sub">${notes.join(' ')}</p>` : ''}${spread(list)}${influence(list, all, resamples)}`;
+}
+
+// Spread across samples: with three or more judged samples of one program on the spec packet,
+// how an average sample, the most typical sample of each part ($medoid: highest mean word
+// agreement with the others) and the best sample of each part score. The best is an upper bound
+// that also picks the judge's luck; re-judging it is the honest measurement.
+function spread(list) {
+  const groups = {};
+  for (const r of list) {
+    if (r.status !== 'done' || r.without || r.judge?.status !== 'done' || r.packetNote !== 'packet from the spec') continue;
+    if (r.src !== programs.find(p => p.key === r.program)?.src) continue;
+    (groups[r.program] ||= []).push(r);
+  }
+  const rows = [];
+  for (const rs of Object.values(groups)) {
+    if (rs.length < 3) continue;
+    const tot = { mean: 0, typical: 0, best: 0 };
+    let n = 0;
+    for (const [label] of rs[0].parts) {
+      const f = rs.map(r => r.judge.parts.find(p => p.label.toUpperCase() === label.toUpperCase())?.f1);
+      if (f.some(x => x === undefined)) continue;
+      const t = rs.map(r => partText(r.parts, label));
+      const agree = i => t.reduce((s, x, j) => (j === i ? s : s + 1 - changed(t[i], x)), 0);
+      let m = 0;
+      for (let i = 1; i < t.length; i++) if (agree(i) > agree(m) + 1e-12) m = i;
+      tot.mean += f.reduce((a, b) => a + b, 0) / f.length;
+      tot.typical += f[m];
+      tot.best += Math.max(...f);
+      n++;
+    }
+    if (n) rows.push(`<tr><td>${D.esc(rs[0].programLabel)}</td><td>${rs.length}</td><td>${(tot.mean / n).toFixed(2)}</td><td>${(tot.typical / n).toFixed(2)}</td><td>${(tot.best / n).toFixed(2)}</td></tr>`);
+  }
+  if (!rows.length) return '';
+  return `<h4 class="run-h">Spread across samples</h4><p class="sub">Strict F1 per part, averaged over parts, for judged samples of the same program on the spec packet. <b>Most typical</b> keeps, for each part, the sample whose words agree most with the others' (nlir's <code>$medoid</code>); <b>best</b> keeps the highest-scoring sample of each part — an upper bound that also picks the judge's luck, since two judgements of the same text differ. In a larger private study the best drafts were clearly better even after re-judging, but nothing that could not see the authored text — consensus, features or a model shown everything the writer saw — could pick them.</p><div class="run-table-wrap"><table class="run-table spread"><tr><th>program</th><th>judged samples</th><th>one sample (mean)</th><th>most typical</th><th>best (upper bound)</th></tr>${rows.join('')}</table></div>`;
 }
 
 // Which instruction sentences matter: for each sentence switched off, the parts whose text

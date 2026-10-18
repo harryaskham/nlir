@@ -134,6 +134,17 @@ async page => {
   await page.waitForFunction(() => /done: \d+ fields/.test(document.querySelector('#runSweepState')?.textContent || ''), null, { timeout: 120000 });
   const infl2 = await page.locator('.run-table.influence').innerText();
   if (!infl2.includes('packet without rule') || !infl2.includes('packet without permissions')) throw new Error('Field sweep rows missing: ' + infl2.slice(0, 300));
+  // Spread across samples: judge three plain re-samples (the sweep made them) and read the table.
+  for (let seed = 1; seed <= 3; seed++) {
+    const card = page.locator('.run-card').filter({ hasText: new RegExp(`seed ${seed} · packet from the spec`) }).first();
+    const btn = card.locator('[data-judge]');
+    if (await btn.count()) {
+      await btn.click();
+      await card.locator('.run-judge .state.ok').waitFor({ timeout: 60000 });
+    }
+  }
+  const spreadText = await page.locator('.run-table.spread').innerText();
+  if (!/judged samples/.test(spreadText) || !/\t[3-9]\t/.test(spreadText)) throw new Error('Spread table missing or under three samples: ' + spreadText);
   // B·clean: learned B plus the clean-up runs in the browser like any program.
   await page.locator('#runProgram').selectOption('B·clean');
   const before = await page.locator('.run-card').count();
@@ -146,5 +157,5 @@ async page => {
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Narrow overflow in Run tab');
   await page.setViewportSize({ width: 1440, height: 1000 });
   if (errors.length) throw new Error(errors.join('\n'));
-  return { ok: true, fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
+  return { ok: true, spread: spreadText.split('\n').slice(-1)[0], fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
 }
