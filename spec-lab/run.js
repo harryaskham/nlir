@@ -28,7 +28,7 @@ const PERTURB = {
   scope: ['Remove scope', p => { delete p.scope; }],
 };
 
-let D, ep, programs = [], splits = null, clauses = null, judgeLib = '', ruleId = null, request = 0;
+let D, ep, programs = [], splits = null, clauses = null, judgeLib = '', ruleId = null, request = 0, recordedGap = null;
 const runs = {}, packetCache = {}, authoredCache = {};
 const $ = id => document.getElementById(id);
 const unmap = v => (v instanceof Map ? Object.fromEntries(v) : v);
@@ -93,7 +93,7 @@ export async function initRun(deps) {
     programs = D.programs; clauses = D.clauses || null; judgeLib = D.judgeLib ? strip(D.judgeLib) : '';
     return;
   }
-  const [a, b, cl, judge, clean] = await Promise.all(['trace-strict-a.json', 'trace-strict-b.json', 'clauses.json', 'judge.nlir', 'program-b-clean.nlir'].map(f =>
+  const [a, b, cl, judge, clean, gapRec] = await Promise.all(['trace-strict-a.json', 'trace-strict-b.json', 'clauses.json', 'judge.nlir', 'program-b-clean.nlir', 'gapfill.json'].map(f =>
     fetch(f).then(r => (r.ok ? (f.endsWith('.json') ? r.json() : r.text()) : null)).catch(() => null)));
   const chosen = t => t.rounds[Math.max(0, t.rounds.map((r, i) => (r.accepted ? i : -1)).filter(i => i >= 0).pop() ?? 0)];
   if (a && b) {
@@ -107,7 +107,7 @@ export async function initRun(deps) {
     if (clean) programs.splice(1, 0, { key: 'B·clean', label: 'B·clean — learned B plus a clean-up of shape leaks', src: clean, examples: b.weights?.examples ?? 2, train: b.train_ids });
     splits = { train: b.train_ids, test: b.test_ids };
   }
-  clauses = cl; judgeLib = judge ? strip(judge) : '';
+  clauses = cl; judgeLib = judge ? strip(judge) : ''; recordedGap = gapRec;
 }
 
 function strip(src) {
@@ -505,7 +505,11 @@ function renderGap() {
     const pts = Object.values(L.author_topics).flat(), adds = Object.values(L.author_additions).flat();
     return `<p class="sub"><b>${title}</b>: ${pts.length} named points (${words(pts)} words) and ${adds.length} additions (${words(adds)} words).</p><div class="run-table-wrap"><table class="run-table gaplists"><tr><th>field</th><th>named points the packet implies</th><th>additions it cannot imply</th></tr>${GAP_FIELDS.map(f => `<tr><td>${D.esc(f)}</td><td>${(L.author_topics[f] || []).map(t => `<div>· ${D.esc(t)}</div>`).join('') || '—'}</td><td>${(L.author_additions[f] || []).map(t => `<div>· ${D.esc(t)}</div>`).join('') || '—'}</td></tr>`).join('')}</table></div>`;
   };
-  box.innerHTML = (g.status === 'running' ? '<p class="muted">Reading the spec and the profile…</p>' : '') + (g.error ? `<p class="err">${D.esc(g.error)}</p>` : '')
+  // A recorded run (no endpoint needed): the lists read from this rule's authored profile and
+  // sample 0 of B·clean told them and trimmed, against B·clean from the spec alone.
+  const rec = recordedGap?.rules?.find(r => r.id === ruleId);
+  const recorded = rec ? `<div class="gap-recorded"><p class="sub"><b>Recorded run</b> (writer Luna, lists and strict judge Sol; ${rec.gapfill.samples} samples): strict F1 <b>${rec.gapfill.f1.toFixed(2)}</b> written from the spec plus the lists, against ${rec.spec.f1.toFixed(2)} from the spec alone. Across the ${recordedGap.summary.rules} rules not used to train program B: ${recordedGap.summary.gapfill.toFixed(3)} against ${recordedGap.summary.spec.toFixed(3)}, higher on ${recordedGap.summary.better}.</p>${g.lists ? '' : show(rec.lists, 'Recorded gap lists from the authored profile')}<details><summary>Recorded gap-filled profile (sample 0, strict F1 ${rec.gapfill.sample0_f1.toFixed(2)})</summary>${Object.entries(rec.gapfill.parts).map(([l, t]) => `<div class="field"><div class="label">${D.esc(l.toLowerCase())}</div><div class="text">${D.esc(t)}</div></div>`).join('')}</details></div>` : '';
+  box.innerHTML = recorded + (g.status === 'running' ? '<p class="muted">Reading the spec and the profile…</p>' : '') + (g.error ? `<p class="err">${D.esc(g.error)}</p>` : '')
     + show(g.lists, 'Gap lists from the authored profile') + (g.round2 ? show(g.round2, `Round trip: lists extracted from run ${g.round2From}`) : '');
   const done = (runs[ruleId] || []).some(r => r.program === 'gapfill' && r.status === 'done' && (r.gapRound || 1) === 1);
   if ($('gapWrite')) $('gapWrite').disabled = !g.lists;
