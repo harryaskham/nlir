@@ -4,7 +4,7 @@
 async page => {
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
-  let calls = 0, judged = 0, lens = 0, lensModels = new Set();
+  let calls = 0, judged = 0, lens = 0, lensModels = new Set(), gapCalls = 0, keepCalls = 0;
   await page.route('https://mock.nlir.test/v1/**', async route => {
     const url = route.request().url();
     if (url.endsWith('/models')) return route.fulfill({ json: { data: [{ id: 'gpt-6-luna' }, { id: 'gpt-6.1-sol' }] } });
@@ -17,6 +17,15 @@ async page => {
     }
     if (prompt.includes('contradicts itself')) { lens++; lensModels.add(body.model); return route.fulfill({ json: { choices: [{ message: { content: '{"tensions": []}' } }] } }); }
     if (prompt.includes('The first <text> is a REFERENCE')) { lens++; lensModels.add(body.model); return route.fulfill({ json: { choices: [{ message: { content: '0.80' } }] } }); }
+    if (prompt.includes('You compare an EVALUATION PROFILE with the SPECIFICATION PACKET')) {
+      gapCalls++;
+      const lists = Object.fromEntries(['applicability', 'decision_boundary', 'MET', 'NOT MET', 'UNCERTAIN'].map(f => [f, { points: [`${f} point one`, `${f} point two`], additions: [`An addition for ${f}.`] }]));
+      return route.fulfill({ json: { choices: [{ message: { content: JSON.stringify(lists) } }] } });
+    }
+    if (prompt.includes('so that it states exactly the authors')) {
+      keepCalls++;
+      return route.fulfill({ json: { choices: [{ message: { content: 'A trimmed statement of the listed points.' } }] } });
+    }
     if (prompt.includes('You compare a CANDIDATE paragraph')) {
       judged++;
       const n = (prompt.split('REFERENCE CLAUSES:\n')[1] || '').split('\n\nCANDIDATE:')[0].split('\n').filter(Boolean).length;
@@ -147,6 +156,18 @@ async page => {
   if (!/judged samples/.test(spreadText) || !/\t[3-9]\t/.test(spreadText)) throw new Error('Spread table missing or under three samples: ' + spreadText);
   const lotteryRows = await page.locator('.run-table.lottery td.lt-cl').count();
   if (lotteryRows < 5) throw new Error('Clause-by-sample table missing: ' + lotteryRows);
+  // Gap-filled specification: extract lists from the authored profile, write from them (trimmed),
+  // then a round trip from the written profile.
+  await page.locator('#runGap > summary').click();
+  await page.locator('#gapExtract').click();
+  await page.waitForFunction(() => document.querySelectorAll('.run-table.gaplists').length === 1, null, { timeout: 60000 });
+  await page.locator('#gapWrite').click();
+  await page.waitForFunction(() => [...document.querySelectorAll('.run-card .run-head')].some(h => /Gap-filled/.test(h.textContent) && !/round 2/.test(h.textContent)) && !document.querySelector('#gapRound').disabled, null, { timeout: 120000 });
+  await page.locator('#gapRound').click();
+  await page.waitForFunction(() => document.querySelectorAll('.run-table.gaplists').length === 2 && [...document.querySelectorAll('.run-card .run-head')].some(h => /Gap-filled, round 2/.test(h.textContent)), null, { timeout: 120000 });
+  const gapCards = await page.locator('.run-card .run-head', { hasText: 'Gap-filled' }).count();
+  const gapFailed = await page.locator('.run-card.failed .run-head', { hasText: 'Gap-filled' }).count();
+  if (gapCalls !== 2 || keepCalls < 5 || gapCards < 2 || gapFailed) throw new Error(`Gap-filled flow: gapCalls=${gapCalls} keepCalls=${keepCalls} cards=${gapCards} failed=${gapFailed}`);
   // B·clean: learned B plus the clean-up runs in the browser like any program.
   await page.locator('#runProgram').selectOption('B·clean');
   const before = await page.locator('.run-card').count();
@@ -159,5 +180,5 @@ async page => {
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Narrow overflow in Run tab');
   await page.setViewportSize({ width: 1440, height: 1000 });
   if (errors.length) throw new Error(errors.join('\n'));
-  return { ok: true, lotteryRows, spread: spreadText.split('\n').slice(-1)[0], fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
+  return { ok: true, gapCalls, keepCalls, lotteryRows, spread: spreadText.split('\n').slice(-1)[0], fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
 }

@@ -247,6 +247,11 @@ export async function showRun(id) {
           <div class="run-actions"><button class="ghost" id="runSweep" title="Switch each sentence off in turn">Sweep sentences</button><button class="ghost" id="runSweepGroups" title="Switch each statement's whole instruction off in turn">Sweep groups</button><button class="ghost" id="runSweepFields" title="Remove each packet field in turn (the rule text first, as a positive control)">Sweep packet fields</button><button class="ghost" id="runSentencesReset">All on</button><span class="muted" id="runSweepState"></span></div>
         </details>
         <details class="run-graph"><summary>Program graph</summary><div id="runGraph" class="graph"></div></details>
+        <details class="run-gap" id="runGap"><summary>Gap-filled specification <span class="muted" id="runGapState"></span></summary>
+          <p class="muted">Backward: the judge model reads this rule's spec packet and its authored profile and lists, per field, the points the profile makes that the packet implies (named, not stated) and the requirements it states that the packet does not imply (additions). Forward: B·clean, given the packet plus those lists, writes each part and then keeps only what states a listed point or addition. Round trip: extract the lists again from that written profile and write once more. On a private health policy this closed most of the gap between a spec and its authors' profiles, and the round trip reproduced a profile as closely as re-running its spec.</p>
+          <div class="run-actions"><button class="ghost" id="gapExtract">Extract gap lists</button><button class="ghost" id="gapWrite" disabled>Write from the lists</button><button class="ghost" id="gapRound" disabled>Round trip</button></div>
+          <div id="gapLists"></div>
+        </details>
         <label class="run-label" for="runPacket">Packet <code>$p</code> <span class="muted" id="runPacketState">from the spec</span></label>
         <div class="run-perturb">${Object.entries(PERTURB).map(([k, [t]]) => `<button class="ghost" data-perturb="${k}" ${packet[k] === undefined ? 'disabled' : ''}>${t}</button>`).join('')}<button class="ghost" id="runPacketReset">Reset packet</button></div>
         <textarea id="runPacket" spellcheck="false"></textarea>
@@ -363,6 +368,10 @@ function wirePane(packet) {
   $('runSweep').onclick = () => sweep('sentences');
   $('runSweepGroups').onclick = () => sweep('groups');
   $('runSweepFields').onclick = () => sweep('fields');
+  $('gapExtract').onclick = () => gapExtract();
+  $('gapWrite').onclick = () => gapWrite();
+  $('gapRound').onclick = () => gapRoundTrip();
+  renderGap();
 }
 
 function renderSentences() {
@@ -430,10 +439,84 @@ async function sweep(unit = 'sentences') {
   } finally { sweeping = false; }
 }
 
-async function execute({ resample = false, step = false, src = null, without = null, packet = null }) {
+// ---- gap-filled specification: backward lists, forward write + trim, round trip ----------
+const GAP_FIELDS = ['applicability', 'decision_boundary', 'MET', 'NOT MET', 'UNCERTAIN'];
+const gapState = {};
+const GAPS_EXPR = '$json%($parse%(=>("You compare an EVALUATION PROFILE with the SPECIFICATION PACKET it was written for.\\n\\nFor each field of the profile (applicability, decision_boundary, MET, NOT MET, UNCERTAIN), sort every point the field makes into exactly one of two lists:\\n- points: the packet implies it (its rule, scope, permissions, definitions or examples support it, even if not in these words). Name each in at most six words, as a noun phrase naming the consideration, not the requirement, verdict or threshold.\\n- additions: the packet does not imply it (an authoring convention, or a threshold, case or distinction the packet leaves undecided). Restate each as one short requirement sentence in the packet\'s register.\\n\\nReply with JSON only: {\\"applicability\\": {\\"points\\": [], \\"additions\\": []}, \\"decision_boundary\\": {...}, \\"MET\\": {...}, \\"NOT MET\\": {...}, \\"UNCERTAIN\\": {...}}\\n\\nSPECIFICATION PACKET:\\n" ++ $json%$p ++ "\\n\\nPROFILE:\\n" ++ $json%$profile)))';
+
+// B·clean, told the lists, then a list-guided trim of each part (named keep_listed: `trim`
+// would shadow the $trim builtin the clean-up uses). An empty list leaves the draft unchanged.
+function gapProgram() {
+  const clean = programs.find(p => p.key === 'B·clean') || programs[0];
+  const intro = "If the packet has an author_topics entry for the requested field (keyed applicability, decision_boundary, MET, NOT MET or UNCERTAIN), those name the points the authors' profile makes for that field: state what this packet requires for each named point, at its strength and with its qualifiers, and add no other points. If it has an author_additions entry for the field, state each of those requirements too.\n\n";
+  let src = clean.src.replace('context="', 'context="' + intro).replace(/^parts=\[/m, 'drafts=[');
+  const end = src.indexOf('\n];', src.indexOf('drafts=[')) + 3;
+  const keep = `\n\nkeep_listed={$if%($gt%($len%($get%($p.author_topics, $0, [])) + $len%($get%($p.author_additions, $0, [])), 0), =>("You edit one field of an EVALUATION PROFILE so that it states exactly the authors' points and nothing else.\\n\\nNAMED POINTS:\\n- " ++ $join%($get%($p.author_topics, $0, []), "\\n- ") ++ "\\n\\nADDITIONS:\\n- " ++ $join%($get%($p.author_additions, $0, []), "\\n- ") ++ "\\n\\nDRAFT:\\n" ++ $1 ++ "\\n\\nRewrite the DRAFT keeping only what states a named point or an addition; delete everything else; keep its wording; add nothing. Return only the field's prose."), $1)};\nparts=[${GAP_FIELDS.map((f, i) => `$keep_listed%('${f}', $drafts.${i})`).join(', ')}];`;
+  src = src.slice(0, end) + keep + src.slice(end);
+  return { key: 'gapfill', label: 'Gap-filled — B·clean told the gap lists, then trimmed', src, examples: clean.examples, train: clean.train };
+}
+
+async function gapExtract(fromRun = null) {
+  if (!endpointReady()) { $('endpoint').open = true; return null; }
+  const g = gapState[ruleId] ||= {};
+  g.status = 'running'; g.error = null; g.calls = []; renderGap();
+  const packet = await specPacket(ruleId);
+  const profile = fromRun ? (D.fieldsOf ? await D.fieldsOf(fromRun.md) : await D.runJson('$fields%$md', { md: fromRun.md })) : (await authored(ruleId)).fields;
+  const log = entry => { if (!g.calls.includes(entry)) g.calls.push(entry); };
+  try {
+    const r = D.norm(await D.nlir.evaluate(GAPS_EXPR, D.cfgJson, JSON.stringify({ p: packet, profile, _seed: 0 }), 'llm', realiser(ep.judge, log)));
+    if (!r.ok) throw new Error(r.error);
+    const raw = JSON.parse(r.result);
+    const lists = { author_topics: {}, author_additions: {} };
+    for (const f of GAP_FIELDS) {
+      lists.author_topics[f] = (raw[f]?.points || []).map(String).filter(Boolean);
+      lists.author_additions[f] = (raw[f]?.additions || []).map(String).filter(Boolean);
+    }
+    g.status = 'done';
+    if (fromRun) { g.round2 = lists; g.round2From = fromRun.n; } else { g.lists = lists; }
+    renderGap();
+    return lists;
+  } catch (e) { g.status = 'failed'; g.error = String(e.message || e); renderGap(); return null; }
+}
+
+async function gapWrite(lists = null, gapRound = 1) {
+  const g = gapState[ruleId] || {};
+  const L = lists || g.lists;
+  if (!L) return;
+  const packet = { ...(await specPacket(ruleId)), ...L };
+  await execute({ packet, program: { ...gapProgram(), gapRound, label: gapRound > 1 ? 'Gap-filled, round 2 — lists extracted from the written profile' : gapProgram().label } });
+  renderGap();
+}
+
+async function gapRoundTrip() {
+  const last = (runs[ruleId] || []).filter(r => r.program === 'gapfill' && r.status === 'done' && (r.gapRound || 1) === 1).at(-1);
+  if (!last) return;
+  const L = await gapExtract(last);
+  if (L) await gapWrite(L, 2);
+}
+
+function renderGap() {
+  const box = $('gapLists');
+  if (!box) return;
+  const g = gapState[ruleId] || {};
+  const words = xs => xs.reduce((n, t) => n + t.split(/\s+/).filter(Boolean).length, 0);
+  const show = (L, title) => {
+    if (!L) return '';
+    const pts = Object.values(L.author_topics).flat(), adds = Object.values(L.author_additions).flat();
+    return `<p class="sub"><b>${title}</b>: ${pts.length} named points (${words(pts)} words) and ${adds.length} additions (${words(adds)} words).</p><div class="run-table-wrap"><table class="run-table gaplists"><tr><th>field</th><th>named points the packet implies</th><th>additions it cannot imply</th></tr>${GAP_FIELDS.map(f => `<tr><td>${D.esc(f)}</td><td>${(L.author_topics[f] || []).map(t => `<div>· ${D.esc(t)}</div>`).join('') || '—'}</td><td>${(L.author_additions[f] || []).map(t => `<div>· ${D.esc(t)}</div>`).join('') || '—'}</td></tr>`).join('')}</table></div>`;
+  };
+  box.innerHTML = (g.status === 'running' ? '<p class="muted">Reading the spec and the profile…</p>' : '') + (g.error ? `<p class="err">${D.esc(g.error)}</p>` : '')
+    + show(g.lists, 'Gap lists from the authored profile') + (g.round2 ? show(g.round2, `Round trip: lists extracted from run ${g.round2From}`) : '');
+  const done = (runs[ruleId] || []).some(r => r.program === 'gapfill' && r.status === 'done' && (r.gapRound || 1) === 1);
+  if ($('gapWrite')) $('gapWrite').disabled = !g.lists;
+  if ($('gapRound')) $('gapRound').disabled = !done;
+  if ($('runGapState')) $('runGapState').textContent = g.lists ? `${Object.values(g.lists.author_topics).flat().length} points · ${Object.values(g.lists.author_additions).flat().length} additions` : '';
+}
+
+async function execute({ resample = false, step = false, src = null, without = null, packet = null, program = null }) {
   if (!endpointReady()) { $('endpoint').open = true; $('epBase').focus(); return; }
   const id = ruleId, base = currentProgram();
-  const prog = src === null ? base : { ...base, src, edited: true };
+  const prog = program || (src === null ? base : { ...base, src, edited: true });
   let p = packet;
   if (!p) { try { p = JSON.parse($('runPacket').value); } catch (e) { $('runNeed').textContent = 'The packet is not valid JSON.'; return; } }
   const list = (runs[id] ||= []);
@@ -441,7 +524,7 @@ async function execute({ resample = false, step = false, src = null, without = n
   const seed = resample ? Math.max(0, ...samePrior.map(r => r.seed)) + 1 : 0;
   const change = packetChange(p, await specPacket(id));
   const run = {
-    n: list.length + 1, id, program: prog.key, programLabel: prog.label.split(' — ')[0] + (without ? ' minus one sentence' : prog.edited ? ' (edited)' : ''), src: prog.src, without,
+    n: list.length + 1, id, program: prog.key, programLabel: prog.label.split(' — ')[0] + (without ? ' minus one sentence' : prog.edited ? ' (edited)' : ''), src: prog.src, without, gapRound: prog.gapRound,
     seed, packetJson: JSON.stringify(p), packetNote: change.length ? change.join(', ') : 'packet from the spec',
     writer: ep.writer, calls: [], steps: [], status: 'running', t0: performance.now(),
   };
