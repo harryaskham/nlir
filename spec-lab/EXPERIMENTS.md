@@ -142,3 +142,20 @@ which implied points a draft states is close to chance. Picking among drafts (th
 a feature model, a model shown everything the writer saw), merging them by majority, more worked
 examples, and even telling the writer which passages the authors built on all failed to change
 that: the authors choose among the implications of a passage, not among passages.
+
+### Gap-filled specifications
+
+The Run tab's "Gap-filled specification" panel is the method the private study ended with, on the
+invented toy spec. **Extract gap lists** has the judge model read the rule's spec packet and its
+authored profile and list, per field, the points the profile makes that the packet implies (named,
+not stated) and the requirements it states that the packet does not imply (additions). **Write from
+the lists** runs B·clean on the packet plus those lists and then keeps, in each part, only what
+states a listed point or addition. **Round trip** extracts the lists again from that written
+profile and writes once more. Judge the runs to compare them with the authored profile and with
+B·clean from the spec alone.
+
+On the private health policy, profiles written this way scored 0.581 strict F1 against the
+authors' on twenty untouched rules, against 0.386 from the spec alone, at about the authors'
+length; the round trip reproduced a written profile as closely as re-running its spec did; and an
+independent judge gave the same gain. Lists proposed by a model without the authored profile did
+not: the additions — the decisions a spec leaves open — have to come from its authors.
