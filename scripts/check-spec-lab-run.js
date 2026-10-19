@@ -4,7 +4,7 @@
 async page => {
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
-  let calls = 0, judged = 0, lens = 0, lensModels = new Set(), gapCalls = 0, keepCalls = 0;
+  let calls = 0, judged = 0, lens = 0, lensModels = new Set(), gapCalls = 0, keepCalls = 0, coverCalls = 0;
   await page.route('https://mock.nlir.test/v1/**', async route => {
     const url = route.request().url();
     if (url.endsWith('/models')) return route.fulfill({ json: { data: [{ id: 'gpt-6-luna' }, { id: 'gpt-6.1-sol' }] } });
@@ -22,9 +22,14 @@ async page => {
       const lists = Object.fromEntries(['applicability', 'decision_boundary', 'MET', 'NOT MET', 'UNCERTAIN'].map(f => [f, { points: [`${f} point one`, `${f} point two`], additions: [`An addition for ${f}.`] }]));
       return route.fulfill({ json: { choices: [{ message: { content: JSON.stringify(lists) } }] } });
     }
+    if (prompt.includes('You check a draft EVALUATION PROFILE against the lists')) {
+      coverCalls++;
+      const cover = Object.fromEntries(['applicability', 'decision_boundary', 'MET', 'NOT MET', 'UNCERTAIN'].map(f => [f, { stated: coverCalls === 2 ? [0, 1, 2] : [0], partly: [], other: 0 }]));
+      return route.fulfill({ json: { choices: [{ message: { content: JSON.stringify(cover) } }] } });
+    }
     if (prompt.includes('so that it states exactly the authors')) {
       keepCalls++;
-      return route.fulfill({ json: { choices: [{ message: { content: 'A trimmed statement of the listed points.' } }] } });
+      return route.fulfill({ json: { choices: [{ message: { content: `A trimmed statement of the listed points (${keepCalls}).` } }] } });
     }
     if (prompt.includes('You compare a CANDIDATE paragraph')) {
       judged++;
@@ -168,6 +173,15 @@ async page => {
   await page.waitForFunction(() => [...document.querySelectorAll('.run-card .run-head')].some(h => /Gap-filled/.test(h.textContent) && !/round 2/.test(h.textContent)) && !document.querySelector('#gapRound').disabled, null, { timeout: 120000 });
   await page.locator('#gapRound').click();
   await page.waitForFunction(() => document.querySelectorAll('#gapLists > .run-table-wrap .run-table.gaplists').length === 2 && [...document.querySelectorAll('.run-card .run-head')].some(h => /Gap-filled, round 2/.test(h.textContent)), null, { timeout: 120000 });
+  // Pick by the lists: three drafts, three coverage checks, one picked run (the mock's second draft covers most).
+  await page.locator('#gapPick').click();
+  await page.waitForFunction(() => [...document.querySelectorAll('.run-card .run-head')].some(h => /Picked by the lists/.test(h.textContent)), null, { timeout: 180000 });
+  const pickedCards = await page.locator('.run-card .run-head', { hasText: 'Picked by the lists' }).count();
+  const pickedFailed = await page.locator('.run-card.failed .run-head', { hasText: 'Picked by the lists' }).count();
+  const pickNote = await page.locator('#gapLists').innerText();
+  const from = (pickNote.match(/Picked by the lists from runs (\d+), (\d+), (\d+)/) || []).slice(1);
+  const allFromSecond = from.length === 3 && (pickNote.match(new RegExp(`from run ${from[1]}\\b`, 'g')) || []).length === 5;
+  if (coverCalls !== 3 || pickedCards !== 1 || pickedFailed || !allFromSecond) throw new Error(`Pick flow: cover=${coverCalls} cards=${pickedCards} failed=${pickedFailed} from=${from} note=${pickNote.slice(-240)}`);
   const gapCards = await page.locator('.run-card .run-head', { hasText: 'Gap-filled' }).count();
   const gapFailed = await page.locator('.run-card.failed .run-head', { hasText: 'Gap-filled' }).count();
   if (gapCalls !== 2 || keepCalls < 5 || gapCards < 2 || gapFailed || recordedRun !== 1 || !recordedTrip || !recordedPick) throw new Error(`Gap-filled flow: gapCalls=${gapCalls} keepCalls=${keepCalls} cards=${gapCards} failed=${gapFailed} recorded=${recordedRun} trip=${recordedTrip}`);
@@ -183,5 +197,5 @@ async page => {
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Narrow overflow in Run tab');
   await page.setViewportSize({ width: 1440, height: 1000 });
   if (errors.length) throw new Error(errors.join('\n'));
-  return { ok: true, recordedRun, gapCalls, keepCalls, lotteryRows, spread: spreadText.split('\n').slice(-1)[0], fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
+  return { ok: true, recordedRun, coverCalls, gapCalls, keepCalls, lotteryRows, spread: spreadText.split('\n').slice(-1)[0], fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
 }

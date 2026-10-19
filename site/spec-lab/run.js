@@ -249,7 +249,7 @@ export async function showRun(id) {
         <details class="run-graph"><summary>Program graph</summary><div id="runGraph" class="graph"></div></details>
         <details class="run-gap" id="runGap"><summary>Gap-filled specification <span class="muted" id="runGapState"></span></summary>
           <p class="muted">Backward: the judge model reads this rule's spec packet and its authored profile and lists, per field, the points the profile makes that the packet implies (named, not stated) and the requirements it states that the packet does not imply (additions). Forward: B·clean, given the packet plus those lists, writes each part and then keeps only what states a listed point or addition. Round trip: extract the lists again from that written profile and write once more. On a private health policy this closed most of the gap between a spec and its authors' profiles, and the round trip reproduced a profile as closely as re-running its spec.</p>
-          <div class="run-actions"><button class="ghost" id="gapExtract">Extract gap lists</button><button class="ghost" id="gapWrite" disabled>Write from the lists</button><button class="ghost" id="gapRound" disabled>Round trip</button></div>
+          <div class="run-actions"><button class="ghost" id="gapExtract">Extract gap lists</button><button class="ghost" id="gapWrite" disabled>Write from the lists</button><button class="ghost" id="gapRound" disabled>Round trip</button><button class="ghost" id="gapPick" disabled title="Write three drafts from the lists and keep each part from the draft that states the most listed items">Write 3 and pick</button></div>
           <div id="gapLists"></div>
         </details>
         <label class="run-label" for="runPacket">Packet <code>$p</code> <span class="muted" id="runPacketState">from the spec</span></label>
@@ -370,6 +370,7 @@ function wirePane(packet) {
   $('runSweepFields').onclick = () => sweep('fields');
   $('gapExtract').onclick = () => gapExtract();
   $('gapWrite').onclick = () => gapWrite();
+  $('gapPick').onclick = () => gapPick();
   $('gapRound').onclick = () => gapRoundTrip();
   renderGap();
 }
@@ -441,6 +442,15 @@ async function sweep(unit = 'sentences') {
 
 // ---- gap-filled specification: backward lists, forward write + trim, round trip ----------
 const GAP_FIELDS = ['applicability', 'decision_boundary', 'MET', 'NOT MET', 'UNCERTAIN'];
+// Pick by the lists: which listed items each part of a draft states. The judge reads the lists and the
+// draft only, never the authored profile; per part the picked draft maximises coverage - 0.05 x other clauses.
+const LISTCOVER_EXPR = '$json%($parse%(=>("You check a draft EVALUATION PROFILE against the lists its authors gave for each field. For each field, number the listed items from 0: first the points, then the additions. An item is stated when the draft states that requirement faithfully, at its strength and with its qualifiers; partly when it is stated with a qualifier lost, weakened or overstated; otherwise missing. Then count the draft field\'s other clauses: separate requirements or claims it makes that state none of the listed items.\\n\\nReply with JSON only: {\\"applicability\\": {\\"stated\\": [indices], \\"partly\\": [indices], \\"other\\": n}, \\"decision_boundary\\": {...}, \\"MET\\": {...}, \\"NOT MET\\": {...}, \\"UNCERTAIN\\": {...}}\\n\\nLISTS:\\n" ++ $json%$lists ++ "\\n\\nDRAFT:\\n" ++ $json%$draft)))';
+const fieldOf = label => (/^applicability$/i.test(label) ? 'applicability' : /^decision boundary$/i.test(label) ? 'decision_boundary' : label.toUpperCase());
+function coverScore(c, n) {
+  const stated = new Set((c?.stated || []).filter(i => i >= 0 && i < n)), partly = new Set((c?.partly || []).filter(i => i >= 0 && i < n && !stated.has(i)));
+  const other = Number(c?.other || 0);
+  return n ? (stated.size + 0.5 * partly.size) / n - 0.05 * other : -other;
+}
 const gapState = {};
 const GAPS_EXPR = '$json%($parse%(=>("You compare an EVALUATION PROFILE with the SPECIFICATION PACKET it was written for.\\n\\nFor each field of the profile (applicability, decision_boundary, MET, NOT MET, UNCERTAIN), sort every point the field makes into exactly one of two lists:\\n- points: the packet implies it (its rule, scope, permissions, definitions or examples support it, even if not in these words). Name each in at most six words, as a noun phrase naming the consideration, not the requirement, verdict or threshold.\\n- additions: the packet does not imply it (an authoring convention, or a threshold, case or distinction the packet leaves undecided). Restate each as one short requirement sentence in the packet\'s register.\\n\\nReply with JSON only: {\\"applicability\\": {\\"points\\": [], \\"additions\\": []}, \\"decision_boundary\\": {...}, \\"MET\\": {...}, \\"NOT MET\\": {...}, \\"UNCERTAIN\\": {...}}\\n\\nSPECIFICATION PACKET:\\n" ++ $json%$p ++ "\\n\\nPROFILE:\\n" ++ $json%$profile)))';
 
@@ -488,6 +498,50 @@ async function gapWrite(lists = null, gapRound = 1) {
   renderGap();
 }
 
+// Write three gap-filled drafts, ask the judge model which listed items each part states, and keep each
+// part from the draft that covers the lists best: a new run, judged like any other.
+async function gapPick() {
+  const g = gapState[ruleId] ||= {};
+  const L = g.lists;
+  if (!L || !endpointReady()) return;
+  const packet = { ...(await specPacket(ruleId)), ...L };
+  const prog = gapProgram();
+  g.pick = { status: 'writing', calls: [] }; renderGap();
+  for (let i = 0; i < 3; i++) await execute({ packet, program: prog, resample: i > 0 });
+  const drafts = (runs[ruleId] || []).filter(r => r.program === 'gapfill' && r.status === 'done' && r.packetJson === JSON.stringify(packet) && (r.gapRound || 1) === 1).slice(-3);
+  if (drafts.length < 2) { g.pick = { status: 'failed', error: 'fewer than two drafts finished' }; renderGap(); return; }
+  g.pick.status = 'checking'; renderGap();
+  const lists = Object.fromEntries(GAP_FIELDS.map(f => [f, { points: L.author_topics[f] || [], additions: L.author_additions[f] || [] }]));
+  const log = entry => { if (!g.pick.calls.includes(entry)) g.pick.calls.push(entry); };
+  try {
+    const covers = [];
+    for (const d of drafts) {
+      const draft = Object.fromEntries(d.parts.map(([l, x]) => [fieldOf(l), x]));
+      const r = D.norm(await D.nlir.evaluate(LISTCOVER_EXPR, D.cfgJson, JSON.stringify({ lists, draft, _seed: 0 }), 'llm', realiser(ep.judge, log)));
+      if (!r.ok) throw new Error(r.error);
+      covers.push(JSON.parse(r.result));
+    }
+    const labels = drafts[0].parts.map(([l]) => l);
+    const choice = {}, parts = [];
+    for (const l of labels) {
+      const f = fieldOf(l), n = lists[f] ? lists[f].points.length + lists[f].additions.length : 0;
+      const scores = drafts.map((d, k) => (d.parts.some(([x]) => x === l) ? coverScore(covers[k][f], n) : -Infinity));
+      const k = scores.indexOf(Math.max(...scores));
+      choice[l] = drafts[k].n;
+      parts.push([l, drafts[k].parts.find(([x]) => x === l)[1]]);
+    }
+    const q = s => s.split('\n').map(x => '> ' + x).join('\n');
+    const [app, ...db] = parts;
+    const md = '#### `applicability`\n\n' + q(app[1]) + '\n\n#### `decision_boundary`\n\n' + db.map(([l, x]) => q(l + ':\n' + x)).join('\n\n');
+    const list = runs[ruleId];
+    list.push({ n: list.length + 1, id: ruleId, program: 'gapfill-picked', programLabel: 'Picked by the lists', src: prog.src, seed: 0,
+      packetJson: JSON.stringify(packet), packetNote: 'each part from ' + labels.map(l => `${l.toLowerCase()}: run ${choice[l]}`).join(', '),
+      writer: ep.judge, calls: g.pick.calls, steps: [], status: 'done', md, parts: D.mdParts(md), secs: 0 });
+    g.pick = { status: 'done', choice, from: drafts.map(d => d.n), calls: g.pick.calls };
+  } catch (e) { g.pick = { status: 'failed', error: String(e.message || e), calls: g.pick.calls }; }
+  renderRuns(); renderGap();
+}
+
 async function gapRoundTrip() {
   const last = (runs[ruleId] || []).filter(r => r.program === 'gapfill' && r.status === 'done' && (r.gapRound || 1) === 1).at(-1);
   if (!last) return;
@@ -513,6 +567,8 @@ function renderGap() {
     + show(g.lists, 'Gap lists from the authored profile') + (g.round2 ? show(g.round2, `Round trip: lists extracted from run ${g.round2From}`) : '');
   const done = (runs[ruleId] || []).some(r => r.program === 'gapfill' && r.status === 'done' && (r.gapRound || 1) === 1);
   if ($('gapWrite')) $('gapWrite').disabled = !g.lists;
+  if ($('gapPick')) $('gapPick').disabled = !g.lists || ['writing', 'checking'].includes(g.pick?.status);
+  if (g.pick) box.insertAdjacentHTML('beforeend', `<p class="sub">${g.pick.status === 'writing' ? 'Pick by the lists: writing three drafts…' : g.pick.status === 'checking' ? 'Pick by the lists: checking which listed items each draft states…' : g.pick.status === 'done' ? `Picked by the lists from runs ${g.pick.from.join(', ')}: ${Object.entries(g.pick.choice).map(([l, n]) => `${D.esc(l.toLowerCase())} from run ${n}`).join(', ')} — judge it like any run.` : `<span class="err">Pick by the lists failed: ${D.esc(g.pick.error || '')}</span>`}</p>`);
   if ($('gapRound')) $('gapRound').disabled = !done;
   if ($('runGapState')) $('runGapState').textContent = g.lists ? `${Object.values(g.lists.author_topics).flat().length} points · ${Object.values(g.lists.author_additions).flat().length} additions` : '';
 }
