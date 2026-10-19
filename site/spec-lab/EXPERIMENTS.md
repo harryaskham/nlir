@@ -167,3 +167,10 @@ the spec plus the lists and trimmed score 0.504 strict F1 against the authored p
 rises by 0.097 [+0.036, +0.165], with a small cost in shape on these very short profiles. The panel
 shows this recorded run for each of those rules without an endpoint: the lists and the gap-filled
 profile.
+
+Two checks on that result. An independent judge (Opus, re-judging two samples of both arms with the
+same judge and clauses) agrees: 0.434 against 0.572, +0.139 [+0.047, +0.223], higher on 7 of 8 rules,
+per-profile correlation with Sol 0.83. And it round-trips: against each gap-filled profile's own
+clauses, lists read back from it and written again score 0.638, the same spec and lists re-sampled
+0.613 (+0.025 [−0.034, +0.104], within the noise), and the spec alone 0.305. The panel shows the
+round trip for each rule.

@@ -53,6 +53,10 @@ def check_gapfill(name='gapfill.json'):
         m=statistics.fmean(r[k]['f1'] for r in rules)
         assert abs(m-doc['summary'][k])<1e-9, f'gapfill.json: {k} summary {doc["summary"][k]} != {m}'
     assert doc['summary']['better']==sum(r['gapfill']['f1']>r['spec']['f1'] for r in rules), 'gapfill.json: better count'
+    if 'roundtrip' in doc['summary']:
+        for k in ('floor','trip','spec'):
+            m=statistics.fmean(r['roundtrip'][k] for r in rules)
+            assert abs(m-doc['summary']['roundtrip'][k])<1e-9, f'gapfill.json: round-trip {k} summary'
     text=(ROOT/name).read_text()
     for bad in ('ts.net','helsinki','sk-','Bearer ','HI V'):
         assert bad not in text, f'gapfill.json: forbidden string {bad!r}'

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Export the gap-filled method's recorded run on the invented code-review spec for the spec lab.
 
-Usage: export-toy-gapfill.py TOY_GAPFILL_DIR GAP_LISTS_JSON DATASET12_JSON OUT_JSON
+Usage: export-toy-gapfill.py TOY_GAPFILL_DIR GAP_LISTS_JSON DATASET12_JSON OUT_JSON [ROUNDTRIP_SUMMARY_JSON]
 
 TOY_GAPFILL_DIR holds the evaluation runs (spec-{val,test}, gapfill-{val,test}) of toy B·clean from
 the spec alone and of B·clean told the extracted gap lists and trimmed, judged by the strict judge;
 GAP_LISTS_JSON the lists read from each toy rule's authored profile. Exports, per rule, the lists,
 sample 0 of both arms (parts and strict F1) and per-rule mean strict F1 over the samples, plus the
-pooled summary. Invented toy data only: refuses any rule outside `CR V`.
+pooled summary. ROUNDTRIP_SUMMARY_JSON, if given, adds the round trip: lists read back from sample 0
+and rewritten, and the floor (the same spec and lists re-sampled), each judged against sample 0's
+own clauses. Invented toy data only: refuses any rule outside `CR V`.
 """
 import glob
 import json
@@ -43,6 +45,7 @@ def load(run_dir):
 
 def main():
     run_root, lists_path, dataset_path, out_path = map(Path, sys.argv[1:5])
+    rt = json.loads(Path(sys.argv[5]).read_text()) if len(sys.argv) > 5 else None
     lists = json.loads(lists_path.read_text())
     if any(not r.startswith('CR V') for r in lists):
         raise SystemExit('refusing non-toy lists')
@@ -56,10 +59,18 @@ def main():
             s0 = next(r for r in mine if r['sample'] == 0)
             row[k] = {'f1': statistics.fmean(f1(r) for r in mine), 'samples': len(mine), 'sample0_f1': f1(s0),
                       'parts': {l: part_text(s0['fields'], l) for l in PARTS}}
+        if rt:
+            per = rt['per_rule']
+            row['roundtrip'] = {'floor': per['floor'][rid], 'trip': statistics.fmean([per['round trip 0'][rid], per['round trip 1'][rid]]),
+                                'spec': per['original spec'][rid]}
         rules.append(row)
     summary = {k: statistics.fmean(r[k]['f1'] for r in rules) for k in arms}
     doc = {'method': __doc__.split('\n\n')[1].replace('\n', ' '), 'models': {'writer': 'gpt-6-luna', 'judge and lists': 'gpt-6.1-sol'},
            'summary': summary | {'rules': len(rules), 'better': sum(r['gapfill']['f1'] > r['spec']['f1'] for r in rules)}, 'rules': rules}
+    if rt:
+        d = rt['round_trip_minus_floor']
+        doc['summary']['roundtrip'] = {k: statistics.fmean(r['roundtrip'][k] for r in rules) for k in ('floor', 'trip', 'spec')} | {
+            'diff': d['mean'], 'lower': d['lower'], 'upper': d['upper']}
     out_path.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + '\n')
     print(json.dumps(doc['summary']))
 
