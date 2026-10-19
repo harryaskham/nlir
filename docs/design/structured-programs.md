@@ -136,6 +136,12 @@ policy's recurring ideas (individualised versus general information, directly ap
 presentation acuity, existing clinician guidance). An independent judge agreed that two members of one concept name
 the same consideration for 28/40 sampled pairs and for 1/40 pairs from different concepts: real, specific, somewhat over-merged.
 
+**Refined.** Checking every member against its concept's definition separates two relations: a node that
+states the concept itself, and a compound node that contains it as one part ("referral or safety netting").
+Kept that way, 82 concepts cover 214 of 325 nodes — 177 as exact members — and the judge's agreement on
+exact-member pairs rises to 35/40 (5/40 for controls). Component membership is what an edit needs: the
+safety-netting edit below reached one exact member and four compound ones, rewriting only that part of each.
+
 **As style:** giving the writer, for each of a rule's shared concepts, how training rules' authored profiles phrase it
 did not help on the validation rules (strict F1 −0.018 against the concept layer, −0.039 against B·clean; not carried).
 
