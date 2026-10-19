@@ -372,6 +372,32 @@
     toHash();
   }
 
+  // Shared concepts across rules (when the data has a library): concepts by how many rules use them, members, and a
+  // recorded edit to one concept re-derived across every rule that uses it.
+  function renderLibrary() {
+    const box = $('library'), Lb = D.library;
+    if (!Lb || !Lb.concepts?.length) { box.innerHTML = ''; return; }
+    const cs = [...Lb.concepts].sort((a, b) => new Set(b.members.map(m => m.rule)).size - new Set(a.members.map(m => m.rule)).size);
+    const sel = cs.find(c => c.id === state.concept) || cs.find(c => c.id === Lb.edit?.concept) || cs[0];
+    const E = Lb.edit && Lb.edit.concept === sel.id ? Lb.edit : null;
+    const rows = sel.members.map(m => {
+      const x = E?.results?.[m.rule], rw = x && Object.values(x.rewrites || {})[0];
+      // The re-derived text with the phrase the judge cited marked; the full diff (the whole part is re-sampled) behind a toggle.
+      const cited = x ? [...String(x.judge_after.where || '').matchAll(/["“]([^"”]{12,})["”]/g)].map(q => q[1].replace(/[….]+$/, '').trim()) : [];
+      const mark = t => { let h = esc(t); for (const c of cited) { const e = esc(c); const i = h.indexOf(e); if (i >= 0) h = h.slice(0, i) + `<mark>${e}</mark>` + h.slice(i + e.length); } return h; };
+      const parts = x ? ['MET', 'NOT MET'].map(p => `<div class="lpart"><b>${p}</b> ${mark(x.after[p])}${x.before[p] !== x.after[p] ? `<details><summary>diff against before</summary>${diff(x.before[p], x.after[p])}</details>` : ''}</div>`).join('') : '';
+      return `<div class="lmember"><div class="lhead"><b>${esc(m.rule)}</b> <span class="muted small">${esc(Lb.titles?.[m.rule] || '')}</span>${x ? ` <span class="chip ${x.judge_after.requires_red_flags_and_timeframe || x.judge_after.reflects ? 'changed' : ''}">${x.judge_before.requires_red_flags_and_timeframe || x.judge_before.reflects ? 'before ✓' : 'before ✗'} → ${x.judge_after.requires_red_flags_and_timeframe || x.judge_after.reflects ? 'after ✓' : 'after ✗'}</span>` : ''}</div>
+        <div class="node ${esc(sel.kind === 'permission' ? 'permissions' : sel.kind === 'fact' ? 'facts' : sel.kind === 'condition' ? 'conditions' : 'action')}"><span class="id">${esc(m.node)}</span>${rw ? `<del>${esc(rw.old)}</del> <ins>${esc(rw.new)}</ins>` : esc(Lb.text?.[m.rule + '|' + m.node] || '')}</div>${parts}</div>`;
+    }).join('');
+    box.innerHTML = `<h2>Shared concepts across rules</h2>
+      <p class="muted small">${esc(Lb.note || '')}</p>
+      <label>Concept <select id="concept">${cs.map(c => `<option value="${esc(c.id)}"${c.id === sel.id ? ' selected' : ''}>${esc(c.name)} · ${new Set(c.members.map(m => m.rule)).size} rules${Lb.edit?.concept === c.id ? ' · edited' : ''}</option>`).join('')}</select></label>
+      <p><b>${esc(sel.name)}</b> <span class="muted">(${esc(sel.kind)})</span> — ${E ? `<del>${esc(E.old)}</del> <ins>${esc(E.new)}</ins>` : esc(sel.definition)}</p>
+      ${E ? `<p class="small">${esc(E.note || '')}</p>` : ''}
+      <div class="lmembers">${rows}</div>`;
+    $('concept').onchange = e => { state.concept = e.target.value; renderLibrary(); };
+  }
+
   $('rule').innerHTML = D.rules.map((r, i) => `<option value="${i}">${esc(r.id)} · ${esc(r.title)}</option>`).join('');
   $('rule').onchange = e => { state.rule = Number(e.target.value); state.step = 0; render(); };
   for (const b of document.querySelectorAll('#program button')) b.onclick = () => { state.program = b.dataset.program; state.step = 0; render(); };
@@ -389,6 +415,7 @@
   $('foot').textContent = `Recorded passes: writer ${D.models.writer}; exceptions and judge ${D.models['exceptions and judge']}. ${D.method}`;
   fromHash();
   render();
+  renderLibrary();
   window.EXPLAIN = {
     D, state, render, steps, rule,
     // Add or replace a rule entry (a live run) and show it in the given scenario.

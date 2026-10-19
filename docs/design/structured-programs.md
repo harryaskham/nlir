@@ -125,6 +125,25 @@ for 6/6; re-derived, NOT MET covers it 6/6 but MET excludes it only
 4/6 — the writer left the exception out of MET twice, a sampling effect of the forward pass, not
 the backward one. A private explainer over these passes sits beside the representative lab.
 
+## Shared concepts across rules
+
+With a rule model per rule, shared structure becomes something to look for directly. `site/spec-lab/library.nlir`
+groups nodes from different rules that name the same consideration into shared concepts (one call per node kind,
+compact output). On the invented spec — written to be distinct — 3 concepts cover 24% of the 59 nodes. On
+representative data the 40 rules' 325 nodes form 83 shared concepts covering
+256 (79%): facts and exceptions most of all, and the most shared concepts are the
+policy's recurring ideas (individualised versus general information, directly applied uncertainty, safety netting,
+presentation acuity, existing clinician guidance). An independent judge agreed that two members of one concept name
+the same consideration for 28/40 sampled pairs and for 1/40 pairs from different concepts: real, specific, somewhat over-merged.
+
+**As style:** giving the writer, for each of a rule's shared concepts, how training rules' authored profiles phrase it
+did not help on the validation rules (strict F1 −0.018 against the concept layer, −0.039 against B·clean; not carried).
+
+**As structure:** one edit to a shared concept (the condition "missing safety netting", used by
+5 rules, redefined to require red-flag symptoms and a timeframe), rewritten into each member rule's node and
+re-derived, changed 0 → 5 of the 5 rules' profiles to require both. Edits travel across rules as well as within
+them. The explainer's "Shared concepts" section shows a library and a recorded concept edit, rule by rule.
+
 ## Next
 
 - **Inline editing** in the explainer: edit a node or a sentence where it is shown, not as JSON.

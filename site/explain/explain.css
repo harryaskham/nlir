@@ -117,3 +117,14 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 
 .narrate button.act { font: 500 .85rem var(--sans); padding: .2rem .6rem; margin: 0 .2rem; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent-ink); cursor: pointer; }
 .narrate button.act.ghost { border-color: var(--rule-strong); background: transparent; color: var(--muted); }
+
+.library { margin-top: 1.6rem; border-top: 1px solid var(--rule); padding-top: 1rem; }
+.library h2 { font: 600 1rem var(--sans); margin: 0 0 .4rem; }
+.library select { font: inherit; max-width: 36rem; }
+.lmembers { display: grid; grid-template-columns: repeat(auto-fill, minmax(26rem, 1fr)); gap: .7rem; margin-top: .6rem; }
+.lmember { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: .5rem .6rem; background: var(--paper); }
+.lmember .lhead { margin-bottom: .3rem; }
+.lpart { font-size: .84rem; line-height: 1.45; margin-top: .3rem; }
+
+.lpart mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; padding: 0 .1rem; border-radius: 2px; }
+.lpart details summary { cursor: pointer; font-size: .76rem; color: var(--muted); }
