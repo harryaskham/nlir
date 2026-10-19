@@ -287,6 +287,7 @@ shadows them):
 | `$dict%pairs` | a dict from `[key, value]` pairs or `{key, value}` records — the inverse of `$entries`, and the way to build a dict with computed keys |
 | `$get%(c, k)` / `$get%(c, k, default)` | dynamic `.`: dict key or list/string index (`$get%($nodes, $id)` for keys with spaces); missing → default, else loud |
 | `$has%(c, k)` | Bool: is `k` a key / valid index |
+| `$omit%(d, keys)` / `$pick%(d, keys)` | the dict without / with only those keys (one key or a list), in its own order — e.g. keep reserved packet keys out of a prompt: `$json%($omit%($p, [_pin, _concepts]))` |
 | `$join%(list, sep)` | items rendered and joined with `sep` |
 | `$flat%list` | flatten one level — the concat recursive tree walks need (and list append: `$flat%[$xs, [x]]`) |
 | `$zip%(a, b, …)` | `[[a0, b0], [a1, b1], …]`, truncated to the shortest — pair parallel results with their inputs |

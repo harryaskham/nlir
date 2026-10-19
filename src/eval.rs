@@ -1860,9 +1860,9 @@ fn access_value(operands: &[Value], sep: &str) -> Result<Value, EvalError> {
 pub const BUILTIN_NAMES: &[&str] = &[
     "access", "and", "ceil", "contains", "dict", "diff", "draw", "elem", "entries", "filter",
     "flat", "floor", "fold", "get", "gt", "has", "if", "inter", "join", "json", "keys", "len",
-    "lines", "lower", "lt", "map", "match", "matches", "medoid", "mod", "not", "nth", "or",
-    "parse", "replace", "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "type", "union",
-    "upper", "values", "zip",
+    "lines", "lower", "lt", "map", "match", "matches", "medoid", "mod", "not", "nth", "omit", "or",
+    "parse", "pick", "replace", "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "type",
+    "union", "upper", "values", "zip",
 ];
 
 const PURE_BUILTIN_OPS: &[&str] = &[
@@ -3994,7 +3994,7 @@ fn resolve_index(index: &Value, len: usize, sep: &str, what: &str) -> Result<usi
 pub(crate) const DATA_BUILTINS: &[&str] = &[
     "keys", "values", "get", "join", "json", "parse", "type", "trim", "replace", "match",
     "matches", "sub", "lines", "slice", "has", "flat", "entries", "dict", "lower", "upper", "zip",
-    "medoid",
+    "medoid", "omit", "pick",
 ];
 
 /// Parse JSON from model-style text: the whole text, else the span from the first
@@ -4286,6 +4286,33 @@ fn data_builtin(name: &str, mut args: Vec<Value>, sep: &str) -> Result<Value, Ev
                 }
             }
             Ok(Value::Dict(pairs))
+        }
+        // `$omit%(d, keys)` — the dict without those keys; `$pick%(d, keys)` — only those keys, in the
+        // dict's own order. `keys` is one key or a list of keys; absent keys are ignored. The way to
+        // keep reserved packet keys (`_pin`, …) out of a prompt: `$json%($omit%($p, [_pin, _concepts]))`.
+        "omit" | "pick" => {
+            want(2, "(dict, keys)", &args)?;
+            let keys = args.pop().expect("two args");
+            let dict = args.pop().expect("two args");
+            let keys: Vec<String> = match keys {
+                Value::List(items) => items
+                    .iter()
+                    .map(|k| k.render(sep).trim().to_owned())
+                    .collect(),
+                other => vec![other.render(sep).trim().to_owned()],
+            };
+            match dict {
+                Value::Dict(pairs) => Ok(Value::Dict(
+                    pairs
+                        .into_iter()
+                        .filter(|(k, _)| keys.iter().any(|x| x == k) == (name == "pick"))
+                        .collect(),
+                )),
+                other => Err(EvalError::Unsupported(format!(
+                    "`${name}` needs a dict, got a {}",
+                    type_name(&other)
+                ))),
+            }
         }
         "entries" => match unary_operand(args) {
             Value::Dict(pairs) => Ok(Value::list(
