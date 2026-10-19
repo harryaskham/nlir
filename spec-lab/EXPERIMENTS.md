@@ -182,5 +182,12 @@ given only the named points (points the spec implies, singled out), it recalls m
 determined clauses (0.62 against 0.52) and barely more of the open ones. In F1 the named points
 carry most of the gain (0.404 against 0.346, 74% of the full lists' +0.078), while the additions
 alone, or written into each rule's text as accepted addenda, gain nothing here: on these very
-short profiles their extra recall costs as much precision. On the private health policy the same
+short profiles their extra recall costs as much precision.
+
+Drafts of the same rule still differ, and with the lists in hand a judge can pick among them
+without seeing the authored profile: per part, take the draft that states the most listed items
+(stated, or half for a weakened one) with the fewest other clauses. Over the four gap-filled drafts
+of each rule this raises strict F1 from 0.504 to 0.558 (+0.054 [+0.013, +0.093], higher on 6 of 8
+rules; combined +0.043 [+0.010, +0.072]) at slightly fewer words. The panel shows the picked
+profile for each rule. On the private health policy the same
 split holds, with the additions worth more there (44% of the gain; named points 63%).
