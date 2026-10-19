@@ -144,6 +144,11 @@ def check_explain_traces():
         assert not re.search(pat,text,re.I), f'explain/traces.json: forbidden pattern {pat!r}'
     for r in doc['rules']:
         assert [s['id'] for s in r['concepts']['steps']]==['model','APPLICABILITY','DECISION BOUNDARY','MET','NOT MET','UNCERTAIN'], r['id']
+    for sk, S in (doc.get('patches') or {}).get('sets', {}).items():
+        assert S['rules'] and all(rid.startswith('CR V') for rid in S['rules']), f'explain/traces.json: non-toy patched rule in {sk}'
+        for rid, R in S['rules'].items():
+            assert set(R['fields'])=={'APPLICABILITY','DECISION BOUNDARY','MET','NOT MET','UNCERTAIN'} and all({'before','after'}<=set(f) for f in R['fields'].values()), (sk, rid)
+        assert S.get('checks'), f'explain/traces.json: patch set {sk} has no checks'
     print(f"explain/traces.json: {len(doc['rules'])} toy rules; every pass has the model step and five parts")
 
 

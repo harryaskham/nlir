@@ -138,3 +138,4 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 .pfield.same p { color: var(--muted); }
 .pfield ins { background: var(--accent-soft); color: var(--accent-ink); text-decoration: none; border-radius: 2px; }
 .pfield del { color: var(--muted); }
+.library, .patches { scroll-margin-top: 7.5rem; }
