@@ -128,3 +128,13 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 
 .lpart mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; padding: 0 .1rem; border-radius: 2px; }
 .lpart details summary { cursor: pointer; font-size: .76rem; color: var(--muted); }
+.patches { margin-top: 1.6rem; border-top: 1px solid var(--rule); padding-top: 1rem; }
+.patches h2 { font: 600 1rem var(--sans); margin: 0 0 .4rem; }
+.patches .prow { display: flex; flex-wrap: wrap; gap: .4rem 1rem; }
+.patches select { font: inherit; max-width: 30rem; }
+.pfields { display: grid; gap: .5rem; margin-top: .6rem; }
+.pfield { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: .45rem .6rem; background: var(--paper); }
+.pfield p { margin: .25rem 0 0; line-height: 1.5; }
+.pfield.same p { color: var(--muted); }
+.pfield ins { background: var(--accent-soft); color: var(--accent-ink); text-decoration: none; border-radius: 2px; }
+.pfield del { color: var(--muted); }

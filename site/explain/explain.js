@@ -401,6 +401,33 @@
     $('concept').onchange = e => { state.concept = e.target.value; renderLibrary(); };
   }
 
+  // Patch forward (when the data has patches): an edit made to the model and patched into the authors' own prose —
+  // each field as a word diff against the authored text, untouched fields marked, with the judge's verdict before and after.
+  function renderPatches() {
+    const box = $('patches'), Pt = D.patches;
+    if (!box) return;
+    if (!Pt || !Pt.sets || !Object.keys(Pt.sets).length) { box.innerHTML = ''; return; }
+    const keys = Object.keys(Pt.sets);
+    const sk = keys.includes(state.pset) ? state.pset : keys[0], S = Pt.sets[sk];
+    const rids = Object.keys(S.rules);
+    const rid = rids.includes(state.prule) ? state.prule : rids[0], R = S.rules[rid];
+    const chip = (ok, label) => `<span class="chip ${ok ? 'changed' : ''}">${esc(label)} ${ok ? '✓' : '✗'}</span>`;
+    const verdict = v => (S.checks || []).map(c => chip(c.bad ? !v?.[c.key] : !!v?.[c.key], c.label)).join(' ');
+    const fields = Object.entries(R.fields).map(([l, f]) => f.before.trim() === f.after.trim()
+      ? `<div class="pfield same"><div class="phead"><b>${esc(l)}</b> <span class="chip">unchanged</span></div><p>${esc(f.before)}</p></div>`
+      : `<div class="pfield"><div class="phead"><b>${esc(l)}</b> <span class="chip changed">patched</span></div><p>${diff(f.before, f.after)}</p></div>`).join('');
+    box.innerHTML = `<h2>Keeping the authors' prose: patch forward</h2>
+      <p class="muted small">${esc(Pt.note || '')}</p>
+      <div class="prow"><label>Edit <select id="pset">${keys.map(k => `<option value="${esc(k)}"${k === sk ? ' selected' : ''}>${esc(Pt.sets[k].label)}</option>`).join('')}</select></label>
+        <label>Rule <select id="prule">${rids.map(r => `<option value="${esc(r)}"${r === rid ? ' selected' : ''}>${esc(r)}${S.rules[r].title ? ' · ' + esc(S.rules[r].title) : ''}</option>`).join('')}</select></label></div>
+      <p class="small"><b>Edit to the model:</b> ${esc(R.edit || S.edit || '')}</p>
+      <p class="small">Authored ${verdict(R.before)} &nbsp;→&nbsp; patched ${verdict(R.after)}</p>
+      ${S.note ? `<p class="small muted">${esc(S.note)}</p>` : ''}
+      <div class="pfields">${fields}</div>`;
+    $('pset').onchange = e => { state.pset = e.target.value; state.prule = null; renderPatches(); };
+    $('prule').onchange = e => { state.prule = e.target.value; renderPatches(); };
+  }
+
   $('rule').innerHTML = D.rules.map((r, i) => `<option value="${i}">${esc(r.id)} · ${esc(r.title)}</option>`).join('');
   $('rule').onchange = e => { state.rule = Number(e.target.value); state.step = 0; render(); };
   for (const b of document.querySelectorAll('#program button')) b.onclick = () => { state.program = b.dataset.program; state.step = 0; render(); };
@@ -419,6 +446,7 @@
   fromHash();
   render();
   renderLibrary();
+  renderPatches();
   window.EXPLAIN = {
     D, state, render, steps, rule,
     // Add or replace a rule entry (a live run) and show it in the given scenario.
