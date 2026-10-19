@@ -161,6 +161,7 @@ async page => {
   await page.locator('#runGap > summary').click();
   const recordedRun = await page.locator('#gapLists .gap-recorded').count();
   const recordedTrip = (await page.locator('#gapLists .gap-recorded').innerText()).includes('Round trip');
+  const recordedPick = (await page.locator('#gapLists .gap-recorded').innerText()).includes('Pick by the lists');
   await page.locator('#gapExtract').click();
   await page.waitForFunction(() => document.querySelectorAll('#gapLists > .run-table-wrap .run-table.gaplists').length === 1, null, { timeout: 60000 });
   await page.locator('#gapWrite').click();
@@ -169,7 +170,7 @@ async page => {
   await page.waitForFunction(() => document.querySelectorAll('#gapLists > .run-table-wrap .run-table.gaplists').length === 2 && [...document.querySelectorAll('.run-card .run-head')].some(h => /Gap-filled, round 2/.test(h.textContent)), null, { timeout: 120000 });
   const gapCards = await page.locator('.run-card .run-head', { hasText: 'Gap-filled' }).count();
   const gapFailed = await page.locator('.run-card.failed .run-head', { hasText: 'Gap-filled' }).count();
-  if (gapCalls !== 2 || keepCalls < 5 || gapCards < 2 || gapFailed || recordedRun !== 1 || !recordedTrip) throw new Error(`Gap-filled flow: gapCalls=${gapCalls} keepCalls=${keepCalls} cards=${gapCards} failed=${gapFailed} recorded=${recordedRun} trip=${recordedTrip}`);
+  if (gapCalls !== 2 || keepCalls < 5 || gapCards < 2 || gapFailed || recordedRun !== 1 || !recordedTrip || !recordedPick) throw new Error(`Gap-filled flow: gapCalls=${gapCalls} keepCalls=${keepCalls} cards=${gapCards} failed=${gapFailed} recorded=${recordedRun} trip=${recordedTrip}`);
   // B·clean: learned B plus the clean-up runs in the browser like any program.
   await page.locator('#runProgram').selectOption('B·clean');
   const before = await page.locator('.run-card').count();

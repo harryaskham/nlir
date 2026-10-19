@@ -49,7 +49,7 @@ def check_gapfill(name='gapfill.json'):
     doc=json.loads((ROOT/name).read_text())
     rules=doc['rules']
     assert rules and all(r['id'].startswith('CR V') for r in rules), 'gapfill.json: non-toy rule'
-    for k in ('spec','gapfill'):
+    for k in ('spec','gapfill')+(('selected',) if 'selected' in doc['summary'] else ()):
         m=statistics.fmean(r[k]['f1'] for r in rules)
         assert abs(m-doc['summary'][k])<1e-9, f'gapfill.json: {k} summary {doc["summary"][k]} != {m}'
     assert doc['summary']['better']==sum(r['gapfill']['f1']>r['spec']['f1'] for r in rules), 'gapfill.json: better count'

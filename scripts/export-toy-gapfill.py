@@ -9,7 +9,9 @@ GAP_LISTS_JSON the lists read from each toy rule's authored profile. Exports, pe
 sample 0 of both arms (parts and strict F1) and per-rule mean strict F1 over the samples, plus the
 pooled summary. ROUNDTRIP_SUMMARY_JSON, if given, adds the round trip: lists read back from sample 0
 and rewritten, and the floor (the same spec and lists re-sampled), each judged against sample 0's
-own clauses. Invented toy data only: refuses any rule outside `CR V`.
+own clauses. If TOY_GAPFILL_DIR also holds selected-{val,test} (one profile per rule, chosen part by part
+from the four gap-filled drafts by how well each states the lists), each rule gains that profile and
+its strict F1. Invented toy data only: refuses any rule outside `CR V`.
 """
 import glob
 import json
@@ -50,6 +52,8 @@ def main():
     if any(not r.startswith('CR V') for r in lists):
         raise SystemExit('refusing non-toy lists')
     arms = {k: load(run_root / f'{k}-val') + load(run_root / f'{k}-test') for k in ('spec', 'gapfill')}
+    if (run_root / 'selected-val').exists() and (run_root / 'selected-test').exists():
+        arms['selected'] = load(run_root / 'selected-val') + load(run_root / 'selected-test')
     f1 = lambda r: statistics.fmean(p['sim'] for p in r['parts'])
     rules = []
     for rid in sorted(lists):
@@ -67,6 +71,8 @@ def main():
     summary = {k: statistics.fmean(r[k]['f1'] for r in rules) for k in arms}
     doc = {'method': __doc__.split('\n\n')[1].replace('\n', ' '), 'models': {'writer': 'gpt-6-luna', 'judge and lists': 'gpt-6.1-sol'},
            'summary': summary | {'rules': len(rules), 'better': sum(r['gapfill']['f1'] > r['spec']['f1'] for r in rules)}, 'rules': rules}
+    if 'selected' in arms:
+        doc['summary']['selected_better'] = sum(r['selected']['f1'] > r['gapfill']['f1'] for r in rules)
     if rt:
         d = rt['round_trip_minus_floor']
         doc['summary']['roundtrip'] = {k: statistics.fmean(r['roundtrip'][k] for r in rules) for k in ('floor', 'trip', 'spec')} | {
