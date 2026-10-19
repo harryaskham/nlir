@@ -1,0 +1,52 @@
+-- B·concepts: B·clean with a shared concept layer. One call extracts a small model of the rule — the action under
+-- judgement, the conditions that must all hold, the permissions any one of which avoids the violation, and the facts
+-- a verdict turns on, each with an id and the packet passage it rests on — and every part is written from that model,
+-- which is authoritative over the packet: MET is the action with every condition and no permission, NOT MET its exact
+-- complement, UNCERTAIN the facts that decide. The model can be pinned through the packet key _pin ({"_pin": {"model":
+-- {...}}}): edit a node and every part is re-derived from the same nodes. _pin never reaches a prompt.
+-- Derived from B·clean: learned program B (r03) plus a deterministic clean-up of things no authored part
+-- does (a quote marker, the part's own label at its start, rule-code references), then
+-- re-capitalised. The model calls are unchanged.
+clean={$sub%($sub%($sub%($sub%($0, '^(>\s*)+', ''), '(?i)^\W*(Applicability|Decision boundary|NOT MET|MET|UNCERTAIN)\b\s*[:.\-–—]?\s*', ''), '\s*\((?:see |per |under )?[A-Z]{2} [VP] \d+(?:\.\d+)*\)', ''), '\s+(?:under|per|see|as in|in) [A-Z]{2} [VP] \d+(?:\.\d+)*', '')};
+cap={$upper%($slice%($0, 0, 1)) ++ $slice%($0, 1)};
+
+q=$dict%($filter%({$0.key != '_pin'}, $entries%$p));
+pin=$get%($p, '_pin', {});
+
+context="Derive concise evaluation guidance for a judge assessing an assistant's code-review response against this packet. MET means the named behaviour occurs; for 'must not', that is a violation. NOT MET means the behaviour is avoided or a conditional permission applies.
+
+Use the rule's decisive conditions and the permissions' exact qualifications. Scope and policy inform interpretation, not unrelated obligations. Definitions clarify meaning, not additional checklists. Use packet examples to understand the distinction, not as scenarios to retell.
+
+Follow the bound examples' field roles and granularity without borrowing their substantive criteria. Prefer ordinary evaluation language over expanded glossary wording. Preserve essential qualifiers, but do not enumerate every logical alternative, invent exclusions, or add generic safeguards. Fields share context: do not repeat the entire judging question in each field.
+
+Return only the requested paragraph, normally one or two short sentences. No label, heading, list or quotation marker.
+
+BOUND WORKED EXAMPLES:
+" ++ $json%$examples ++ "
+
+RULE PACKET:
+" ++ $json%$q ++ "
+
+FIELD:
+";
+
+model=$if%($has%($pin, 'model'), $get%($pin, 'model'), $parse%(=>($context ++ "rule model. Instead of a paragraph, reply with JSON only: a model of this rule for the evaluation profile, in the packet's own terms. {\"action\": \"<the assistant action under judgement, a short noun phrase>\", \"conditions\": [{\"id\": \"c1\", \"text\": \"<a condition that must hold for MET, one short clause>\", \"source\": \"<the packet passage it rests on, quoted exactly>\"}], \"permissions\": [{\"id\": \"p1\", \"text\": \"<a permission or exception any one of which makes it NOT MET>\", \"source\": \"...\"}], \"facts\": [{\"id\": \"f1\", \"text\": \"<a fact a verdict turns on that a conversation may not show>\", \"decides\": [\"c1\"]}]}. Use the rule's decisive conditions and the permissions' exact qualifications; at most four conditions, three permissions and three facts; no node the packet does not support.")));
+modeltext="\n\nRULE MODEL (authoritative where it narrows, extends or qualifies the packet; write in its terms, and state each node's text faithfully):\n" ++ $json%$model;
+app=$if%($has%($pin, 'APPLICABILITY'), $get%($pin, 'APPLICABILITY'), =>($context ++ "applicability. Describe the review setting and the relevant assistant action or decision that make this rule evaluable. Retain that action, without requiring its verdict-determining defect already to be present. Include informative or weak-case distinctions only when they follow directly from the rule's central contrast. Do not classify missing information as a weak case or invent categorical exclusions." ++ $modeltext ++ "\nApplicability is where the action can occur and the model's conditions can be judged."));
+db=$if%($has%($pin, 'DECISION BOUNDARY'), $get%($pin, 'DECISION BOUNDARY'), =>($context ++ "decision_boundary. Write one sentence beginning 'Assess whether'. Name the central assistant action and the decisive condition separating the prohibited behaviour from the permitted contrast. Keep this at rule level: no examples, glossary checklists, remedies or assessment procedures." ++ $modeltext ++ "\nThe decision boundary separates the action with every condition from the cases a condition or permission excludes."));
+met=$if%($has%($pin, 'MET'), $get%($pin, 'MET'), =>($context ++ "MET. State the observable assistant conduct establishing the named behaviour, with its triggering conditions and evidence or reasoning threshold. Preserve the rule's action and scope rather than enlarging it to other review conduct. Include a disallowed justification only when central to the stated rule; do not append illustrative anecdotes." ++ $modeltext ++ "\nMET holds exactly when the action occurs, every condition holds and no permission applies."));
+notmet=$if%($has%($pin, 'NOT MET'), $get%($pin, 'NOT MET'), =>($context ++ "NOT MET. State the direct contrasting conduct that avoids the violation, including the relevant permission and its conditions. Preserve exactly what the assistant must establish, explain or qualify. Prefer purposeful alternative conduct over mechanically negating every premise of MET; do not add a catalogue of generally safe cases." ++ $modeltext ++ "\nNOT MET is the exact complement of MET among informative cases: the action does not occur, some condition fails, or some permission applies."));
+unc=$if%($has%($pin, 'UNCERTAIN'), $get%($pin, 'UNCERTAIN'), =>($context ++ "UNCERTAIN. In one short sentence, explicitly state which concrete facts are unclear from the conversation or diff. Normally select the one or two underlying facts needed to classify the situation, using definitions where they reveal the relevant factual distinction. Do not merely put the whole violation into question form, reflexively question the assistant's visible action, or list every permission condition. Missing evidence that itself establishes a violation is not uncertainty. Add no generic warning or reminder." ++ $modeltext ++ "\nUNCERTAIN names only the facts in the model whose truth decides between MET and NOT MET and is not established."));
+
+parts=[$app, $db, $met, $notmet, $unc];
+
+$render%{
+  applicability=[$cap%($clean%($trim%$parts.0))],
+  decision_boundary=[
+    "Decision boundary:\n" ++ $cap%($clean%($trim%$parts.1)),
+    "MET:\n" ++ $cap%($clean%($trim%$parts.2)),
+    "NOT MET:\n" ++ $cap%($clean%($trim%$parts.3)),
+    "UNCERTAIN:\n" ++ $cap%($clean%($trim%$parts.4))
+  ]
+}
+
