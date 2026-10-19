@@ -189,5 +189,6 @@ without seeing the authored profile: per part, take the draft that states the mo
 (stated, or half for a weakened one) with the fewest other clauses. Over the four gap-filled drafts
 of each rule this raises strict F1 from 0.504 to 0.558 (+0.054 [+0.013, +0.093], higher on 6 of 8
 rules; combined +0.043 [+0.010, +0.072]) at slightly fewer words. The panel shows the picked
-profile for each rule. On the private health policy the same
+profile for each rule. With your own endpoint, **Write 3 and pick** runs the same picker live: three gap-filled
+drafts, one coverage check per draft by the judge model, and a picked run you can judge like any other. On the private health policy the same
 split holds, with the additions worth more there (44% of the gain; named points 63%).
