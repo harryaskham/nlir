@@ -174,3 +174,13 @@ per-profile correlation with Sol 0.83. And it round-trips: against each gap-fill
 clauses, lists read back from it and written again score 0.638, the same spec and lists re-sampled
 0.613 (+0.025 [−0.034, +0.104], within the noise), and the spec alone 0.305. The panel shows the
 round trip for each rule.
+
+Which half of the lists does the work? The two kinds of item do different jobs. Given only the
+additions (requirements the spec cannot imply), the untrimmed writer recalls more of the clauses
+the spec leaves open (0.46 against 0.39 from the spec alone) and no more of those it determines;
+given only the named points (points the spec implies, singled out), it recalls more of the
+determined clauses (0.62 against 0.52) and barely more of the open ones. In F1 the named points
+carry most of the gain (0.404 against 0.346, 74% of the full lists' +0.078), while the additions
+alone, or written into each rule's text as accepted addenda, gain nothing here: on these very
+short profiles their extra recall costs as much precision. On the private health policy the same
+split holds, with the additions worth more there (44% of the gain; named points 63%).
