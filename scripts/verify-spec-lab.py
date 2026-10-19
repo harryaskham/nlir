@@ -133,6 +133,20 @@ def check_b_clean():
     print('program-b-clean.nlir: learned B r0%d plus the clean-up, nothing else changed' % accepted[-1]['round'])
 
 
+def check_no_private_domain():
+    """Results from representative data may be quoted as aggregates; the domain, its authors and its cases may not."""
+    import re
+    for name in ('EXPERIMENTS.md','run.js','spec-lab.js','index.html'):
+        f=ROOT/name
+        if not f.exists():
+            continue
+        text=f.read_text()
+        for pat in (r'health\s+polic', r'clinician', r'\bHI V\b', r'Copilot Health'):
+            m=re.search(pat,text,re.I)
+            assert not m, f'{name}: names the private domain ({m.group(0)!r})'
+    print('no private-domain names in the notes or page scripts')
+
+
 if __name__=='__main__':
     check('trace.json','similarity')
     check('trace-strict-a.json','strict',0)
@@ -140,4 +154,5 @@ if __name__=='__main__':
     if (ROOT/'witness.json').exists():check_witness()
     if (ROOT/'gapfill.json').exists():check_gapfill()
     check_run_assets()
+    check_no_private_domain()
     check_b_clean()

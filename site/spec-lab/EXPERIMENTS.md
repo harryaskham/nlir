@@ -1,6 +1,6 @@
 # Recorded toy learning experiments
 
-All rule data in this lab is invented code-review guidance, not health experiment data.
+All rule data in this lab is invented code-review guidance. Results quoted from representative data are aggregates only; no case from it appears here.
 
 - `trace.json`: historical twelve-proposal v2 run, Sol holistic-similarity judge.
   Held-out similarity 0.673. Its archived 0.975 paraphrase baseline used Sonnet;
@@ -43,7 +43,7 @@ labelled "stated" and 4 of 25 labelled "implied" were shown open, against 48 of 
 convention or rule-specific. These are model judgements, not formal proofs; failing to find
 a counter-choice does not prove a clause is implied. `scripts/export-toy-witness.py` builds
 the file from recorded results; `scripts/verify-spec-lab.py` checks that every quotation
-appears verbatim in `toy-spec.json`. The same method applied to the private health policy
+appears verbatim in `toy-spec.json`. The same method applied to representative data
 found 155 of 681 clauses open.
 
 ## Run program — learned programs, live, with your own endpoint
@@ -111,8 +111,7 @@ is deterministic (no model calls) and mirrors the private harness's `style.py`.
 `program-b-clean.nlir` is learned B plus a deterministic clean-up of things no authored profile
 does — a leading quote marker, the part's own label repeated at its start, rule-code references —
 re-capitalised (`verify-spec-lab.py` checks nothing else changed). Its prompts are identical to
-B's, so in the Run tab it replays B's model calls and only the final text differs. On the private
-health policy the same clean-up improved style by 0.047 [0.039, 0.056] on 20 untouched rules with
+B's, so in the Run tab it replays B's model calls and only the final text differs. On representative data the same clean-up improved style by 0.047 [0.039, 0.056] on 20 untouched rules with
 no measurable change in meaning (strict F1 −0.002 [−0.008, +0.004]).
 
 ### Sweep packet fields
@@ -121,7 +120,7 @@ no measurable change in meaning (strict F1 −0.002 [−0.008, +0.004]).
 control that should change a lot, then permissions, definitions, examples and scope — after a
 baseline and three re-samples, and adds each to the same influence table, so packet fields and
 instructions are read against one noise floor (with three re-samples, a run with no real effect
-exceeds all of them one time in four). On the private health policy the same design found that
+exceeds all of them one time in four). On representative data the same design found that
 the rule text, scope and permissions (for NOT MET) matter while definitions, examples and policy
 stay within re-sample noise.
 
@@ -134,7 +133,7 @@ bound that also picks the judge's luck. "Which authored clauses each sample stat
 authored clauses against the samples: clauses that every sample states, clauses that only some
 state, and clauses none state.
 
-On the private health policy, with eight drafts per rule on twenty untouched rules, half of the
+On representative data, with eight drafts per rule on twenty untouched rules, half of the
 authored clauses the specification determines were stated by every draft, about two in five by
 some drafts and not others, and about one in ten by none; clauses the specification leaves open
 were missed by every draft more often. The program can reach most of what the authors wrote, but
@@ -154,7 +153,7 @@ states a listed point or addition. **Round trip** extracts the lists again from 
 profile and writes once more. Judge the runs to compare them with the authored profile and with
 B·clean from the spec alone.
 
-On the private health policy, profiles written this way scored 0.581 strict F1 against the
+On representative data, profiles written this way scored 0.581 strict F1 against the
 authors' on twenty untouched rules, against 0.386 from the spec alone, at about the authors'
 length; the round trip reproduced a written profile as closely as re-running its spec did; and an
 independent judge gave the same gain. Lists proposed by a model without the authored profile did
@@ -182,7 +181,7 @@ given only the named points (points the spec implies, singled out), it recalls m
 determined clauses (0.62 against 0.52) and barely more of the open ones. In F1 the named points
 carry most of the gain (0.404 against 0.346, 74% of the full lists' +0.078), while the additions
 alone, or written into each rule's text as accepted addenda, gain nothing here: on these very
-short profiles their extra recall costs as much precision.
+short profiles their extra recall costs as much precision. On representative data the same split holds, with the additions worth more there (44% of the gain; named points 63%).
 
 Drafts of the same rule still differ, and with the lists in hand a judge can pick among them
 without seeing the authored profile: per part, take the draft that states the most listed items
@@ -190,5 +189,6 @@ without seeing the authored profile: per part, take the draft that states the mo
 of each rule this raises strict F1 from 0.504 to 0.558 (+0.054 [+0.013, +0.093], higher on 6 of 8
 rules; combined +0.043 [+0.010, +0.072]) at slightly fewer words. The panel shows the picked
 profile for each rule. With your own endpoint, **Write 3 and pick** runs the same picker live: three gap-filled
-drafts, one coverage check per draft by the judge model, and a picked run you can judge like any other. On the private health policy the same
-split holds, with the additions worth more there (44% of the gain; named points 63%).
+drafts, one coverage check per draft by the judge model, and a picked run you can judge like any other. On representative data, picking from four drafts
+raised strict F1 from 0.586 to 0.619 on twenty untouched rules, about +0.02 of it confirmed by an independent judge
+that also did the picking; picking from eight drafts did no better than from four.
