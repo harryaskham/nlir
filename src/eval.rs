@@ -465,6 +465,37 @@ pub fn evaluate_with_cache(
     Evaluator::new_with_cache(config, context, mode, cache.clone()).run(&program)
 }
 
+/// Top-level statements that bind the name of a builtin (`trim = {…}`). Builtins are shadowable
+/// by design, but the binding then replaces the builtin everywhere in the program — including
+/// inside library forms that call `$trim%…` — which can fail far from its cause. One warning per
+/// shadowed name, in order; empty when the source does not parse (evaluation reports that).
+pub fn shadowed_builtins(expr: &str, config: &Config) -> Vec<String> {
+    let sigils = crate::config::operator_sigils(config);
+    let Ok(tokens) = lexer::tokenize(expr, &sigils) else {
+        return Vec::new();
+    };
+    let Ok(program) = parser::parse_program(&tokens, &config.operators) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = Vec::new();
+    for statement in &program.statements {
+        if let Expr::Assign { key, .. } = statement
+            && BUILTIN_NAMES.contains(&key.as_str())
+            && !names.contains(key)
+        {
+            names.push(key.clone());
+        }
+    }
+    names
+        .into_iter()
+        .map(|k| {
+            format!(
+                "`{k} = …` shadows the builtin `${k}`: every `${k}%…` in this program and its libraries now calls this definition (rename it to keep the builtin)"
+            )
+        })
+        .collect()
+}
+
 /// Parse `expr` and return its small-step reduction trace as rendered strings:
 /// the initial expression, then each one-redex reduction, ending at the final
 /// value (bd-9c366d, Harry's "step through an expansion to learn the language"
@@ -6241,6 +6272,27 @@ operators:
         ) -> crate::realiser::RealiseFuture<'a> {
             Box::pin(async move { Ok(String::new()) })
         }
+    }
+
+    #[test]
+    fn shadowed_builtins_are_reported() {
+        let cfg = config::parse_str(
+            crate::config::EXAMPLE_CONFIG,
+            Path::new("config.example.yaml"),
+        )
+        .expect("config");
+        let warnings = shadowed_builtins("trim = {$0}; x = 1; trim = {$1}; $trim%'a'", &cfg);
+        assert_eq!(
+            warnings.len(),
+            1,
+            "one warning per shadowed name: {warnings:?}"
+        );
+        assert!(warnings[0].contains("`$trim`"));
+        assert!(shadowed_builtins("keep_listed = {$0}; $trim%' a '", &cfg).is_empty());
+        assert!(
+            shadowed_builtins("((", &cfg).is_empty(),
+            "unparseable source: evaluation reports it"
+        );
     }
 
     #[test]

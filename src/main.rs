@@ -1030,6 +1030,9 @@ fn run_eval(cli: &Cli, expr: &str) -> Result<(), i32> {
     // `cat foo.rs | nlir -e '<expr>'` works (Harry's agentic-coding direction).
     let piped_stdin = read_stdin_into_context(&mut ctx);
     let cache = eval_cache(cli, &ctx)?;
+    for warning in nlir::eval::shadowed_builtins(expr, &cfg) {
+        eprintln!("nlir: warning: {warning}");
+    }
     // Evaluate against a MUTABLE context (assignments write through).
     let result = nlir::eval::evaluate_with_cache(expr, &cfg, &mut ctx, settings.mode, &cache);
     print_cache_stats(cli, &cache);
