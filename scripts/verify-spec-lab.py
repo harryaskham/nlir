@@ -43,6 +43,22 @@ def check(name, mode, profiles=None):
 VERDICTS={'determined','partly determined','witnessed open','open, witness rejected','derivation rejected','unverifiable'}
 
 
+def check_gapfill(name='gapfill.json'):
+    """The recorded gap-filled run: toy rules only, summary consistent with the per-rule means."""
+    import statistics
+    doc=json.loads((ROOT/name).read_text())
+    rules=doc['rules']
+    assert rules and all(r['id'].startswith('CR V') for r in rules), 'gapfill.json: non-toy rule'
+    for k in ('spec','gapfill'):
+        m=statistics.fmean(r[k]['f1'] for r in rules)
+        assert abs(m-doc['summary'][k])<1e-9, f'gapfill.json: {k} summary {doc["summary"][k]} != {m}'
+    assert doc['summary']['better']==sum(r['gapfill']['f1']>r['spec']['f1'] for r in rules), 'gapfill.json: better count'
+    text=(ROOT/name).read_text()
+    for bad in ('ts.net','helsinki','sk-','Bearer ','HI V'):
+        assert bad not in text, f'gapfill.json: forbidden string {bad!r}'
+    print(f"gapfill.json: {len(rules)} toy rules; strict F1 {doc['summary']['spec']:.3f} from the spec alone, {doc['summary']['gapfill']:.3f} gap-filled")
+
+
 def check_witness(name='witness.json'):
     """Recorded counterexample test on the invented spec: toy IDs only, complete rules,
     citations quote the toy spec verbatim, open clauses carry a counter-choice."""
@@ -118,5 +134,6 @@ if __name__=='__main__':
     check('trace-strict-a.json','strict',0)
     check('trace-strict-b.json','strict',2)
     if (ROOT/'witness.json').exists():check_witness()
+    if (ROOT/'gapfill.json').exists():check_gapfill()
     check_run_assets()
     check_b_clean()

@@ -93,7 +93,7 @@ async page => {
   await page.locator('.run-card').last().locator('[data-judge]').click();
   await page.waitForFunction(() => document.querySelector('.run-card:last-child .run-judge .state.ok')?.textContent.includes('strict F1'));
   if (judged !== 5) throw new Error('Judge should make one call per part, made ' + judged);
-  const table = await page.locator('.run-table').innerText();
+  const table = await page.locator('.run-table:not(.gaplists)').innerText();
   if (!/0\.\d\d/.test(table)) throw new Error('Strict F1 missing from the table');
   // Backward: edit run 1's output; the lens proposes a packet edit and re-runs.
   const card1 = page.locator('.run-card').last();
@@ -159,15 +159,16 @@ async page => {
   // Gap-filled specification: extract lists from the authored profile, write from them (trimmed),
   // then a round trip from the written profile.
   await page.locator('#runGap > summary').click();
+  const recordedRun = await page.locator('#gapLists .gap-recorded').count();
   await page.locator('#gapExtract').click();
-  await page.waitForFunction(() => document.querySelectorAll('.run-table.gaplists').length === 1, null, { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelectorAll('#gapLists > .run-table-wrap .run-table.gaplists').length === 1, null, { timeout: 60000 });
   await page.locator('#gapWrite').click();
   await page.waitForFunction(() => [...document.querySelectorAll('.run-card .run-head')].some(h => /Gap-filled/.test(h.textContent) && !/round 2/.test(h.textContent)) && !document.querySelector('#gapRound').disabled, null, { timeout: 120000 });
   await page.locator('#gapRound').click();
-  await page.waitForFunction(() => document.querySelectorAll('.run-table.gaplists').length === 2 && [...document.querySelectorAll('.run-card .run-head')].some(h => /Gap-filled, round 2/.test(h.textContent)), null, { timeout: 120000 });
+  await page.waitForFunction(() => document.querySelectorAll('#gapLists > .run-table-wrap .run-table.gaplists').length === 2 && [...document.querySelectorAll('.run-card .run-head')].some(h => /Gap-filled, round 2/.test(h.textContent)), null, { timeout: 120000 });
   const gapCards = await page.locator('.run-card .run-head', { hasText: 'Gap-filled' }).count();
   const gapFailed = await page.locator('.run-card.failed .run-head', { hasText: 'Gap-filled' }).count();
-  if (gapCalls !== 2 || keepCalls < 5 || gapCards < 2 || gapFailed) throw new Error(`Gap-filled flow: gapCalls=${gapCalls} keepCalls=${keepCalls} cards=${gapCards} failed=${gapFailed}`);
+  if (gapCalls !== 2 || keepCalls < 5 || gapCards < 2 || gapFailed || recordedRun !== 1) throw new Error(`Gap-filled flow: gapCalls=${gapCalls} keepCalls=${keepCalls} cards=${gapCards} failed=${gapFailed} recorded=${recordedRun}`);
   // B·clean: learned B plus the clean-up runs in the browser like any program.
   await page.locator('#runProgram').selectOption('B·clean');
   const before = await page.locator('.run-card').count();
@@ -180,5 +181,5 @@ async page => {
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Narrow overflow in Run tab');
   await page.setViewportSize({ width: 1440, height: 1000 });
   if (errors.length) throw new Error(errors.join('\n'));
-  return { ok: true, gapCalls, keepCalls, lotteryRows, spread: spreadText.split('\n').slice(-1)[0], fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
+  return { ok: true, recordedRun, gapCalls, keepCalls, lotteryRows, spread: spreadText.split('\n').slice(-1)[0], fieldRows: (await page.locator('.run-table.influence tr').count() - 1) - beforeFields, modelCalls: calls, judgeCalls: judged, lensCalls: lens, sentences: nSent, groups: nGroups, steps, summary: summary.split('\n').slice(-1)[0] };
 }

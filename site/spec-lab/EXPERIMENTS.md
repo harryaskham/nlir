@@ -159,3 +159,11 @@ authors' on twenty untouched rules, against 0.386 from the spec alone, at about 
 length; the round trip reproduced a written profile as closely as re-running its spec did; and an
 independent judge gave the same gain. Lists proposed by a model without the authored profile did
 not: the additions — the decisions a spec leaves open — have to come from its authors.
+
+The same method, applied unchanged to this invented spec, generalises. On the 8 rules not used to
+train program B (four samples each; writer Luna, lists and strict judge Sol), profiles written from
+the spec plus the lists and trimmed score 0.504 strict F1 against the authored profiles, against
+0.346 from the spec alone (+0.157 [+0.076, +0.251], higher on 7 of the 8 rules); the combined score
+rises by 0.097 [+0.036, +0.165], with a small cost in shape on these very short profiles. The panel
+shows this recorded run for each of those rules without an endpoint: the lists and the gap-filled
+profile.
