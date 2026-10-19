@@ -11,7 +11,7 @@
   const PROGRAMS = { concepts: 'Concept layer', chained: 'Chained', flat: 'Flat' };
 
   let D;
-  try { D = await fetch('traces.json').then(r => r.json()); }
+  try { D = window.EXPLAIN_TRACES || await fetch('traces.json').then(r => r.json()); }
   catch (e) { $('narrate').innerHTML = '<p class="err">traces.json is missing.</p>'; return; }
 
   const state = { rule: 0, program: 'concepts', scenario: 'base', step: 0, timer: null };
@@ -332,15 +332,28 @@
     }
     if (state.scenario !== 'edit' || S[k].kind !== 'verdict') { box.innerHTML = ''; return; }
     const mark = (v, good) => `<span class="${v === good ? 'ok' : 'bad'}">${v ? 'yes' : 'no'}</span>`;
-    const row = (p, name) => { const v = (p === 'concepts' ? R.concepts_edited : R[p]).verdict, s = D.summary[p === 'flat' ? 'clean' : p];
-      return `<tr${p === state.program ? ' class="cur"' : ''}><th>${name}</th><td>${mark(!!v.met_excludes, true)}</td><td>${mark(!!v.not_met_covers, true)}</td><td>${mark(!!v.overlap, false)}</td><td class="muted small">${s.not_met_covers}/8 cover · ${s.overlap}/8 overlap</td><td class="small">${esc(v.why || '')}</td></tr>`; };
-    box.innerHTML = `<h2>Did the edit travel, consistently?</h2><p class="muted small">The judge (Sol) read each program's edited profile for this rule. The totals are over the eight rules.</p>
-      <table><tr><th></th><th>MET excludes the exception</th><th>NOT MET covers it</th><th>MET and NOT MET overlap</th><th>all 8 rules</th><th>why (this rule)</th></tr>
-      ${row('flat', 'Flat — edit MET only')}${row('chained', 'Chained — MET pinned')}${row('concepts', 'Concept layer — node added')}</table>`;
+    const nRules = D.rules.filter(r => !r.live).length;
+    const row = (p, name) => { const v = (p === 'concepts' ? R.concepts_edited : R[p]).verdict, s = D.summary[p === 'flat' ? 'clean' : p] || D.summary[p === 'concepts' ? 'node' : p];
+      return `<tr${p === state.program ? ' class="cur"' : ''}><th>${name}</th><td>${mark(!!v.met_excludes, true)}</td><td>${mark(!!v.not_met_covers, true)}</td><td>${mark(!!v.overlap, false)}</td><td class="muted small">${s ? `${s.not_met_covers}/${nRules} cover · ${s.overlap}/${nRules} overlap` : ''}</td><td class="small">${esc(v.why || '')}</td></tr>`; };
+    box.innerHTML = `<h2>Did the edit travel, consistently?</h2><p class="muted small">The judge (Sol) read each program's edited profile for this rule. The totals are over the ${nRules} rules.</p>
+      <table><tr><th></th><th>MET excludes the exception</th><th>NOT MET covers it</th><th>MET and NOT MET overlap</th><th>all ${nRules} rules</th><th>why (this rule)</th></tr>
+      ${row('flat', 'Flat — edit MET only')}${R.chained ? row('chained', 'Chained — MET pinned') : ''}${row('concepts', 'Concept layer — node added')}</table>`;
   }
 
   // ---- render ------------------------------------------------------------------------------------------------------
+  // Programs and scenarios the data has for this rule (a host page may record fewer than the toy page).
+  function available(R) {
+    const prog = { concepts: true, chained: !!R.chained, flat: !!R.flat };
+    const scen = { base: true, edit: !!(R.concepts_edited || R.live), sentence: !!R.sentence || !!R.live, negation: !!R.negation };
+    return { prog, scen };
+  }
+
   function render() {
+    const R0 = rule(), A = available(R0);
+    if (!A.prog[state.program]) state.program = 'concepts';
+    if (!A.scen[state.scenario]) state.scenario = 'base';
+    for (const b of document.querySelectorAll('#program button')) { b.disabled = !A.prog[b.dataset.program]; b.title = b.disabled ? 'Not recorded for this rule' : ''; }
+    for (const b of document.querySelectorAll('#scenario button')) { b.disabled = !A.scen[b.dataset.scenario]; }
     const R = rule(), S = steps();
     state.step = Math.min(state.step, S.length - 1);
     const k = state.step, cur = S[k];
