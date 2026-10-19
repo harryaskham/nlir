@@ -570,6 +570,47 @@ One unary primitive, a whole geometry + statistics family — all exact, model-f
 
 ---
 
+## 17. Spec ⇄ prose — gap-filled specs and a list-guided trim
+
+A program that writes prose from a spec (a rule's evaluation profile, a policy's
+summary) cannot recover what the spec does not say. Two things are missing, and
+they are different:
+
+- **named points** — points the spec implies but does not single out; its
+  authors' prose makes some of them and not others, a *selection*;
+- **additions** — decisions the spec leaves open that the authors' prose takes.
+
+Give the writer two short per-field lists as data — `author_topics` and
+`author_additions` — and wrap each field's draft in a form that rewrites it to
+keep only what states a listed point. Fields with no lists pass through
+untouched; the branch is deterministic and the rewrite is one `=>` call:
+
+```
+p={author_topics={MET=['states the tests that exercise the change']}, author_additions={MET=['names the test file']}};
+keep_listed={$if%($gt%(#($get%($p.author_topics,$0,[])) + #($get%($p.author_additions,$0,[])), 0),
+  =>('Keep only what states a listed point. POINTS: '++$join%($get%($p.author_topics,$0,[]),'; ')
+     ++' | ADDITIONS: '++$join%($get%($p.author_additions,$0,[]),'; ')++' | DRAFT: '++$1), $1)};
+$keep_listed%('UNCERTAIN','Abstain when the diff is generated code.')   → unchanged (no lists)
+$keep_listed%('MET','A long draft.')                                   → the model's trimmed draft
+```
+
+On the spec lab's invented code-review spec, this pattern — lists read from each
+authored profile, written from the spec plus the lists and trimmed — raises
+clause-level agreement with the authored profiles from 0.35 to 0.50 strict F1 on
+the 8 rules not used for training, and it round-trips: lists read back from the
+written profile reproduce it as closely as re-sampling does. The two lists do
+different jobs: additions recover the clauses the spec leaves open, named points
+the ones it determines, and on these short profiles the named points carry most
+of the gain. The lab's Run tab has the whole loop live (**Gap-filled
+specification**) and a recorded run for each rule; the checked skeleton is
+[`examples/gapfill.sh`](../examples/gapfill.sh).
+
+**Gotcha — don't name a form after a builtin.** A form called `trim` shadows
+`$trim`; nlir warns (`eval::shadowed_builtins`), and the original version of
+this program failed every call until it was renamed `keep_listed`.
+
+---
+
 ## Gotchas
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.

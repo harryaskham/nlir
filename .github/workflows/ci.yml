@@ -45,6 +45,7 @@ jobs:
             "$CARGO_TARGET_DIR/release/nlir" --config config.example.yaml test
             NLIR="$CARGO_TARGET_DIR/release/nlir" bash examples/structure.sh
             NLIR="$CARGO_TARGET_DIR/release/nlir" bash examples/lens.sh
+            NLIR="$CARGO_TARGET_DIR/release/nlir" bash examples/gapfill.sh
             python3 scripts/verify-spec-ops.py
             python3 scripts/verify-spec-lab.py
             cargo test --all
