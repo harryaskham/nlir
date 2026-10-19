@@ -55,7 +55,7 @@
       <label>Writer <input id="liveWriter"></label>
       <label>Judge <input id="liveJudge"></label>
       <p class="muted small">Shared with the spec lab's Run tab; stored only in this browser. The writer writes the profile; the judge pushes edits back and checks consistency.</p>
-      <div class="liverow"><button id="liveRun" class="primary">Run the concept layer on this rule</button><span id="liveStatus" class="small muted"></span></div>
+      <div class="liverow"><button id="liveRun" class="primary">Run the concept layer on this rule</button><button id="liveEdit" disabled title="Edit the rule model and the parts in place">Edit inline</button><span id="liveStatus" class="small muted"></span></div>
       <div class="livecols">
         <div><h3>Edit the rule model</h3><textarea id="liveModel" rows="12" spellcheck="false" disabled></textarea><button id="liveDerive" disabled>Re-derive every part from it</button></div>
         <div><h3>Or edit a sentence</h3><select id="livePart"><option>MET</option><option>NOT MET</option><option>UNCERTAIN</option><option>DECISION BOUNDARY</option><option>APPLICABILITY</option></select>

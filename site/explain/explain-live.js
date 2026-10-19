@@ -123,7 +123,7 @@ async function guard(fn) {
 function syncEditors() {
   const L = liveEntry();
   $('liveModel').value = L ? JSON.stringify((L.concepts_edited || L.concepts).model, null, 1) : '';
-  $('liveModel').disabled = !L; $('liveDerive').disabled = !L || busy; $('livePush').disabled = !L || busy;
+  $('liveModel').disabled = !L; $('liveDerive').disabled = !L || busy; $('livePush').disabled = !L || busy; $('liveEdit').disabled = !L || busy;
   const part = $('livePart').value;
   $('liveSentence').value = L ? L.concepts.parts[part] || '' : '';
   $('liveSentence').disabled = !L;
@@ -147,7 +147,9 @@ async function main() {
   });
   $('liveDerive').onclick = () => guard(async () => {
     const L = liveEntry(); let model;
-    try { model = JSON.parse($('liveModel').value); } catch (e) { throw new Error('The model is not valid JSON.'); }
+    if (E.state.editing && L.draft) model = JSON.parse(JSON.stringify(L.draft));
+    else { try { model = JSON.parse($('liveModel').value); } catch (e) { throw new Error('The model is not valid JSON.'); } }
+    E.state.editing = false; delete L.draft; delete L.draftParts; $('liveEdit').textContent = 'Edit inline';
     const base = E.D.rules.find(r => r.id === L.base);
     const run = await forward({ ...base }, model, 'Re-deriving');
     L.concepts_edited = { model, parts: run.parts, steps: run.steps, verdict: null };
@@ -157,8 +159,22 @@ async function main() {
     status('Re-derived from your model and checked.');
   });
   $('livePart').onchange = syncEditors;
+  $('liveEdit').onclick = () => {
+    const L = liveEntry(); if (!L) return;
+    E.state.editing = !E.state.editing;
+    $('liveEdit').textContent = E.state.editing ? 'Stop editing inline' : 'Edit inline';
+    if (E.state.editing) { E.state.scenario = 'base'; E.state.step = E.steps().length - 1; }
+    E.render();
+  };
   $('livePush').onclick = () => guard(async () => {
-    const L = liveEntry(), part = $('livePart').value, old = L.concepts.parts[part], neu = $('liveSentence').value.trim();
+    const L = liveEntry();
+    let part = $('livePart').value, neu = $('liveSentence').value.trim();
+    if (E.state.editing && L.draftParts) {
+      const changed = Object.keys(L.draftParts).find(k => L.draftParts[k] !== L.concepts.parts[k]);
+      if (changed) { part = changed; neu = L.draftParts[changed]; }
+    }
+    E.state.editing = false; delete L.draft; delete L.draftParts; $('liveEdit').textContent = 'Edit inline';
+    const old = L.concepts.parts[part];
     if (!neu || neu === old) throw new Error('Edit the sentence first.');
     const base = E.D.rules.find(r => r.id === L.base);
     status('Pushing the edit back to the rule model…');

@@ -30,8 +30,15 @@ async page => {
   await page.waitForTimeout(300);
   const nodes = await page.locator('#lane-model .node:not(.none)').count();
   if (!/^Done/.test(st1) || calls.model !== 1 || calls.part !== 5 || nodes !== 3) throw new Error(`forward: ${st1} calls=${JSON.stringify(calls)} nodes=${nodes}`);
-  await page.fill('#liveSentence', 'Mock MET paragraph, unless the on-call lead approves an urgent security patch.');
-  await page.locator('#livePush').click();
+  // Edit inline: change the MET sentence in place, then push it back.
+  await page.locator('#liveEdit').click();
+  await page.waitForTimeout(300);
+  const editable = await page.locator('#lane-model .etext[contenteditable]').count();
+  const met = page.locator('#lane-profile .ptext[data-p="MET"]');
+  await met.click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' Unless the on-call lead approves an urgent security patch.');
+  await page.locator('#narrate button[data-act="livePush"]').click();
   await page.waitForFunction(() => /^Pushed|Cannot|failed|JSON|Edit the/.test(document.querySelector('#liveStatus').textContent), null, { timeout: 60000 });
   const st2 = await page.locator('#liveStatus').innerText();
   const checks = await page.locator('.verdict ul.checks li').count();
@@ -39,6 +46,7 @@ async page => {
   await page.goto(page.url().replace(/step=\d+/, 'step=1'));
   await page.waitForTimeout(600);
   const added = await page.locator('#lane-model .node.added').count();
+  if (editable < 3) throw new Error('inline editor: ' + editable + ' editable nodes');
   if (!/^Pushed/.test(st2) || calls.back !== 1 || calls.check !== 1 || calls.part !== 10 || checks < 3 || !addition || added !== 1) throw new Error(`push: ${st2} calls=${JSON.stringify(calls)} checks=${checks} addition=${addition} added=${added}`);
   if (errors.length) throw new Error('page errors: ' + errors.join(' | '));
   return { ok: true, calls, nodes, checks, added };

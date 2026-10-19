@@ -164,6 +164,7 @@
     if (SC && cur.kind === 'needs') { body.innerHTML = '<div class="empty">This scenario pushes a sentence edit back to the rule model, so it needs the <b>concept layer</b> program' + (state.scenario === 'negation' && !R.negation ? ' — and it is recorded for CR V 1.3 only' : '') + '.</div>'; return []; }
     const extracted = E || SC || S.slice(0, k + 1).some(s => s.id === 'model');
     if (!extracted) { body.innerHTML = '<div class="empty">Not extracted yet. The first model call will read the packet into a model of the rule.</div>'; return []; }
+    if (R.live && state.editing && state.scenario === 'base') return renderModelEditor(R, body);
     const model = SC ? (k >= 1 ? R[state.scenario].model : R.concepts.model) : E && k >= 1 ? R.concepts_edited.model : R.concepts.model;
     const baseText = new Map(nodesOf(R.concepts.model).map(n => [n.group + ':' + n.id, n.text]));
     const base = new Set(nodesOf(R.concepts.model).map(n => n.group + ':' + n.text));
@@ -185,7 +186,36 @@
     return nodes.filter(n => using.includes(n.group));
   }
 
+  // Inline editor (live runs): node texts are editable in place; edits go to R.draft, read by the live module.
+  function renderModelEditor(R, body) {
+    R.draft ||= JSON.parse(JSON.stringify(R.concepts.model));
+    const M = R.draft, groups = [['conditions', 'Conditions', 'all must hold for MET', 'c'], ['permissions', 'Exceptions', 'any one avoids a violation', 'p'], ['facts', 'Facts', 'decide UNCERTAIN', 'f']];
+    body.innerHTML = `<p class="muted small">Editing the rule model: change any node's text, remove one (×) or add one, then press <b>Re-derive</b> in the live panel.</p>
+      <div class="group"><h3>Action being judged</h3><div class="node action edit"><span class="id">act</span><span class="etext" contenteditable="true" data-g="action">${esc(M.action)}</span></div></div>` +
+      groups.map(([g, name, note, pre]) => `<div class="group"><h3>${name} <small>${note}</small></h3>${(M[g] || []).map((n, i) => `<div class="node ${g} edit"><span class="id">${esc(n.id)}</span><span class="etext" contenteditable="true" data-g="${g}" data-i="${i}">${esc(n.text)}</span><button class="x" data-g="${g}" data-i="${i}" title="Remove this node">×</button></div>`).join('')}<button class="addnode" data-g="${g}" data-pre="${pre}">+ add ${name === 'Exceptions' ? 'an exception' : name === 'Facts' ? 'a fact' : 'a condition'}</button></div>`).join('');
+    body.querySelectorAll('.etext').forEach(el => el.addEventListener('input', () => {
+      const g = el.dataset.g;
+      if (g === 'action') M.action = el.textContent.trim(); else M[g][Number(el.dataset.i)].text = el.textContent.trim();
+    }));
+    body.querySelectorAll('button.x').forEach(b => (b.onclick = () => { M[b.dataset.g].splice(Number(b.dataset.i), 1); render(); }));
+    body.querySelectorAll('button.addnode').forEach(b => (b.onclick = () => {
+      const list = (M[b.dataset.g] ||= []);
+      list.push({ id: `${b.dataset.pre}${list.length + 1}`, text: 'New node: edit me', source: '(added by the author)', ...(b.dataset.g === 'facts' ? { decides: [] } : {}) });
+      render();
+      const last = [...body.querySelectorAll(`.etext[data-g="${b.dataset.g}"]`)].at(-1);
+      if (last) { last.focus(); document.getSelection().selectAllChildren(last); }
+    }));
+    return [];
+  }
+
   function renderProfile(S, k) {
+    const RR = rule();
+    if (RR.live && state.editing && state.scenario === 'base') {
+      RR.draftParts ||= { ...RR.concepts.parts };
+      $('lane-profile').querySelector('.body').innerHTML = `<p class="muted small">Or edit one part's sentence, then press <b>Push back</b> in the live panel.</p>` + PARTS.map(p => `<div class="part edit" data-part="${esc(p)}"><h3>${LABEL[p]}${RR.draftParts[p] !== RR.concepts.parts[p] ? ' <span class="chip changed">edited</span>' : ''}</h3><div class="ptext" contenteditable="true" data-p="${esc(p)}">${esc(RR.draftParts[p])}</div></div>`).join('');
+      $('lane-profile').querySelectorAll('.ptext[contenteditable]').forEach(el => el.addEventListener('input', () => { RR.draftParts[el.dataset.p] = el.textContent.trim(); }));
+      return;
+    }
     const shown = profileAt(S, k), cur = S[k];
     $('lane-profile').querySelector('.body').innerHTML = PARTS.map(p => {
       const x = shown[p];
@@ -269,6 +299,11 @@
       const SCn = (state.scenario === 'sentence' || state.scenario === 'negation') && R[state.scenario];
       const ch = (SCn ? R[state.scenario].parts : P === 'concepts' ? R.concepts_edited.parts : R[P].edited)[cur.id] !== (P === 'concepts' ? R.concepts.parts : R[P].parts)[cur.id];
       html = `<b>${LABEL[cur.id]}</b> is written again from the ${P === 'concepts' ? 'edited model' : 'pinned MET'}. ${ch ? 'It changed — insertions underlined, deletions struck through.' : 'It came out unchanged.'}`;
+    }
+    if (R.live && state.editing && state.scenario === 'base') {
+      $('narrate').innerHTML = `<p><b>Editing.</b> Change the rule model's nodes (middle) and press <button class="act" data-act="liveDerive">Re-derive every part</button>, or change one part's sentence (right) and press <button class="act" data-act="livePush">Push it back to the model</button>. <button class="act ghost" data-act="liveEdit">Cancel</button></p>`;
+      $('narrate').querySelectorAll('button.act').forEach(b => (b.onclick = () => $(b.dataset.act).click()));
+      return;
     }
     $('narrate').innerHTML = `<p>${html}</p>`;
   }

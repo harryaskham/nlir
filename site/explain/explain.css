@@ -107,3 +107,13 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 .live button.primary { background: var(--ink); color: var(--paper); }
 .live button:disabled { opacity: .45; cursor: default; }
 @media (max-width: 1000px) { .liveform, .livecols { grid-template-columns: 1fr; } }
+
+.node.edit, .part.edit { border-style: solid; border-color: var(--accent); }
+.etext[contenteditable], .ptext[contenteditable] { outline: none; display: inline-block; min-width: 4rem; border-bottom: 1px dashed var(--accent); }
+.part.edit .ptext[contenteditable] { display: block; }
+.node .x { position: absolute; right: .3rem; top: .25rem; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; }
+.node .x:hover { color: var(--danger); }
+.addnode { font: 500 .78rem var(--sans); border: 1px dashed var(--rule-strong); background: transparent; border-radius: var(--r-sm); padding: .2rem .5rem; cursor: pointer; color: var(--accent-ink); }
+
+.narrate button.act { font: 500 .85rem var(--sans); padding: .2rem .6rem; margin: 0 .2rem; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent-ink); cursor: pointer; }
+.narrate button.act.ghost { border-color: var(--rule-strong); background: transparent; color: var(--muted); }
