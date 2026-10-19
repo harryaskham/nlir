@@ -67,7 +67,7 @@
     const S = [];
     if (state.scenario === 'sentence' || state.scenario === 'negation') {
       if (P !== 'concepts' || !R[state.scenario]) return [{ kind: 'needs', id: state.scenario }];
-      return [{ kind: 'sentence-edit', id: 'MET' }, { kind: 'backward' }, ...PARTS.map(id => ({ kind: 'rederive', id })), { kind: 'check' }];
+      return [{ kind: 'sentence-edit', id: R[state.scenario].part || 'MET' }, { kind: 'backward' }, ...PARTS.map(id => ({ kind: 'rederive', id })), { kind: 'check' }];
     }
     if (P === 'concepts' && !E) {
       S.push({ kind: 'start' }, { kind: 'call', id: 'model' }, ...PARTS.map(id => ({ kind: 'call', id })), { kind: 'done' });
@@ -88,14 +88,14 @@
     const R = rule(), P = state.program, E = state.scenario === 'edit';
     const SC = state.scenario === 'sentence' || state.scenario === 'negation';
     const base = P === 'concepts' ? R.concepts.parts : R[P].parts;
-    const edited = SC && R[state.scenario] ? R[state.scenario].parts : P === 'concepts' ? R.concepts_edited.parts : R[P].edited;
+    const edited = SC && R[state.scenario] ? R[state.scenario].parts : P === 'concepts' ? R.concepts_edited?.parts : R[P]?.edited;
     if (SC) {
       const shown = {}, cur = S[k], X = R[state.scenario];
       if (!X || cur.kind === 'needs') { for (const p of PARTS) shown[p] = { text: base[p] }; return shown; }
       const redone = new Set(S.slice(0, k + 1).filter(s => s.kind === 'rederive').map(s => s.id));
       for (const p of PARTS) {
         if (redone.has(p) || cur.kind === 'check') { const now = edited[p]; shown[p] = { text: now, diff: now !== base[p] ? diff(base[p], now) : null, unchanged: now === base[p] }; }
-        else if (p === 'MET') shown[p] = { text: X.new, diff: diff(X.old, X.new), edited: true };
+        else if (p === (X.part || 'MET')) shown[p] = { text: X.new, diff: diff(X.old, X.new), edited: true };
         else shown[p] = { text: base[p] };
       }
       return shown;
@@ -174,8 +174,8 @@
       const ns = nodes.filter(n => n.group === g);
       const items = ns.length ? ns.map(n => {
         const was = baseText.get(n.group + ':' + n.id);
-        const added = !base.has(n.group + ':' + n.text) && (was === undefined || !SC);
-        const changed = SC && was !== undefined && was !== n.text;
+        const added = !base.has(n.group + ':' + n.text) && (was === undefined || !(SC || R.live));
+        const changed = (SC || R.live) && was !== undefined && was !== n.text;
         const unsourced = !n.source || /not in the packet|added by the author/i.test(n.source);
         const note = added ? `<small class="addnote">${SC ? 'added by the backward pass' : 'added by the author'}${unsourced ? ' — not in the spec' : ''}</small>` : changed ? `<small class="addnote">changed by the backward pass${unsourced ? ' — not in the spec' : ''}</small>` : '';
         return `<div class="node ${g}${using.includes(g) || (cur.kind === 'backward' && (added || changed)) ? ' on' : ''}${added || changed ? ' added' : ''}" data-node="${esc(n.id)}"><span class="id">${esc(n.id)}</span>${esc(n.text)}${changed ? `<small class="was">was: ${esc(was)}</small>` : ''}${n.decides ? `<small>decides ${esc(n.decides.join(', '))}</small>` : ''}${note ? note : n.source ? `<small class="src" title="${esc(n.source)}">“${esc((t => t.length > 80 ? t.slice(0, 80) + '…' : t)(n.source.replace(/^["“”\s]+|["“”\s]+$/g, '').replace(/\*\*/g, '')))}”</small>` : ''}</div>`;
@@ -219,7 +219,7 @@
     const box = $('call');
     let st = null;
     if (P === 'concepts' && cur.kind === 'call') st = R.concepts.steps.find(s => s.id === cur.id);
-    if (P === 'concepts' && cur.kind === 'rederive') st = R.concepts_edited.steps.find(s => s.id === cur.id);
+    if (P === 'concepts' && cur.kind === 'rederive' && state.scenario === 'edit') st = R.concepts_edited?.steps.find(s => s.id === cur.id);
     if (cur.kind === 'backward' && R[state.scenario]) {
       const X = R[state.scenario];
       box.innerHTML = `<h2>The backward call · from the edited sentence to the rule model</h2>
@@ -251,11 +251,11 @@
         : 'The flat program writes each of the five parts with its own model call on the same packet and worked examples. The calls do not see each other.',
       done: P === 'concepts' ? 'All five parts come from the same nodes, so they agree by construction: MET is the action with every condition and no exception; NOT MET is exactly the rest; UNCERTAIN names the deciding facts.'
         : P === 'chained' ? 'The verdict parts are linked by what they read; nothing else forces them to agree.' : 'Five independent paragraphs. They agree only as far as the same packet led each call to the same reading.',
-      'edit-start': `An author adds an exception the spec does not contain: <q>${esc(R.exception)}</q>. Where does it go, and which parts follow?`,
-      'edit-node': 'In the concept layer the exception becomes one new node — an exception marked as added by the author. Nothing else in the model changes; every part is now written again from it.',
+      'edit-start': R.live ? 'You edited the rule model. Which parts follow?' : `An author adds an exception the spec does not contain: <q>${esc(R.exception)}</q>. Where does it go, and which parts follow?`,
+      'edit-node': R.live ? 'Your edit, in the model: changed and added nodes are outlined, with the old text struck through. Every part is now written again from the edited model.' : 'In the concept layer the exception becomes one new node — an exception marked as added by the author. Nothing else in the model changes; every part is now written again from it.',
       stuck: 'In the flat program nothing connects MET to the other parts, so NOT MET and UNCERTAIN stay exactly as they were — the profile now says one thing in MET and another in NOT MET.',
-      verdict: 'A judge read each program\'s edited profile and answered three questions about the exception case.',
-      'sentence-edit': state.scenario === 'negation' ? 'The author reverses MET: “does not approve” where the rule says approving is the violation. This edit contradicts the spec.' : `The author edits MET's sentence directly, appending the exception: <q>${esc(R.exception)}</q>.`,
+      verdict: R.live ? 'The consistency check reads the re-derived profile, your model and the packet: do MET and NOT MET overlap, does a case fall between them, and is each node the spec does not state an addition or a contradiction?' : 'A judge read each program\'s edited profile and answered three questions about the exception case.',
+      'sentence-edit': R.live ? `You edited ${LABEL[R.sentence?.part || 'MET']}'s sentence.` : state.scenario === 'negation' ? 'The author reverses MET: “does not approve” where the rule says approving is the violation. This edit contradicts the spec.' : `The author edits MET's sentence directly, appending the exception: <q>${esc(R.exception)}</q>.`,
       backward: 'The backward pass: one model call reads the rule model, the packet and the edit, and decides which nodes the edit changes. Changed and added nodes are outlined; a node with no packet passage behind it is marked as not in the spec.',
       check: 'The consistency check reads the re-derived profile, the rule model and the packet: do MET and NOT MET overlap, does any case fall between them, and is each node the spec does not state an addition (the spec is silent) or a contradiction (the spec says otherwise)?',
       needs: 'Pushing a sentence edit back needs a shared rule model to push it into. The flat and chained programs have none: switch to the concept layer.',
@@ -273,14 +273,26 @@
     $('narrate').innerHTML = `<p>${html}</p>`;
   }
 
+  function checkHtml(C, v) {
+    const flag = (b, txt) => `<li class="${b ? 'bad' : 'ok'}">${txt}</li>`;
+    const nodes = (C.nodes || []).map(n => `<li><b>${esc(n.id)}</b> — ${n.kind === 'contradiction' ? `<span class="bad">contradicts the spec</span>${n.passage ? `: <q>${esc(n.passage.replace(/\*\*/g, '').replace(/"[a-z_]+":/gi, ' ').replace(/["{},]+/g, ' ').replace(/\s+/g, ' ').trim())}</q>` : ''}` : '<span class="ok">an addition: the spec is silent</span>'}</li>`).join('');
+    return `<h2>Consistency check</h2><ul class="checks">${flag(C.overlap, C.overlap ? `MET and NOT MET overlap — e.g. ${esc(C.overlap_case)}` : 'MET and NOT MET do not overlap')}${flag(C.gap, C.gap ? `A case falls between them — e.g. ${esc(C.gap_case)}` : 'No case falls between MET, NOT MET and UNCERTAIN')}</ul>${nodes ? `<h3>Nodes the spec does not state</h3><ul class="checks">${nodes}</ul>` : ''}<p class="muted small">Warnings only: the check never edits. It is strict — on the authors' own toy profiles it reports gaps for 5 of 8 rules and overlaps for 6 — so read a flag as something to look at, not a defect.</p>`;
+  }
+
   function renderVerdict(R, S, k) {
     const box = $('verdict');
     if (S[k].kind === 'check' && R[state.scenario]) {
       const X = R[state.scenario], C = X.check || {};
+      if (R.live) { box.innerHTML = X.check ? checkHtml(X.check, null) : '<h2>Consistency check</h2><p class="muted">Running…</p>'; return; }
       const flag = (b, txt) => `<li class="${b ? 'bad' : 'ok'}">${txt}</li>`;
       const nodes = (C.nodes || []).map(n => `<li><b>${esc(n.id)}</b> — ${n.kind === 'contradiction' ? `<span class="bad">contradicts the spec</span>${n.passage ? `: <q>${esc(n.passage.replace(/\*\*/g, '').replace(/"[a-z_]+":/gi, ' ').replace(/["{},]+/g, ' ').replace(/\s+/g, ' ').trim())}</q>` : ''}` : '<span class="ok">an addition: the spec is silent</span>'}</li>`).join('');
       const v = X.verdict;
       box.innerHTML = `<h2>Consistency check</h2><ul class="checks">${flag(C.overlap, C.overlap ? `MET and NOT MET overlap — e.g. ${esc(C.overlap_case)}` : 'MET and NOT MET do not overlap')}${flag(C.gap, C.gap ? `A case falls between them — e.g. ${esc(C.gap_case)}` : 'No case falls between MET, NOT MET and UNCERTAIN')}</ul>${nodes ? `<h3>Nodes the spec does not state</h3><ul class="checks">${nodes}</ul>` : ''}${v ? `<p class="muted small">The propagation judge on this profile: MET excludes the exception — ${v.met_excludes ? 'yes' : 'no'}; NOT MET covers it — ${v.not_met_covers ? 'yes' : 'no'}; overlap — ${v.overlap ? 'yes' : 'no'}.</p>` : ''}<p class="muted small">Warnings only: the check never edits. Across the eight rules' sentence edits it found no overlap; it flagged exceptions added to absolute “must not” rules as contradicting them, and a few cases the re-derived NOT MET does not cover.</p>`;
+      return;
+    }
+    if (state.scenario === 'edit' && S[k].kind === 'verdict' && R.live) {
+      const C = R.concepts_edited?.check;
+      box.innerHTML = C ? checkHtml(C, null) : '<h2>Consistency check</h2><p class="muted">Running…</p>';
       return;
     }
     if (state.scenario !== 'edit' || S[k].kind !== 'verdict') { box.innerHTML = ''; return; }
@@ -329,4 +341,16 @@
   $('foot').textContent = `Recorded passes: writer ${D.models.writer}; exceptions and judge ${D.models['exceptions and judge']}. ${D.method}`;
   fromHash();
   render();
+  window.EXPLAIN = {
+    D, state, render, steps, rule,
+    // Add or replace a rule entry (a live run) and show it in the given scenario.
+    show(entry, scenario, step = 0) {
+      const i = D.rules.findIndex(r => r.id === entry.id);
+      if (i >= 0) D.rules[i] = entry; else D.rules.push(entry);
+      $('rule').innerHTML = D.rules.map((r, j) => `<option value="${j}">${esc(r.id)} · ${esc(r.title)}</option>`).join('');
+      state.rule = D.rules.findIndex(r => r.id === entry.id); state.program = 'concepts'; state.scenario = scenario; state.step = step;
+      render();
+    },
+  };
+  document.dispatchEvent(new Event('explain-ready'));
 })();

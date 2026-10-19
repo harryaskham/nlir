@@ -92,3 +92,18 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 .checks li.ok::marker { content: '✓  '; color: var(--accent-ink); }
 .checks li.bad::marker { content: '!  '; color: var(--danger); }
 .checks q { font-style: italic; }
+
+.live { margin: .8rem 0; border: 1px solid var(--rule-strong); border-radius: var(--r); padding: .5rem .8rem; }
+.live summary { cursor: pointer; }
+.liveform { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem 1rem; margin-top: .6rem; }
+.liveform label { display: flex; flex-direction: column; font-size: .8rem; color: var(--muted); }
+.liveform input, .liveform textarea, .liveform select { font: .85rem var(--mono); padding: .3rem .4rem; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); color: var(--ink); }
+.liveform p, .liverow, .livecols { grid-column: 1 / -1; }
+.liverow { display: flex; gap: .8rem; align-items: center; }
+.livecols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.livecols textarea { width: 100%; box-sizing: border-box; margin: .3rem 0; }
+.livecols h3 { font: 600 .82rem var(--sans); margin: .3rem 0; }
+.live button { font: 500 .85rem var(--sans); padding: .35rem .7rem; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); cursor: pointer; }
+.live button.primary { background: var(--ink); color: var(--paper); }
+.live button:disabled { opacity: .45; cursor: default; }
+@media (max-width: 1000px) { .liveform, .livecols { grid-template-columns: 1fr; } }

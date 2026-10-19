@@ -89,6 +89,16 @@ no overlap (0/8); it reads exceptions added to absolute "must not" rules as cont
 (5 nodes) and finds 4/8 cases the re-derived NOT MET does not cover — a reason to derive
 NOT MET as an explicit disjunction over the nodes. It warns; it never edits.
 
+## How strict is the check?
+
+Run on the eight **authored** toy profiles (with an empty model, so only the overlap and gap questions apply),
+the check reports a gap for 5/8 and an overlap between MET and NOT MET for 6/8. It is strict: its gap
+cases are plausible but pedantic (an approval with no conditions and no out-of-scope ideas, say). Its flags are
+prompts for review, not defects — and by the same check the concept layer's unedited profiles overlap less often
+than the authors' (1/8 against 6/8). Deriving NOT MET as an explicit disjunction over the model's nodes
+(`program-b-concepts-or.nlir`) did not close the gaps: 3/8 against 4/8 for the concept layer, at
+31 words against 27 for NOT MET. Not carried.
+
 ## The explainer page
 
 `site/explain/` steps through recorded passes of the three programs on the eight rules: spec passages, the
@@ -96,10 +106,15 @@ rule model and the profile in three lanes, arrows for the active step, every mod
 coloured by provenance, plain-language narration, the author's exception added as a node, a sentence edit
 pushed back to the model, the reversal, and the checks. `scripts/export-explain-traces.py` builds its data.
 
+**Live mode** runs the same loop in the browser on your own endpoint (the spec lab's saved endpoint is
+shared): the concept layer forward, part by part, with every prompt captured as it is sent; your edits to
+the rule model (as JSON) re-derived and checked; or a sentence edit pushed back through
+`lens-concepts.nlir`, re-derived and checked. `scripts/check-explain-live.js` exercises it against a mock
+endpoint; it was also run once against real models.
+
 ## Next
 
-- **Live mode** for the explainer: the same lanes with your own endpoint, any edit, any rule.
-- **NOT MET as an explicit disjunction** over the model's nodes, to close the gaps the check finds.
+- **Inline editing** in the explainer: edit a node or a sentence where it is shown, not as JSON.
 - **The health lab**: the same page over the private rules, embedded like the Run tab.
 - **Measure** the concept layer against the flat program on the private validation rules, behind the
   carry rule, with consistency under edits as a second criterion.
