@@ -85,3 +85,10 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
   .call .cols { grid-template-columns: 1fr; }
   .stepper { margin-left: 0; }
 }
+
+.node .was { color: var(--muted); text-decoration: line-through; }
+.checks { margin: .3rem 0 .6rem; padding-left: 1.2rem; }
+.checks li { margin: .25rem 0; }
+.checks li.ok::marker { content: '✓  '; color: var(--accent-ink); }
+.checks li.bad::marker { content: '!  '; color: var(--danger); }
+.checks q { font-style: italic; }

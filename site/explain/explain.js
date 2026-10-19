@@ -20,7 +20,7 @@
     const i = D.rules.findIndex(r => r.id === h.get('rule'));
     if (i >= 0) state.rule = i;
     if (PROGRAMS[h.get('program')]) state.program = h.get('program');
-    if (['base', 'edit'].includes(h.get('scenario'))) state.scenario = h.get('scenario');
+    if (['base', 'edit', 'sentence', 'negation'].includes(h.get('scenario'))) state.scenario = h.get('scenario');
     state.step = Math.max(0, Number(h.get('step')) || 0);
   };
   const toHash = () => history.replaceState(null, '', '#' + new URLSearchParams({ rule: rule().id, program: state.program, scenario: state.scenario, step: state.step }));
@@ -65,6 +65,10 @@
   function steps() {
     const R = rule(), P = state.program, E = state.scenario === 'edit';
     const S = [];
+    if (state.scenario === 'sentence' || state.scenario === 'negation') {
+      if (P !== 'concepts' || !R[state.scenario]) return [{ kind: 'needs', id: state.scenario }];
+      return [{ kind: 'sentence-edit', id: 'MET' }, { kind: 'backward' }, ...PARTS.map(id => ({ kind: 'rederive', id })), { kind: 'check' }];
+    }
     if (P === 'concepts' && !E) {
       S.push({ kind: 'start' }, { kind: 'call', id: 'model' }, ...PARTS.map(id => ({ kind: 'call', id })), { kind: 'done' });
     } else if (P === 'concepts') {
@@ -82,8 +86,20 @@
   // The profile shown at a step: which parts are written yet, which changed, which is active.
   function profileAt(S, k) {
     const R = rule(), P = state.program, E = state.scenario === 'edit';
+    const SC = state.scenario === 'sentence' || state.scenario === 'negation';
     const base = P === 'concepts' ? R.concepts.parts : R[P].parts;
-    const edited = P === 'concepts' ? R.concepts_edited.parts : R[P].edited;
+    const edited = SC && R[state.scenario] ? R[state.scenario].parts : P === 'concepts' ? R.concepts_edited.parts : R[P].edited;
+    if (SC) {
+      const shown = {}, cur = S[k], X = R[state.scenario];
+      if (!X || cur.kind === 'needs') { for (const p of PARTS) shown[p] = { text: base[p] }; return shown; }
+      const redone = new Set(S.slice(0, k + 1).filter(s => s.kind === 'rederive').map(s => s.id));
+      for (const p of PARTS) {
+        if (redone.has(p) || cur.kind === 'check') { const now = edited[p]; shown[p] = { text: now, diff: now !== base[p] ? diff(base[p], now) : null, unchanged: now === base[p] }; }
+        else if (p === 'MET') shown[p] = { text: X.new, diff: diff(X.old, X.new), edited: true };
+        else shown[p] = { text: base[p] };
+      }
+      return shown;
+    }
     const shown = {}, cur = S[k];
     if (!E) {
       const written = new Set(S.slice(0, k + 1).filter(s => s.kind === 'call' || s.kind === 'write').map(s => s.id));
@@ -144,9 +160,12 @@
         <p class="muted small">Applicability and the decision boundary are written from the packet alone. Each verdict part reads the ones above it, which are authoritative where they narrow or extend the packet.</p>`;
       return [];
     }
-    const extracted = E || S.slice(0, k + 1).some(s => s.id === 'model');
+    const SC = state.scenario === 'sentence' || state.scenario === 'negation';
+    if (SC && cur.kind === 'needs') { body.innerHTML = '<div class="empty">This scenario pushes a sentence edit back to the rule model, so it needs the <b>concept layer</b> program' + (state.scenario === 'negation' && !R.negation ? ' — and it is recorded for CR V 1.3 only' : '') + '.</div>'; return []; }
+    const extracted = E || SC || S.slice(0, k + 1).some(s => s.id === 'model');
     if (!extracted) { body.innerHTML = '<div class="empty">Not extracted yet. The first model call will read the packet into a model of the rule.</div>'; return []; }
-    const model = E && k >= 1 ? R.concepts_edited.model : R.concepts.model;
+    const model = SC ? (k >= 1 ? R[state.scenario].model : R.concepts.model) : E && k >= 1 ? R.concepts_edited.model : R.concepts.model;
+    const baseText = new Map(nodesOf(R.concepts.model).map(n => [n.group + ':' + n.id, n.text]));
     const base = new Set(nodesOf(R.concepts.model).map(n => n.group + ':' + n.text));
     const nodes = nodesOf(model);
     const using = cur.kind === 'call' || cur.kind === 'rederive' ? USES[cur.id] || [] : cur.id === 'model' ? ['action', 'conditions', 'permissions', 'facts'] : [];
@@ -154,8 +173,12 @@
     body.innerHTML = groups.map(([g, name, note]) => {
       const ns = nodes.filter(n => n.group === g);
       const items = ns.length ? ns.map(n => {
-        const added = !base.has(n.group + ':' + n.text);
-        return `<div class="node ${g}${using.includes(g) ? ' on' : ''}${added ? ' added' : ''}" data-node="${esc(n.id)}"><span class="id">${esc(n.id)}</span>${esc(n.text)}${n.decides ? `<small>decides ${esc(n.decides.join(', '))}</small>` : ''}${added ? '<small class="addnote">added by the author — not in the spec</small>' : n.source ? `<small class="src" title="${esc(n.source)}">“${esc((t => t.length > 80 ? t.slice(0, 80) + '…' : t)(n.source.replace(/^["“”\s]+|["“”\s]+$/g, '').replace(/\*\*/g, '')))}”</small>` : ''}</div>`;
+        const was = baseText.get(n.group + ':' + n.id);
+        const added = !base.has(n.group + ':' + n.text) && (was === undefined || !SC);
+        const changed = SC && was !== undefined && was !== n.text;
+        const unsourced = !n.source || /not in the packet|added by the author/i.test(n.source);
+        const note = added ? `<small class="addnote">${SC ? 'added by the backward pass' : 'added by the author'}${unsourced ? ' — not in the spec' : ''}</small>` : changed ? `<small class="addnote">changed by the backward pass${unsourced ? ' — not in the spec' : ''}</small>` : '';
+        return `<div class="node ${g}${using.includes(g) || (cur.kind === 'backward' && (added || changed)) ? ' on' : ''}${added || changed ? ' added' : ''}" data-node="${esc(n.id)}"><span class="id">${esc(n.id)}</span>${esc(n.text)}${changed ? `<small class="was">was: ${esc(was)}</small>` : ''}${n.decides ? `<small>decides ${esc(n.decides.join(', '))}</small>` : ''}${note ? note : n.source ? `<small class="src" title="${esc(n.source)}">“${esc((t => t.length > 80 ? t.slice(0, 80) + '…' : t)(n.source.replace(/^["“”\s]+|["“”\s]+$/g, '').replace(/\*\*/g, '')))}”</small>` : ''}</div>`;
       }).join('') : '<div class="node none">none</div>';
       return `<div class="group"><h3>${name}${note ? ` <small>${note}</small>` : ''}</h3>${items}</div>`;
     }).join('');
@@ -166,8 +189,8 @@
     const shown = profileAt(S, k), cur = S[k];
     $('lane-profile').querySelector('.body').innerHTML = PARTS.map(p => {
       const x = shown[p];
-      const on = cur.id === p && ['call', 'rederive', 'write', 'pin'].includes(cur.kind);
-      const chip = x?.diff ? '<span class="chip changed">changed</span>' : x?.unchanged ? '<span class="chip">unchanged</span>' : '';
+      const on = cur.id === p && ['call', 'rederive', 'write', 'pin', 'sentence-edit'].includes(cur.kind);
+      const chip = x?.edited ? '<span class="chip changed">edited by the author</span>' : x?.diff ? '<span class="chip changed">changed</span>' : x?.unchanged ? '<span class="chip">unchanged</span>' : '';
       return `<div class="part${on ? ' on' : ''}${x ? '' : ' pending'}" data-part="${esc(p)}"><h3>${LABEL[p]} ${chip}</h3><div class="ptext">${x ? (x.diff || esc(x.text)) : '<span class="muted">not written yet</span>'}</div></div>`;
     }).join('');
   }
@@ -197,6 +220,14 @@
     let st = null;
     if (P === 'concepts' && cur.kind === 'call') st = R.concepts.steps.find(s => s.id === cur.id);
     if (P === 'concepts' && cur.kind === 'rederive') st = R.concepts_edited.steps.find(s => s.id === cur.id);
+    if (cur.kind === 'backward' && R[state.scenario]) {
+      const X = R[state.scenario];
+      box.innerHTML = `<h2>The backward call · from the edited sentence to the rule model</h2>
+        <p class="muted small">One model call (the judge model) reads the rule model, the packet and MET before and after the edit (<code>lens-concepts.nlir</code>), and replies with node edits — change a node, add one, remove one — each with the packet passage it rests on, or none. Applying them is deterministic.</p>
+        <div class="cols"><div><h3>Edit</h3><div class="prompt">${diff(X.old, X.new)}</div></div><div><h3>Node edits returned</h3><pre class="resp">${esc(JSON.stringify(X.edits, null, 1))}</pre><p class="small"><b>Why:</b> ${esc(X.why)}</p></div></div>`;
+      return;
+    }
+    if (P === 'concepts' && cur.kind === 'rederive' && R[state.scenario] && (state.scenario === 'sentence' || state.scenario === 'negation')) { box.innerHTML = `<h2>The model call · ${LABEL[cur.id]}</h2><p class="muted small">The same call as in the forward pass, with the edited rule model pinned in place of the extracted one.</p>`; return; }
     if (!st) { box.innerHTML = ''; return; }
     const KIND = { program: 'program text', examples: 'worked examples (data)', packet: 'spec packet (data)', field: "this part's instruction", model: 'rule model (from step 1)', derive: 'derivation rule' };
     const seg = s => {
@@ -224,6 +255,10 @@
       'edit-node': 'In the concept layer the exception becomes one new node — an exception marked as added by the author. Nothing else in the model changes; every part is now written again from it.',
       stuck: 'In the flat program nothing connects MET to the other parts, so NOT MET and UNCERTAIN stay exactly as they were — the profile now says one thing in MET and another in NOT MET.',
       verdict: 'A judge read each program\'s edited profile and answered three questions about the exception case.',
+      'sentence-edit': state.scenario === 'negation' ? 'The author reverses MET: “does not approve” where the rule says approving is the violation. This edit contradicts the spec.' : `The author edits MET's sentence directly, appending the exception: <q>${esc(R.exception)}</q>.`,
+      backward: 'The backward pass: one model call reads the rule model, the packet and the edit, and decides which nodes the edit changes. Changed and added nodes are outlined; a node with no packet passage behind it is marked as not in the spec.',
+      check: 'The consistency check reads the re-derived profile, the rule model and the packet: do MET and NOT MET overlap, does any case fall between them, and is each node the spec does not state an addition (the spec is silent) or a contradiction (the spec says otherwise)?',
+      needs: 'Pushing a sentence edit back needs a shared rule model to push it into. The flat and chained programs have none: switch to the concept layer.',
     };
     let html = T[cur.kind] || '';
     if (cur.kind === 'call' && cur.id === 'model') html = `<b>Step ${k + 1}.</b> One model call reads the packet and returns a small model of the rule: ${cnt(M, 'conditions')} condition${cnt(M, 'conditions') === 1 ? '' : 's'} that must all hold, ${cnt(M, 'permissions')} exception${cnt(M, 'permissions') === 1 ? '' : 's'}, ${cnt(M, 'facts')} fact${cnt(M, 'facts') === 1 ? '' : 's'} a verdict turns on. Each node quotes the passage it rests on — highlighted on the left.`;
@@ -231,7 +266,8 @@
     if (cur.kind === 'write') html = `<b>${LABEL[cur.id]}.</b> ${P === 'chained' && cur.id === 'NOT MET' ? 'Written from the packet <i>and</i> the MET paragraph above it, as its exact contrast.' : P === 'chained' && cur.id === 'UNCERTAIN' ? 'Written from the packet and both verdict paragraphs above it.' : 'Written from the packet and the worked examples only.'}`;
     if (cur.kind === 'pin') html = P === 'chained' ? 'The author pins an edited MET: the exception is added to it. A pinned part makes no model call; the parts after it are re-derived from it.' : 'The author edits MET: the exception is added to it.';
     if (cur.kind === 'rederive') {
-      const ch = (P === 'concepts' ? R.concepts_edited.parts : R[P].edited)[cur.id] !== (P === 'concepts' ? R.concepts.parts : R[P].parts)[cur.id];
+      const SCn = (state.scenario === 'sentence' || state.scenario === 'negation') && R[state.scenario];
+      const ch = (SCn ? R[state.scenario].parts : P === 'concepts' ? R.concepts_edited.parts : R[P].edited)[cur.id] !== (P === 'concepts' ? R.concepts.parts : R[P].parts)[cur.id];
       html = `<b>${LABEL[cur.id]}</b> is written again from the ${P === 'concepts' ? 'edited model' : 'pinned MET'}. ${ch ? 'It changed — insertions underlined, deletions struck through.' : 'It came out unchanged.'}`;
     }
     $('narrate').innerHTML = `<p>${html}</p>`;
@@ -239,6 +275,14 @@
 
   function renderVerdict(R, S, k) {
     const box = $('verdict');
+    if (S[k].kind === 'check' && R[state.scenario]) {
+      const X = R[state.scenario], C = X.check || {};
+      const flag = (b, txt) => `<li class="${b ? 'bad' : 'ok'}">${txt}</li>`;
+      const nodes = (C.nodes || []).map(n => `<li><b>${esc(n.id)}</b> — ${n.kind === 'contradiction' ? `<span class="bad">contradicts the spec</span>${n.passage ? `: <q>${esc(n.passage.replace(/\*\*/g, '').replace(/"[a-z_]+":/gi, ' ').replace(/["{},]+/g, ' ').replace(/\s+/g, ' ').trim())}</q>` : ''}` : '<span class="ok">an addition: the spec is silent</span>'}</li>`).join('');
+      const v = X.verdict;
+      box.innerHTML = `<h2>Consistency check</h2><ul class="checks">${flag(C.overlap, C.overlap ? `MET and NOT MET overlap — e.g. ${esc(C.overlap_case)}` : 'MET and NOT MET do not overlap')}${flag(C.gap, C.gap ? `A case falls between them — e.g. ${esc(C.gap_case)}` : 'No case falls between MET, NOT MET and UNCERTAIN')}</ul>${nodes ? `<h3>Nodes the spec does not state</h3><ul class="checks">${nodes}</ul>` : ''}${v ? `<p class="muted small">The propagation judge on this profile: MET excludes the exception — ${v.met_excludes ? 'yes' : 'no'}; NOT MET covers it — ${v.not_met_covers ? 'yes' : 'no'}; overlap — ${v.overlap ? 'yes' : 'no'}.</p>` : ''}<p class="muted small">Warnings only: the check never edits. Across the eight rules' sentence edits it found no overlap; it flagged exceptions added to absolute “must not” rules as contradicting them, and a few cases the re-derived NOT MET does not cover.</p>`;
+      return;
+    }
     if (state.scenario !== 'edit' || S[k].kind !== 'verdict') { box.innerHTML = ''; return; }
     const mark = (v, good) => `<span class="${v === good ? 'ok' : 'bad'}">${v ? 'yes' : 'no'}</span>`;
     const row = (p, name) => { const v = (p === 'concepts' ? R.concepts_edited : R[p]).verdict, s = D.summary[p === 'flat' ? 'clean' : p];

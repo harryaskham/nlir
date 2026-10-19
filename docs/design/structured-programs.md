@@ -63,16 +63,45 @@ its packet does not contain; each program receives it as an edit and Sol judges 
 An edit to a flat profile stays where it was made. Chaining carries it to every later part, with
 occasional overlap; the concept layer carries it everywhere and keeps the parts a partition.
 
+## Backward through the concept layer
+
+`site/spec-lab/lens-concepts.nlir` pushes an edited sentence back to the rule model: one model call reads
+the model, the packet and the part before and after the edit, and returns node edits — change a node, add
+one, remove one — each with the packet passage it rests on, or none. Applying them is deterministic; the
+forward pass then re-derives every part from the edited model.
+
+Closed loop on the eight rules, the same exceptions made as sentence edits to MET: the backward pass
+returned a new exception node for 7/8 (the eighth narrowed an existing exception instead),
+each marked as not in the packet; after re-derivation MET excludes the case 8/8, NOT MET covers it
+8/8 and the two overlap 0/8 — the same as editing the node directly. A sentence edit travels
+as coherently as a model edit.
+
+## When an edit contradicts the spec
+
+Reversing MET on one rule ("does not approve" where the rule makes approving the violation) is pushed back
+correctly — the action and its condition are negated, with no packet passage behind them — but the re-derived
+NOT MET follows the packet, not the edited model, and now overlaps MET. Structure alone does not settle an
+edit that contradicts its source, so `site/spec-lab/lens-check.nlir` checks every pass: do MET and NOT MET
+overlap, does a case fall between them, and is each node the spec does not state an **addition** (the spec
+is silent) or a **contradiction** (the spec says otherwise, with the passage)? On the reversal it reports the
+overlap, with a concrete case, and the contradiction, quoting the rule. On the eight exception edits it finds
+no overlap (0/8); it reads exceptions added to absolute "must not" rules as contradicting them
+(5 nodes) and finds 4/8 cases the re-derived NOT MET does not cover — a reason to derive
+NOT MET as an explicit disjunction over the nodes. It warns; it never edits.
+
+## The explainer page
+
+`site/explain/` steps through recorded passes of the three programs on the eight rules: spec passages, the
+rule model and the profile in three lanes, arrows for the active step, every model call's exact prompt
+coloured by provenance, plain-language narration, the author's exception added as a node, a sentence edit
+pushed back to the model, the reversal, and the checks. `scripts/export-explain-traces.py` builds its data.
+
 ## Next
 
-- **Backward through the concept layer**: an edit to a sentence maps to an edit of a node (text,
-  polarity, scope, a new node), and a node either rests on a packet passage (show it, or propose the
-  passage edit) or is an addition the packet does not imply.
-- **Consistency checks after every pass** — no overlap between MET and NOT MET, UNCERTAIN about facts
-  only — reported, with the co-edit that would restore them.
-- **An explainer page**: spec passages → rule model → profile parts in three lanes; a stepped
-  forward pass with every model call shown as prompt (program text, data, examples) and response;
-  edits animated backward to nodes and passages, then forward as diffs; flat and structured
-  programs side by side.
+- **Live mode** for the explainer: the same lanes with your own endpoint, any edit, any rule.
+- **NOT MET as an explicit disjunction** over the model's nodes, to close the gaps the check finds.
+- **The health lab**: the same page over the private rules, embedded like the Run tab.
+- **Measure** the concept layer against the flat program on the private validation rules, behind the
+  carry rule, with consistency under edits as a second criterion.
 
 Single judge, eight rules and one sample per edit: indicative, not yet a measured effect.

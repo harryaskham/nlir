@@ -27,9 +27,25 @@ async page => {
   const flatEmpty = await page.locator('#lane-model .empty').count();
   const flatNotMet = await page.locator('.part[data-part="NOT MET"] .chip').innerText();
   if (flatEmpty !== 1 || flatNotMet !== 'unchanged') throw new Error(`flat: empty=${flatEmpty} notmet=${flatNotMet}`);
+  // A sentence edit pushed back: the backward step outlines a changed or added node; the last step is the consistency check.
+  await at('rule=CR+V+1.3&program=concepts&scenario=sentence&step=1');
+  const backNodes = await page.locator('#lane-model .node.added').count();
+  const backCall = await page.locator('#call pre.resp').count();
+  await at('rule=CR+V+1.3&program=concepts&scenario=sentence&step=7');
+  const checks = await page.locator('.verdict ul.checks li').count();
+  if (backNodes < 1 || backCall !== 1 || checks < 2) throw new Error(`backward: nodes=${backNodes} call=${backCall} checks=${checks}`);
+  // Reversing the rule: the check warns of an overlap and a contradiction.
+  await at('rule=CR+V+1.3&program=concepts&scenario=negation&step=7');
+  const warn = await page.locator('.verdict ul.checks li.bad').count();
+  const contra = (await page.locator('.verdict').innerText()).includes('contradicts the spec');
+  if (warn < 1 || !contra) throw new Error(`negation: warnings=${warn} contradiction=${contra}`);
+  // Backward needs a shared model: the flat program says so.
+  await at('rule=CR+V+1.3&program=flat&scenario=sentence&step=0');
+  const needs = (await page.locator('#narrate').innerText()).includes('needs a shared rule model');
+  if (!needs) throw new Error('flat sentence scenario: no explanation');
   // Stepping with the keyboard and every rule loading.
   await page.keyboard.press('ArrowLeft');
   const rules = await page.locator('#rule option').count();
   if (errors.length) throw new Error('page errors: ' + errors.join(' | '));
-  return { ok: true, nodes, onNodes, segs, hits, added, chips, rules };
+  return { ok: true, nodes, onNodes, segs, hits, added, chips, rules, backNodes, checks, warn };
 }

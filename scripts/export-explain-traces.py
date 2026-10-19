@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export recorded forward and edit passes for the explainer page (site/explain/traces.json).
 
-Usage: export-explain-traces.py PROPAGATION_JSON DATASET12_JSON OUT_JSON
+Usage: export-explain-traces.py PROPAGATION_JSON DATASET12_JSON OUT_JSON [BACKWARD_JSON CHECK_JSON NEGATION_DIR]
 
 PROPAGATION_JSON holds, per toy rule, sample 0 of three programs (flat, chained and concept-layer
 B·clean), the rule model the concept layer extracted, one author exception, and each program's
@@ -9,6 +9,9 @@ profile after that edit, with a judge's verdicts. Every prompt is rebuilt exactl
 program's own prompt expressions are evaluated in det mode with the model pinned, so no model call
 is made. Prompts are stored as segments by provenance (program text, worked examples, packet, field
 instruction, rule model, derivation); the examples and packet JSON are stored once per rule.
+BACKWARD_JSON adds, per rule, the same exception made as a sentence edit to MET and pushed back to rule-model
+edits (lens-concepts.nlir), the re-derived profile and the judge's verdict; CHECK_JSON the consistency check
+(lens-check.nlir) after it; NEGATION_DIR one rule's MET reversed, pushed back, re-derived and checked.
 Invented toy data only: refuses any rule outside `CR V`.
 """
 import json
@@ -77,6 +80,9 @@ def segments(prompt, shared):
 
 def main():
     prop_path, dataset_path, out_path = map(Path, sys.argv[1:4])
+    back = json.loads(Path(sys.argv[4]).read_text()) if len(sys.argv) > 4 else None
+    check = json.loads(Path(sys.argv[5]).read_text()) if len(sys.argv) > 5 else None
+    neg_dir = Path(sys.argv[6]) if len(sys.argv) > 6 else None
     prop = json.loads(prop_path.read_text())
     data = {d['id']: d for d in json.loads(dataset_path.read_text())}
     examples = [{'packet': data[r]['packet'], 'profile': data[r]['gold']} for r in ('CR V 1.1', 'CR V 1.4')]
@@ -104,7 +110,26 @@ def main():
                                           'verdict': R['verdicts']['concepts']},
                       'chained': {'parts': R['base']['chained'], 'edited': R['edited']['chained'], 'verdict': R['verdicts']['chained']},
                       'flat': {'parts': R['base']['clean'], 'edited': R['edited']['clean'], 'verdict': R['verdicts']['clean']}})
-    doc = {'method': __doc__.split('\n\n')[1].replace('\n', ' '), 'models': {'writer': 'gpt-6-luna', 'exceptions and judge': 'gpt-6.1-sol'},
+        if back:
+            Bk = back['results'][rid]
+            rules[-1]['sentence'] = {'old': Bk['edit']['old'], 'new': Bk['edit']['new'], 'edits': Bk['back'].get('edits', []), 'why': Bk['back'].get('why', ''),
+                                     'model': Bk['model'], 'parts': Bk['profile'], 'verdict': Bk['verdict'],
+                                     'check': (check or {}).get('results', {}).get(f'exception {rid}')}
+        if neg_dir and rid == 'CR V 1.3':
+            import re as _re
+            md = (neg_dir / 'forward.md').read_text()
+            def _parts(md):
+                out = {}
+                a = _re.search(r'#### `applicability`\n\n((?:> .*\n?)+)', md); out['APPLICABILITY'] = _re.sub(r'^> ?', '', a.group(1), flags=_re.M).strip() if a else ''
+                for l in ('Decision boundary', 'MET', 'NOT MET', 'UNCERTAIN'):
+                    m = _re.search(r'> ' + l + r':\n((?:> .*\n?)+)', md); out[l.upper()] = _re.sub(r'^> ?', '', m.group(1), flags=_re.M).strip() if m else ''
+                return out
+            nb = json.loads((neg_dir / 'back.json').read_text())
+            pin = json.loads((neg_dir / 'p-pin.json').read_text())['_pin']['model']
+            rules[-1]['negation'] = {'old': json.loads((neg_dir / 'old.json').read_text()), 'new': json.loads((neg_dir / 'new.json').read_text()),
+                                     'edits': nb.get('edits', []), 'why': nb.get('why', ''), 'model': pin, 'parts': _parts(md),
+                                     'check': (check or {}).get('results', {}).get('negation CR V 1.3')}
+    doc = {'method': 'Every prompt is rebuilt exactly from the program and the recorded rule model; the parts, node edits and checks are recorded outputs, not re-run here.', 'models': {'writer': 'gpt-6-luna', 'exceptions and judge': 'gpt-6.1-sol'},
            'summary': prop['summary'], 'rules': rules}
     out_path.write_text(json.dumps(doc, ensure_ascii=False, separators=(',', ':')))
     print(json.dumps({'rules': len(rules), 'bytes': out_path.stat().st_size}))
