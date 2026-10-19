@@ -906,9 +906,14 @@ Fresh samples are always an explicit request.
 the others' (mean word-sequence similarity: longest common subsequence
 over the longer length; ties to the earliest), so
 <code>$medoid%($draw%({=&gt;prompt}, 8))</code> is consensus selection
-over eight samples. A normal evaluation owns a run-local cache.
-Incremental/speculative hosts may retain an <code>EvaluationCache</code>
-across edits via <code>evaluate_with_cache</code>,
+over eight samples.</li>
+<li><strong>Shadowing builtins:</strong> a statement may bind a
+builtin's name (<code>trim = {…}</code>); the binding then replaces the
+builtin everywhere, including in library forms, so the CLI warns on
+stderr for each such name before evaluating. A normal evaluation owns a
+run-local cache. Incremental/speculative hosts may retain an
+<code>EvaluationCache</code> across edits via
+<code>evaluate_with_cache</code>,
 <code>evaluate_async_with_cache</code>, or the cached async
 step/streaming variants: unchanged call keys hit, while an edited
 operand changes its key and naturally invalidates that node and every
