@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check recorded public toy experiments: metric labels, splits, numeric values and SVGs."""
 import json
+import sys
 import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -155,4 +156,6 @@ if __name__=='__main__':
     if (ROOT/'gapfill.json').exists():check_gapfill()
     check_run_assets()
     check_no_private_domain()
+    import subprocess
+    subprocess.run([sys.executable, str(Path(__file__).with_name('make-structured-program.py')), '--check'], check=True)
     check_b_clean()

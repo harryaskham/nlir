@@ -192,3 +192,18 @@ profile for each rule. With your own endpoint, **Write 3 and pick** runs the sam
 drafts, one coverage check per draft by the judge model, and a picked run you can judge like any other. On representative data, picking from four drafts
 raised strict F1 from 0.586 to 0.619 on twenty untouched rules, about +0.02 of it confirmed by an independent judge
 that also did the picking; picking from eight drafts did no better than from four.
+
+## Shared structure
+
+The learned programs are prompt concatenators: one context, five independent model calls (one per
+part), merged. **B·structured** (`program-b-structured.nlir`, made from B·clean by
+`scripts/make-structured-program.py`) adds one shared node to the graph: a model call that lists the
+rule's distinct cases, each assigned to exactly one verdict, and deterministic forms that give each
+verdict part its own cases and the other verdicts' cases as an exclusion set. It is in the Run tab;
+step through it to see the case list feed all three verdict parts. On the 8 toy rules (four samples
+each) it changes neither meaning (strict F1 0.346 to 0.357, +0.011 [-0.022, +0.043]) nor how much the
+verdict parts overlap (word overlap 0.280 to 0.256, -0.024 [-0.086, +0.034]): the toy's verdict parts
+are one sentence each, and the words they share name the one act every verdict is about. On
+representative data with longer verdict parts, the same structure roughly halved the overlap between
+verdict parts (0.227 to 0.127, against 0.097 between the authored parts) with no gain in meaning.
+Mutual exclusivity is expressible in the graph; it is not what the writer is missing.

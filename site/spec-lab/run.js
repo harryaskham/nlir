@@ -93,7 +93,7 @@ export async function initRun(deps) {
     programs = D.programs; clauses = D.clauses || null; judgeLib = D.judgeLib ? strip(D.judgeLib) : '';
     return;
   }
-  const [a, b, cl, judge, clean, gapRec] = await Promise.all(['trace-strict-a.json', 'trace-strict-b.json', 'clauses.json', 'judge.nlir', 'program-b-clean.nlir', 'gapfill.json'].map(f =>
+  const [a, b, cl, judge, clean, gapRec, structured] = await Promise.all(['trace-strict-a.json', 'trace-strict-b.json', 'clauses.json', 'judge.nlir', 'program-b-clean.nlir', 'gapfill.json', 'program-b-structured.nlir'].map(f =>
     fetch(f).then(r => (r.ok ? (f.endsWith('.json') ? r.json() : r.text()) : null)).catch(() => null)));
   const chosen = t => t.rounds[Math.max(0, t.rounds.map((r, i) => (r.accepted ? i : -1)).filter(i => i >= 0).pop() ?? 0)];
   if (a && b) {
@@ -105,6 +105,8 @@ export async function initRun(deps) {
     ];
     // B·clean: learned B plus a deterministic clean-up of shape leaks (same model calls).
     if (clean) programs.splice(1, 0, { key: 'B·clean', label: 'B·clean — learned B plus a clean-up of shape leaks', src: clean, examples: b.weights?.examples ?? 2, train: b.train_ids });
+    // B·structured: B·clean with one shared case list partitioned among the verdicts (scripts/make-structured-program.py).
+    if (clean && structured) programs.splice(2, 0, { key: 'B·structured', label: 'B·structured — one shared case list partitioned among MET, NOT MET and UNCERTAIN', src: structured, examples: b.weights?.examples ?? 2, train: b.train_ids });
     splits = { train: b.train_ids, test: b.test_ids };
   }
   clauses = cl; judgeLib = judge ? strip(judge) : ''; recordedGap = gapRec;
