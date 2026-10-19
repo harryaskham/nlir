@@ -133,6 +133,20 @@ def check_b_clean():
     print('program-b-clean.nlir: learned B r0%d plus the clean-up, nothing else changed' % accepted[-1]['round'])
 
 
+def check_explain_traces():
+    """The explainer's recorded passes: toy rules only, no endpoint or private-domain strings."""
+    import re
+    f=ROOT.parent/'explain'/'traces.json'
+    doc=json.loads(f.read_text())
+    assert doc['rules'] and all(r['id'].startswith('CR V') for r in doc['rules']), 'explain/traces.json: non-toy rule'
+    text=f.read_text()
+    for pat in (r'ts\.net', r'helsinki', r'\bsk-[A-Za-z0-9]', r'Bearer ', r'health\s+polic', r'clinician', r'\bHI V\b', r'Copilot Health'):
+        assert not re.search(pat,text,re.I), f'explain/traces.json: forbidden pattern {pat!r}'
+    for r in doc['rules']:
+        assert [s['id'] for s in r['concepts']['steps']]==['model','APPLICABILITY','DECISION BOUNDARY','MET','NOT MET','UNCERTAIN'], r['id']
+    print(f"explain/traces.json: {len(doc['rules'])} toy rules; every pass has the model step and five parts")
+
+
 def check_no_private_domain():
     """Results from representative data may be quoted as aggregates; the domain, its authors and its cases may not."""
     import re
@@ -155,4 +169,5 @@ if __name__=='__main__':
     if (ROOT/'gapfill.json').exists():check_gapfill()
     check_run_assets()
     check_no_private_domain()
+    if (ROOT.parent/'explain'/'traces.json').exists():check_explain_traces()
     check_b_clean()

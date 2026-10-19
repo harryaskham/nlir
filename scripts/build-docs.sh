@@ -29,7 +29,7 @@ rm -f "$out/style.css"
 
 # The evaluator pages (wasm pkg co-built into site/workspace/pkg by pages.yml).
 has_wasm=0
-for page in workspace spec-lab; do
+for page in workspace spec-lab explain; do
   if [ -d "$root/site/$page" ] && ! [ "$out/$page" -ef "$root/site/$page" ]; then
     rm -rf "$out/$page"
     cp -a "$root/site/$page" "$out/$page"
@@ -52,7 +52,7 @@ HTML
 nav() {
   local cur="$1" link
   printf '<header class="bar"><a class="mark" href="index.html">nlir<i>·</i><small>natural-language IR</small></a>\n'
-  for link in "index.html|Guide" "spec.html|Spec" "workspace/|Workspace" "spec-lab/|Spec lab" "examples.html|Examples"; do
+  for link in "index.html|Guide" "spec.html|Spec" "workspace/|Workspace" "spec-lab/|Spec lab" "explain/|Explain" "examples.html|Examples"; do
     local href="${link%%|*}" label="${link#*|}"
     case "$href" in workspace/|spec-lab/) [ "$has_wasm" = 1 ] || continue;; esac
     if [ "$href" = "$cur" ]; then

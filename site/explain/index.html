@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="a.skh.am:made" content="agents">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>nlir · explain a spec ⇄ prose pass</title>
+<link rel="stylesheet" href="../theme.css">
+<link rel="stylesheet" href="explain.css">
+</head>
+<body>
+<header class="bar">
+  <a class="mark" href="../index.html">nlir<i>·</i><small>explain</small></a>
+  <span id="badge" class="badge">recorded passes</span>
+  <a class="nav hide-sm" href="../index.html">Guide</a>
+  <a class="nav" href="../workspace/">Workspace</a>
+  <a class="nav" href="../spec-lab/">Spec lab</a>
+  <a class="nav" href="./" aria-current="page">Explain</a>
+  <a class="nav hide-sm" href="https://github.com/harryaskham/nlir">GitHub ↗</a>
+</header>
+
+<main class="explain">
+  <section class="intro">
+    <h1>How a program turns a rule into an evaluation profile — and how an edit travels</h1>
+    <p>Pick a rule from the invented code-review spec. The <b>concept layer</b> program first reads the rule into a small model — the action being judged, the conditions that must all hold, the exceptions that avoid a violation, the facts a verdict turns on — and then writes each part of the profile from that model. Step through it, then add an author's exception and watch it reach every part. Compare the <b>flat</b> program, whose parts are written independently, and the <b>chained</b> one, where each verdict part reads the previous.</p>
+  </section>
+
+  <section class="controls" aria-label="Controls">
+    <label>Rule <select id="rule"></select></label>
+    <div class="seg" role="tablist" id="program">
+      <button role="tab" data-program="concepts" aria-selected="true">Concept layer</button>
+      <button role="tab" data-program="chained" aria-selected="false">Chained</button>
+      <button role="tab" data-program="flat" aria-selected="false">Flat</button>
+    </div>
+    <div class="seg" role="tablist" id="scenario">
+      <button role="tab" data-scenario="base" aria-selected="true">Written from the spec</button>
+      <button role="tab" data-scenario="edit" aria-selected="false">With an author's exception</button>
+    </div>
+    <div class="stepper" aria-label="Step through the pass">
+      <button id="prev" title="Previous step (←)">◀</button>
+      <span id="stepno" aria-live="polite">—</span>
+      <button id="next" title="Next step (→)">▶</button>
+      <button id="play" title="Play every step">Play</button>
+    </div>
+  </section>
+
+  <section class="narrate" id="narrate" aria-live="polite"></section>
+
+  <section class="lanes" id="lanes">
+    <svg class="wires" id="wires" aria-hidden="true"></svg>
+    <div class="lane" id="lane-spec"><h2>Spec packet</h2><div class="body"></div></div>
+    <div class="lane" id="lane-model"><h2>Rule model</h2><div class="body"></div></div>
+    <div class="lane" id="lane-profile"><h2>Evaluation profile</h2><div class="body"></div></div>
+  </section>
+
+  <section class="call" id="call"></section>
+  <section class="verdict" id="verdict"></section>
+
+  <p class="foot muted small" id="foot"></p>
+</main>
+<script src="explain.js"></script>
+</body>
+</html>
