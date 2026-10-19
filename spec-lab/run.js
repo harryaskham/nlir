@@ -224,7 +224,7 @@ function packetChange(p, base) {
 // ---- the pane ------------------------------------------------------------------------
 export async function showRun(id) {
   ruleId = id;
-  // Hosts that re-render their page (the health lab) get the endpoint panel back each time.
+  // Hosts that re-render their page (an app embedding this panel) get the endpoint panel back each time.
   const host = typeof D.endpointHost === 'function' ? D.endpointHost() : D.endpointHost;
   if (!$('endpoint') && host) host.insertAdjacentHTML('afterbegin', ENDPOINT_HTML);
   if ($('endpoint') && !$('endpoint').dataset.wired) { wireEndpoint(); $('endpoint').dataset.wired = '1'; }
@@ -248,7 +248,7 @@ export async function showRun(id) {
         </details>
         <details class="run-graph"><summary>Program graph</summary><div id="runGraph" class="graph"></div></details>
         <details class="run-gap" id="runGap"><summary>Gap-filled specification <span class="muted" id="runGapState"></span></summary>
-          <p class="muted">Backward: the judge model reads this rule's spec packet and its authored profile and lists, per field, the points the profile makes that the packet implies (named, not stated) and the requirements it states that the packet does not imply (additions). Forward: B·clean, given the packet plus those lists, writes each part and then keeps only what states a listed point or addition. Round trip: extract the lists again from that written profile and write once more. On a private health policy this closed most of the gap between a spec and its authors' profiles, and the round trip reproduced a profile as closely as re-running its spec.</p>
+          <p class="muted">Backward: the judge model reads this rule's spec packet and its authored profile and lists, per field, the points the profile makes that the packet implies (named, not stated) and the requirements it states that the packet does not imply (additions). Forward: B·clean, given the packet plus those lists, writes each part and then keeps only what states a listed point or addition. Round trip: extract the lists again from that written profile and write once more. On representative data this closed most of the gap between a spec and its authors' profiles, and the round trip reproduced a profile as closely as re-running its spec.</p>
           <div class="run-actions"><button class="ghost" id="gapExtract">Extract gap lists</button><button class="ghost" id="gapWrite" disabled>Write from the lists</button><button class="ghost" id="gapRound" disabled>Round trip</button><button class="ghost" id="gapPick" disabled title="Write three drafts from the lists and keep each part from the draft that states the most listed items">Write 3 and pick</button></div>
           <div id="gapLists"></div>
         </details>
