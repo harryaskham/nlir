@@ -112,6 +112,19 @@ the rule model (as JSON) re-derived and checked; or a sentence edit pushed back 
 `lens-concepts.nlir`, re-derived and checked. `scripts/check-explain-live.js` exercises it against a mock
 endpoint; it was also run once against real models.
 
+## On representative data
+
+The same concept layer, built from the representative policy's own B·clean program, was measured on its six
+validation rules (two samples): strict F1 −0.021 [−0.065, +0.022] and combined −0.017 [−0.046, +0.012] against
+B·clean — no gain in meaning, so by the carry rule it was not run on the fresh rules. Its case is the second
+criterion. With one plausible author exception per rule (one sample): appended to MET in B·clean's profile,
+NOT MET covers it for 1/6 rules; added as a node to the concept layer's model, for
+6/6, with MET excluding it 6/6 and no MET/NOT MET overlap
+(0/6). As a MET sentence edit pushed back, the backward pass added the exception as a node
+for 6/6; re-derived, NOT MET covers it 6/6 but MET excludes it only
+4/6 — the writer left the exception out of MET twice, a sampling effect of the forward pass, not
+the backward one. A private explainer over these passes sits beside the representative lab.
+
 ## Next
 
 - **Inline editing** in the explainer: edit a node or a sentence where it is shown, not as JSON.
