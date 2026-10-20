@@ -270,7 +270,11 @@ the repair places it with the fewest words. On the invented spec it cut the chec
 still found edge cases in nearly every profile and read 6 of 8 repairs as also moving an adjacent case. A
 repair settles a class of cases, not one, and which way an adjacent case should go is the authors'
 decision; the explainer shows each repair as a proposal with the adjacent case it moves. On
-representative data the pattern is the same (15 of 24 repairs moved an adjacent case).
+representative data the pattern is the same (15 of 24 repairs moved an adjacent case). Told to move only cases like the flagged one
+(`--narrow`), a repair moves fewer neighbours (4 of 8 here) but leaves the class of cases open — the check's
+gaps stay at 5 of 5 — and takes about twice the words; on representative data, 3 rather than 15 of 24 repairs moved a
+neighbour, and 20 rather than 7 of 21 gaps remained. Settling the class or only the case is the authors'
+choice, and the explainer offers both.
 
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact

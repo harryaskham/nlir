@@ -215,7 +215,7 @@ class Runner:
         out = {'title': item['packet'].get('title', ''), 'authored': auth, 'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'indep_before': indep(auth, f'{rid} repair indep before')}
         if not (before.get('overlap') or before.get('gap')):
             return rid, out | {'repaired': False}
-        finding = out['check_before']
+        finding = out['check_before'] | ({'narrow': True} if a.narrow else {})
         r = json.loads(self.nl(a.editor, {'model': m0, 'profile': auth, 'finding': finding}, [LAB / 'patch-repair.nlir'], tag=f'{rid} repair'))
         fixed = dict(auth)
         for l in ('MET', 'NOT MET', 'UNCERTAIN'):
@@ -394,6 +394,7 @@ def main():
     ap.add_argument('--rules', nargs='*'); ap.add_argument('--rules-file', help='one rule id per line (ids may contain spaces)'); ap.add_argument('--config'); ap.add_argument('--cache', default='target/edit-loop-cache.jsonl')
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--narrow', action='store_true', help='with --repair: move only cases like the flagged one (fewer neighbours moved, more words)')
     ap.add_argument('--repair', action='store_true', help='check each authored profile and repair an overlap or gap with the smallest edit')
     ap.add_argument('--undo', action='store_true', help='add an exception, then delete it again: does the profile come back?')
     ap.add_argument('--sequence', action='store_true', help='apply an exception, a requirement and a deciding fact in turn to the same profile (do edits compose?)')
@@ -408,7 +409,7 @@ def main():
     with ThreadPoolExecutor(a.workers) as ex:
         res = dict(ex.map(lambda r: (R.repair if a.repair else R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
     S = summary_repair(res) if a.repair else summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
-    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo, 'repair': a.repair}, indent=1, ensure_ascii=False) + '\n')
+    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo, 'repair': a.repair, 'narrow': a.narrow}, indent=1, ensure_ascii=False) + '\n')
     print(json.dumps(S, indent=1))
 
 
