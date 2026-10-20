@@ -53,6 +53,19 @@ COLLATERAL = ('Below are an evaluation profile for a policy rule as its authors 
               'Does the repair change the verdict for any OTHER kind of case? Reply with JSON only: {"collateral": true|false, "example": "<a case whose verdict changed, or empty>"}')
 VERDICT = ('Below are an evaluation profile for a policy rule and one CASE. Under this profile as written, what is the verdict for the case? '
            'Reply with JSON only: {"verdict": "MET" | "NOT MET" | "UNCERTAIN", "why": "<one sentence>"}')
+def text_merge(base, ours, theirs):
+    """The baseline for --merge: a three-way text merge (git merge-file) of two separately patched fields against the authored one, one
+    sentence per line so edits to different sentences combine. Returns {conflicts: number of conflicted hunks, merged: text}."""
+    import subprocess, tempfile
+    split = lambda t: '\n'.join(s_.strip() for s_ in re.split(r'(?<=[.!?])\s+', (t or '').strip()) if s_.strip()) + '\n'
+    with tempfile.TemporaryDirectory() as d:
+        f = {k: Path(d) / k for k in ('base', 'ours', 'theirs')}
+        for k, t in (('base', base), ('ours', ours), ('theirs', theirs)):
+            f[k].write_text(split(t))
+        r = subprocess.run(['git', 'merge-file', '-p', str(f['ours']), str(f['base']), str(f['theirs'])], capture_output=True, text=True)
+    return {'conflicts': max(0, r.returncode), 'merged': r.stdout}
+
+
 ANCHORS = {}  # rule id -> settled model (--anchor without --roundtrip)
 ROUNDTRIP = ('Below are an INTENDED edit to a rule model and the EDITS recovered by reading a profile back into the model. Does any recovered edit make the intended '
              'change (the same kind of node, the same meaning)? How many recovered edits make some other change? Reply with JSON only: '
@@ -255,6 +268,28 @@ class Runner:
         return rid, {'title': item['packet'].get('title', ''), 'authored': auth, 'repaired': True, 'profile': conv,
                      'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
                      'indep_before': indep_db(auth, f'{rid} convention indep before'), 'indep_after': indep_db(conv, f'{rid} convention indep after'), 'collateral': col}
+
+    def merge(self, item, x, kinds=('exception', 'requirement')):
+        """Concurrent edits: two author edits made independently from the same profile, merged through the model — both model edits
+        applied to m0, routed, and the authored profile patched once with both notes; then every edit judged on the merged profile."""
+        a, rid = self.a, item['id']
+        auth, m0 = x['authored'], x['m0']
+        m1 = m0
+        for k in kinds:
+            m1 = apply(m1, x['edits'][k]['model_edits'])
+        lead = {'exception': 'An author edited MET to add the exception: ', 'requirement': 'An author edited MET to add the requirement for a violation: ', 'fact': 'An author edited UNCERTAIN to add the deciding fact: '}
+        note = 'Two authors edited the profile independently. ' + ' '.join(lead[k] + x['edits'][k]['text'] + '.' for k in kinds)
+        routing = json.loads(self.nl(a.editor, {'model': m0, 'after': m1}, [LAB / 'patch-route.nlir'], expr='$json%{changed=$changed, route=$route}', tag=f'{rid} merge route'))
+        patched = json.loads(self.nl(a.editor, {'model': m0, 'after': m1, 'profile': auth, 'note': note}, [LAB / 'patch-route.nlir', LAB / 'patch.nlir'], tag=f'{rid} merge patch'))
+        patched = {l: patched.get(l, auth[l]) for l in LABELS}
+        out = {}
+        for k in kinds:
+            out[k] = {'after': self.judge(a.judge, k, x['edits'][k]['text'], patched, f'{rid} merge {k} judge')}
+            if a.judge2:
+                out[k]['after2'] = self.judge(a.judge2, k, x['edits'][k]['text'], patched, f'{rid} merge {k} judge2')
+        text = {l: text_merge(auth[l], x['edits'][kinds[0]]['patched'][l], x['edits'][kinds[1]]['patched'][l]) for l in LABELS}
+        return rid, {'authored': auth, 'note': note, 'routing': routing, 'merged': patched, 'judged': out, 'text_merge': text,
+                     'single': {k: {w: x['edits'][k].get(w) for w in ('after', 'after2')} for k in kinds}}
 
     def fixpoint(self, item, x, rounds=3):
         """Is the backward pass idempotent? From m0, read the authored profile back, apply the edits, and read it again — up to `rounds`
@@ -492,6 +527,7 @@ def main():
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--merge', help='a recorded author run: merge its exception and requirement edits, made independently, through the model; judge both')
     ap.add_argument('--anchor', help='a --fixpoint run: with --roundtrip, read back from its fixed points; otherwise maintain from them instead of m0')
     ap.add_argument('--fixpoint', help='a recorded author run: iterate the backward pass on each authored profile from m0 until it proposes nothing (is the lens idempotent?)')
     ap.add_argument('--roundtrip', help='a recorded author run: read every patched profile back into the model (lens-profile.nlir from m0) and check the intended edit is recovered')
@@ -510,6 +546,24 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.merge:  # merge the exception and requirement edits of a recorded author run through the model
+        FIN = json.loads(Path(a.merge).read_text())['results']
+        with ThreadPoolExecutor(a.workers) as ex:
+            res = dict(ex.map(lambda kv: R.merge(data[kv[0]], kv[1]), [(k, v) for k, v in FIN.items() if k in data]))
+        S = {}
+        for k in ('exception', 'requirement'):
+            S[k] = {q: {w: {'merged': sum(bool(x['judged'][k].get(w, {}).get(q)) for x in res.values()), 'single': sum(bool((x['single'][k].get(w) or {}).get(q)) for x in res.values())}
+                        for w in ('after', 'after2') if all(w in x['judged'][k] for x in res.values())} for q in QUESTIONS[k]}
+        import difflib
+        tok = lambda t_: re.findall(r'\S+', t_)
+        routed = lambda x: set(x['routing'].get('route', []))
+        others = [(x['authored'][l], x['merged'][l]) for x in res.values() for l in LABELS if l not in routed(x)]
+        S['text_merge'] = {'rules_with_conflict': sum(any(v['conflicts'] for v in x['text_merge'].values()) for x in res.values()),
+                           'fields_conflicted': sum(bool(v['conflicts']) for x in res.values() for v in x['text_merge'].values())}
+        S['profile'] = {'rules': len(res), 'unrouted_untouched': sum(a_.strip() == b.strip() for a_, b in others), 'unrouted_fields': len(others),
+                        'similarity_all': round(sum(difflib.SequenceMatcher(a=tok(x['authored'][l]), b=tok(x['merged'][l]), autojunk=False).ratio() for x in res.values() for l in LABELS) / (5 * len(res)), 3)}
+        Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'merge': True}, indent=1, ensure_ascii=False) + '\n')
+        print(json.dumps(S, indent=1)); return
     if a.anchor and not a.roundtrip:  # maintain from settled models
         ANCHORS.update({k: v['fixpoint'] for k, v in json.loads(Path(a.anchor).read_text())['results'].items()})
     if a.fixpoint:  # iterate the backward pass on the authored profile from m0 until it proposes nothing

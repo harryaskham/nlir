@@ -332,6 +332,14 @@ Settling is for the check, not the edit: maintaining from the settled model inst
 more overlap in three of the six counts — so it was not carried. In the explainer, every patched profile now
 shows what it reads back as: the model edits the prose implies, and whether the intended one is among them.
 
+Two authors at once (`edit-loop.py --merge`). An exception and a requirement, each added by a different
+author from the same profile, do not merge as prose: a three-way text merge of the two patched profiles,
+sentence by sentence, conflicts in every one of the invented spec's rules (on representative data 18 of
+20), because both rewrite MET and NOT MET. Their model edits do merge: applied together, routed, and patched
+into the authored profile once, both held in all 8 rules under both judges (on representative data all 20),
+with every unrouted field left as written; the stricter judges found a few more overlaps than after either
+edit alone (11 against 8 across the four counts; on representative data 5 against 6).
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

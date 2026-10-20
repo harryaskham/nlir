@@ -119,5 +119,15 @@ class MoreSummaries(unittest.TestCase):
         self.assertEqual(S['check']['overlap'], {'before': 1, 'after': 0}); self.assertEqual(S['independent']['gap'], {'before': 1, 'after': 1})
 
 
+class TextMerge(unittest.TestCase):
+    def test_edits_to_different_sentences_combine_and_same_sentence_conflicts(self):
+        base = 'One thing. Two things. Three things.'
+        ok = EL.text_merge(base, 'One thing, unless x. Two things. Three things.', 'One thing. Two things. Three things, only if y.')
+        self.assertEqual(ok['conflicts'], 0)
+        self.assertIn('unless x', ok['merged']); self.assertIn('only if y', ok['merged'])
+        bad = EL.text_merge(base, 'One thing, unless x. Two things. Three things.', 'One thing only if y. Two things. Three things.')
+        self.assertGreater(bad['conflicts'], 0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
