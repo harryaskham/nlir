@@ -35,4 +35,7 @@ check "#(\$gf_drafts%({rule='r'}, \$lists, 'UNCERTAIN', 3))"                    
 # A field with no listed items is written from the spec alone, never told to add nothing to empty lists.
 contains "\$gf_write%({rule='r'}, \$lists, 'UNCERTAIN', 1)"                          "state concisely what the specification requires"
 check "_sep=',';\$contains%(\$gf_write%({rule='r'}, \$lists, 'UNCERTAIN', 1), 'NAMED POINTS')" "false"
+# Optional guidance (what the document and its fields mean) is prepended only when set, after loading.
+check "_sep=',';\$contains%(\$gf_write%({rule='r'}, \$lists, 'MET', 1), 'GUIDANCE')"   "false"
+contains "gf_guide='MET describes a violation.'; gf_field_guides={MET='One sentence.'}; \$gf_write%({rule='r'}, \$lists, 'MET', 1)" "FIELD GUIDANCE (MET):"
 echo "gapfill: all checks passed"

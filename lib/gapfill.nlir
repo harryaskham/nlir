@@ -13,12 +13,19 @@
 
 gf_extract = {$parse%(=>("You compare a TEXT written for a SPECIFICATION with that specification. For each field of the text (" ++ $join%($2, ', ') ++ "), sort every point the field makes into exactly one of two lists:\n- points: the specification implies it (even if not in these words). Name each in at most six words, as a noun phrase naming the consideration, not the requirement or verdict.\n- additions: the specification does not imply it (a convention, threshold, case or distinction it leaves undecided). Restate each as one short requirement sentence.\n\nReply with JSON only, one key per field: {\"<field>\": {\"points\": [], \"additions\": []}}\n\nSPECIFICATION:\n" ++ $json%$0 ++ "\n\nTEXT:\n" ++ $json%$1))};
 
+-- Optional guidance the caller sets after loading: what the document and its fields mean (and any worked
+-- examples), and per-field instructions. Lists supply the authors' selection; the guide supplies the format's
+-- semantics, which a generic writer cannot know (e.g. whether a "MET" field describes a violation).
+gf_guide='';
+gf_field_guides={};
+gf_preamble={$if%($gt%(#$gf_guide, 0), "GUIDANCE:\n" ++ $gf_guide ++ "\n\n", "") ++ $if%($gt%(#($get%($gf_field_guides, $0, '')), 0), "FIELD GUIDANCE (" ++ $0 ++ "):\n" ++ $get%($gf_field_guides, $0, '') ++ "\n\n", "")};
+
 -- The listed items of one field, points first (lists, field).
 gf_items = {$get%($get%($0, $1, {}), 'points', []) ++ $get%($get%($0, $1, {}), 'additions', [])};
 
 -- One draft of a field from the spec plus its lists (spec, lists, field, draft number). A field with no listed
 -- items is written from the spec alone: told to add nothing beyond empty lists, a writer rightly returns nothing.
-gf_write = {$if%($gt%(#($gf_items%($1, $2)), 0), =>("Write the " ++ $2 ++ " field of a document from the SPECIFICATION below. For each NAMED POINT, state what the specification requires about it, at its strength and with its qualifiers; state each ADDITION as well; add no other points. Return only the field's prose. (Draft " ++ $3 ++ ".)\n\nNAMED POINTS:\n- " ++ $join%($get%($get%($1, $2, {}), 'points', []), "\n- ") ++ "\n\nADDITIONS:\n- " ++ $join%($get%($get%($1, $2, {}), 'additions', []), "\n- ") ++ "\n\nSPECIFICATION:\n" ++ $json%$0), =>("Write the " ++ $2 ++ " field of a document from the SPECIFICATION below: state concisely what the specification requires for it, at its strength and with its qualifiers. Return only the field's prose. (Draft " ++ $3 ++ ".)\n\nSPECIFICATION:\n" ++ $json%$0))};
+gf_write = {$if%($gt%(#($gf_items%($1, $2)), 0), =>($gf_preamble%$2 ++ "Write the " ++ $2 ++ " field of a document from the SPECIFICATION below. For each NAMED POINT, state what the specification requires about it, at its strength and with its qualifiers; state each ADDITION as well; add no other points. Return only the field's prose. (Draft " ++ $3 ++ ".)\n\nNAMED POINTS:\n- " ++ $join%($get%($get%($1, $2, {}), 'points', []), "\n- ") ++ "\n\nADDITIONS:\n- " ++ $join%($get%($get%($1, $2, {}), 'additions', []), "\n- ") ++ "\n\nSPECIFICATION:\n" ++ $json%$0), =>($gf_preamble%$2 ++ "Write the " ++ $2 ++ " field of a document from the SPECIFICATION below: state concisely what the specification requires for it, at its strength and with its qualifiers. Return only the field's prose. (Draft " ++ $3 ++ ".)\n\nSPECIFICATION:\n" ++ $json%$0))};
 
 -- Keep only what states a listed item; a field with no listed items is left untouched (lists, field, draft).
 gf_trim = {$if%($gt%(#($gf_items%($0, $1)), 0), =>("Rewrite the DRAFT keeping only what states a LISTED item; delete everything else; keep its wording for what you keep; add nothing. Return only the prose.\n\nLISTED:\n- " ++ $join%($gf_items%($0, $1), "\n- ") ++ "\n\nDRAFT:\n" ++ $2), $2)};
