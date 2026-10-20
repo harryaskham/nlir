@@ -39,4 +39,14 @@ check_typed() {
 check_typed UNCERTAIN '$map%({$0.group}, $kept)'    'facts'
 check_typed UNCERTAIN '$map%({$0.group}, $dropped)' 'conditions'
 check_typed MET       '$map%({$0.group}, $kept)'    'conditions'
+# Consolidation (consolidate.nlir): only sentences the edits added can be rewritten; the authors' own are out of reach.
+cons() { "$NLIR" --config config.example.yaml --mode det --quiet --bind authored=examples/patch/cons-profile.json --bind profile=examples/patch/cons-profile.json --bind edits=examples/patch/cons-edits.json -f site/spec-lab/consolidate.nlir -e "$1"; }
+check_cons() {
+  local got; got=$(cons "$1" | tr '\n' ' ' | sed 's/ *$//')
+  if [ "$got" != "$2" ]; then printf 'FAIL  consolidate %s\n  got:      %s\n  expected: %s\n' "$1" "$got" "$2"; exit 1; fi
+  printf 'ok    consolidate %s\n      → %s\n' "$1" "$got"
+}
+check_cons "\$added%('Approves unread files. Declines.', 'Approves unread files, unless generated. Declines.')" 'Approves unread files, unless generated.'
+check_cons "\$apply%(\$valid%([{old='Two, which is long, unless x.', new='Two unless x.'}, {old='One thing.', new='HACK'}], \$added%('One thing. Three.', 'One thing. Two, which is long, unless x. Three.')), 'One thing. Two, which is long, unless x. Three.')" 'One thing. Two unless x. Three.'
+check_cons "\$field%'MET'" 'The assistant approves without reading every modified file.'
 echo "patch: all checks passed"

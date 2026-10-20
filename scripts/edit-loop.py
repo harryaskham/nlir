@@ -275,6 +275,21 @@ class Runner:
                 'authored': auth, 'patched': patched,
                 'after': read(a.judge, patched, f'{rid} answer read1 {verdict} {h}'), 'after2': read(a.judge2, patched, f'{rid} answer read2 {verdict} {h}') if a.judge2 else {}}
 
+    def consolidate(self, rid, x):
+        """After a sequence of edits: one consolidation pass over the final profile (consolidate.nlir), then every edit judged again."""
+        a = self.a
+        edits = [f"{s_['kind']}: {s_['text']}" for s_ in x['steps']]
+        prof = json.loads(self.nl(a.editor, {'authored': x['authored'], 'profile': x['final_profile'], 'edits': edits}, [LAB / 'consolidate.nlir'], tag=f'{rid} consolidate'))
+        prof = {l: prof.get(l, x['final_profile'][l]) for l in LABELS}
+        out = {}
+        for s_ in x['steps']:
+            k = s_['kind']
+            out[k] = {'after': self.judge(a.judge, k, s_['text'], prof, f'{rid} cons {k} judge')}
+            if a.judge2:
+                out[k]['after2'] = self.judge(a.judge2, k, s_['text'], prof, f'{rid} cons {k} judge2')
+        return rid, {'authored': x['authored'], 'final_profile': x['final_profile'], 'consolidated': prof, 'final': x['final'], 'consolidated_judged': out,
+                     'steps': [{'kind': s_['kind'], 'text': s_['text']} for s_ in x['steps']]}
+
     def author_new(self, kind, cur, txt):
         fld = 'UNCERTAIN' if kind == 'fact' else 'MET'
         new = (cur['MET'].rstrip().rstrip('.') + (f', unless {txt}.' if kind == 'exception' else f', and only when {txt}.')) if fld == 'MET' else (cur['UNCERTAIN'].rstrip() + ' ' + txt[0].upper() + txt[1:] + ' can leave the verdict undecided when unclear.')
@@ -446,6 +461,7 @@ def main():
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--consolidate', help='a recorded --sequence run: consolidate each final profile (consolidate.nlir) and judge every edit again')
     ap.add_argument('--questions', help='an open-questions file (rows with rule, case, open): answer each open case both ways and check it is settled')
     ap.add_argument('--convention', help='append this sentence to every authored DECISION BOUNDARY and check overlaps and gaps before and after')
     ap.add_argument('--narrow', action='store_true', help='with --repair: move only cases like the flagged one (fewer neighbours moved, more words)')
@@ -460,6 +476,28 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.consolidate:  # consolidate the final profiles of a recorded --sequence run, then judge every edit again
+        SQ = json.loads(Path(a.consolidate).read_text())['results']
+        with ThreadPoolExecutor(a.workers) as ex:
+            res = dict(ex.map(lambda kv: R.consolidate(*kv), [(k, v) for k, v in SQ.items() if k in data]))
+        import difflib
+        tok = lambda t_: re.findall(r'\S+', t_)
+        sents = lambda t_: [x_.strip() for x_ in re.split(r'(?<=[.!?])\s+', t_ or '') if x_.strip()]
+        S = {}
+        for kind, qs in QUESTIONS.items():
+            if not all(kind in x['final'] for x in res.values()): continue
+            S[kind] = {q: {w: {'final': sum(bool(x['final'][kind].get(w, {}).get(q)) for x in res.values()), 'consolidated': sum(bool(x['consolidated_judged'][kind].get(w, {}).get(q)) for x in res.values())}
+                           for w in ('after', 'after2') if all(w in x['final'][kind] for x in res.values())} for q in qs}
+        def prof_stats(key):
+            pairs = [(x['authored'][l], x[key][l]) for x in res.values() for l in LABELS]
+            kept_sent = [sum(s_ in b for s_ in sents(a_)) / max(1, len(sents(a_))) for a_, b in pairs if a_.strip()]
+            return {'words_per_rule': round(sum(len(tok(x[key][l])) for x in res.values() for l in LABELS) / len(res), 1),
+                    'similarity': round(sum(difflib.SequenceMatcher(a=tok(a_), b=tok(b), autojunk=False).ratio() for a_, b in pairs) / len(pairs), 3),
+                    'authored_sentences_kept': round(sum(kept_sent) / len(kept_sent), 3)}
+        S['profile'] = {'authored_words_per_rule': round(sum(len(tok(x['authored'][l])) for x in res.values() for l in LABELS) / len(res), 1),
+                        'final': prof_stats('final_profile'), 'consolidated': prof_stats('consolidated')}
+        Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'consolidate': True}, indent=1, ensure_ascii=False) + '\n')
+        print(json.dumps(S, indent=1)); return
     if a.questions:  # answer every open question both ways
         Qs = [q for q in json.loads(Path(a.questions).read_text())['rows'] if q.get('open') and q['rule'] in data and q['rule'] in M]
         jobs = [(q, v) for q in Qs for v in ('MET', 'NOT MET')]

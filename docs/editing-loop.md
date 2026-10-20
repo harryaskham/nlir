@@ -47,6 +47,7 @@ scripts/edit-loop.py $L --out f.json --repair [--narrow]     # propose repairs o
 scripts/edit-loop.py $L --out g.json --typed --seed-base 100 # an independent second sample of every call
 scripts/edit-loop.py $L --out h.json --convention "SENTENCE"  # append a profile-wide convention to every DECISION BOUNDARY
 scripts/edit-loop.py $L --out i.json --questions OPEN.json      # answer each open question both ways: is it settled?
+scripts/edit-loop.py $L --out j.json --consolidate SEQ.json    # tighten what a --sequence run added, judge every edit again (not carried)
 ```
 
 Useful options: `--rules-file` (one id per line; ids may contain spaces), `--editor opus` (another model

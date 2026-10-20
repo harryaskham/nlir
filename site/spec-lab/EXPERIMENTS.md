@@ -306,6 +306,15 @@ for one definition edit on the same fifteen rules, the patched profile scores 0.
 re-derived from the edited model scores 0.74 — and already 0.76 before the edit: re-deriving costs the
 authors' shape whatever the edit.
 
+Can a pass after the edits win the authors' shape back? Not without cost (`consolidate.nlir`,
+`edit-loop.py --consolidate`; neither version carried). Rewriting whole fields restored the authors'
+sentences beside the edited ones — on representative data the profiles grew (329 to 352 words a rule) and
+new overlaps appeared. Freezing the authors' sentences and letting the model rewrite only the added ones,
+applied by exact replacement, shortened the invented spec's profiles (188 to 170 words, style 0.79 to
+0.81) and kept every edit covered, but the stricter judge found new overlaps (exceptions 0 to 3,
+requirements 2 to 4). The words an edit adds are doing work: the shape lost after several edits is mostly
+the price of what they say.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

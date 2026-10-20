@@ -1,0 +1,30 @@
+-- Consolidate a profile after several edits: tighten only what the edits added, back toward the authors' length,
+-- without touching the authors' own sentences. Binds $authored (the profile as its authors wrote it), $profile (after
+-- the edits) and $edits (the edits, one sentence each).
+-- Deterministic everywhere but one call per edited field: a field's sentences that appear word for word in the authors'
+-- field are frozen; the model sees only the added or changed sentences and returns {old, new} rewrites; a rewrite is
+-- applied only when its old sentence is one of those, by exact replacement. A field with no added sentence is returned
+-- as it is, without a call. (An earlier version that rewrote whole fields restored the authors' sentences beside the
+-- edited ones — longer profiles and new overlaps — so the authors' text is now out of the model's reach.)
+--   nlir -f consolidate.nlir --bind authored=a.json --bind profile=p.json --bind edits=e.json
+added={$map%({$trim%$0}, $filter%({$not%($contains%($$0, $trim%$0))}, $matches%($1, '[^.!?]+[.!?]')))};
+tighten={$parse%(=>("Below are one field of an EVALUATION PROFILE as its AUTHORS wrote it, the same field after some EDITS, the edits, and the SENTENCES the edits added or changed. Rewrite those sentences, and only those, in fewer words: merge one that repeats another or repeats the authors' text, drop restatement, keep the authors' style. Never drop or weaken a condition, an exception or a fact that an edit introduced, and never add anything new. Leave a sentence out of your reply to keep it as it is.
+Reply with JSON only: {\"rewrites\": [{\"old\": \"<one of the sentences, exactly>\", \"new\": \"<its shorter wording>\"}]}
+
+EDITS:
+" ++ $join%($edits, "\n") ++ "
+
+FIELD: " ++ $0 ++ "
+
+AS THE AUTHORS WROTE IT:
+" ++ $get%($authored, $0, "") ++ "
+
+AFTER THE EDITS:
+" ++ $get%($profile, $0, "") ++ "
+
+SENTENCES THE EDITS ADDED OR CHANGED:
+" ++ $join%($added%($get%($authored, $0, ""), $get%($profile, $0, "")), "\n")))};
+valid={$filter%({$and%($elem%($trim%($get%($0, 'old', '')), $$1), $gt%($len%($trim%($get%($0, 'new', ''))), 0))}, $0)};
+apply={$fold%({$replace%($0, $trim%($get%($1, 'old', '')), $trim%($get%($1, 'new', '')))}, $0, $1)};
+field={$if%($len%($added%($get%($authored, $0, ''), $get%($profile, $0, ''))) == 0, $get%($profile, $0, ''), $apply%($valid%($get%($tighten%$0, 'rewrites', []), $added%($get%($authored, $0, ''), $get%($profile, $0, ''))), $get%($profile, $0, '')))};
+$json%($dict%({{key=$0, value=$field%$0}}↦['APPLICABILITY', 'DECISION BOUNDARY', 'MET', 'NOT MET', 'UNCERTAIN']))
