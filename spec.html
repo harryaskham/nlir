@@ -716,8 +716,15 @@ so <code>$gt%(3,3)</code> → false where <code>3&gt;=3</code> → true.
 Operands coerce to number like
 <code>&gt;=</code>/<code>&lt;=</code>.</p>
 <p><strong><code>$not%(x)</code></strong> — boolean NOT: negates
-<code>x</code>'s truthiness and returns a <code>Bool</code>. Unlike
-<code>!</code> (which is <em>textual</em> negation, e.g.
+<code>x</code>'s truthiness and returns a <code>Bool</code>.</p>
+<p><strong><code>$and%(a, b, ...)</code> /
+<code>$or%(a, b, ...)</code></strong> — boolean AND / OR over two or
+more operands' truthiness, returning a <code>Bool</code>. They
+short-circuit left to right: an operand that is not needed is never
+evaluated (no model call, no error), so
+<code>$and%($has%($x, 'k'), $gt%($x.k, 0))</code> is a safe guard.
+(<code>&amp;</code> is not boolean AND: it is a semantic operator.)
+Unlike <code>!</code> (which is <em>textual</em> negation, e.g.
 <code>!(3&gt;=5)</code> → the string "not (false)"), <code>$not</code>
 inverts any Bool — including a fuzzy <code>~&gt;</code> result — so it
 composes in fold-fusion count-if-NOT. Since Bools coerce true→1 under
