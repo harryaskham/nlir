@@ -581,30 +581,43 @@ they are different:
   authors' prose makes some of them and not others, a *selection*;
 - **additions** — decisions the spec leaves open that the authors' prose takes.
 
-Give the writer two short per-field lists as data — `author_topics` and
-`author_additions` — and wrap each field's draft in a form that rewrites it to
-keep only what states a listed point. Fields with no lists pass through
-untouched; the branch is deterministic and the rewrite is one `=>` call:
+[`lib/gapfill.nlir`](../lib/gapfill.nlir) packages the whole method as forms over
+the core; load it ahead of your program with `nlir -f lib/gapfill.nlir -f yours.nlir`.
+Lists are data, `{field: {points: [...], additions: [...]}}`:
+
+| Form | Does |
+|---|---|
+| `$gf_extract%(spec, text, fields)` | reads the two lists from an authored text (one `=>` call) |
+| `$gf_write%(spec, lists, field, n)` | draft *n* of one field, from the spec plus that field's lists |
+| `$gf_trim%(lists, field, draft)` | keeps only what states a listed item; a field with no lists passes through untouched |
+| `$gf_cover%(lists, field, draft)` | which listed items the draft states, partly states, and how many other clauses it has |
+| `$gf_score%(cover, n)` | deterministic: stated + half the partly stated, over *n*, less 0.05 per other clause |
+| `$gf_document%(spec, lists, fields, k)` | every field, each the best-covering of *k* trimmed drafts |
 
 ```
-p={author_topics={MET=['states the tests that exercise the change']}, author_additions={MET=['names the test file']}};
-keep_listed={$if%($gt%(#($get%($p.author_topics,$0,[])) + #($get%($p.author_additions,$0,[])), 0),
-  =>('Keep only what states a listed point. POINTS: '++$join%($get%($p.author_topics,$0,[]),'; ')
-     ++' | ADDITIONS: '++$join%($get%($p.author_additions,$0,[]),'; ')++' | DRAFT: '++$1), $1)};
-$keep_listed%('UNCERTAIN','Abstain when the diff is generated code.')   → unchanged (no lists)
-$keep_listed%('MET','A long draft.')                                   → the model's trimmed draft
+lists=$gf_extract%($d.spec, $d.authored, $d.fields);
+$gf_document%($d.spec, $lists, $d.fields, 4)
 ```
 
-On the spec lab's invented code-review spec, this pattern — lists read from each
+The branching and scoring are deterministic, so they are checked offline
+([`examples/gapfill.sh`](../examples/gapfill.sh), in CI); the model calls are
+`=>` and cache like any other. [`examples/gapfill-pipeline.sh`](../examples/gapfill-pipeline.sh)
+runs the method end to end on an invented code-review rule
+([`examples/data/code-review-rule.json`](../examples/data/code-review-rule.json)).
+One detail: `%` spreads a bare list into the argument frame, so the pick is
+called as `$gf_argmax%[scores]`, the list wrapped.
+
+On the spec lab's invented code-review spec, this method — lists read from each
 authored profile, written from the spec plus the lists and trimmed — raises
 clause-level agreement with the authored profiles from 0.35 to 0.50 strict F1 on
 the 8 rules not used for training, and it round-trips: lists read back from the
-written profile reproduce it as closely as re-sampling does. The two lists do
+written profile reproduce it as closely as re-sampling does. Picking each field
+from several drafts by list coverage adds a little more. The two lists do
 different jobs: additions recover the clauses the spec leaves open, named points
-the ones it determines, and on these short profiles the named points carry most
-of the gain. The lab's Run tab has the whole loop live (**Gap-filled
-specification**) and a recorded run for each rule; the checked skeleton is
-[`examples/gapfill.sh`](../examples/gapfill.sh).
+the ones it determines, and the named points carry most of the gain (on
+representative data, about 0.39 → 0.62 strict F1, confirmed by a second judge).
+The lab's Run tab has the loop live (**Gap-filled specification**) and a recorded
+run for each rule.
 
 **Gotcha — don't name a form after a builtin.** A form called `trim` shadows
 `$trim`; nlir warns (`eval::shadowed_builtins`), and the original version of
