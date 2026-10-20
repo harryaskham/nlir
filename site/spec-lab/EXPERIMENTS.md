@@ -223,6 +223,11 @@ for all 8 deciding facts (untyped: 6), with the other results unchanged. With Op
 backward passes and the patches instead of Sol, the typed loop gives the same counts under both
 judges: every exception covered and excluded, every requirement gating MET, every deciding fact in
 UNCERTAIN and nowhere else.
+On representative data the same holds for requirements and deciding facts with Opus editing, but 3 of 20
+added exceptions came out differently — each because Opus read the author's exception differently (as a
+deciding fact, which the typed pass declined; as a narrowed condition; as a carve-out of one sentence), not
+because of the routing or the patch. The programs depend little on the editor; the reading of an exception
+does.
 
 The change can also start in the specification. `lens-packet.nlir` reads the rule model and the packet
 before and after a change and returns the model edits it implies, each quoting the new passage it rests
