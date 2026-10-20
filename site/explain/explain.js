@@ -448,7 +448,7 @@
   renderLibrary();
   renderPatches();
   window.EXPLAIN = {
-    D, state, render, steps, rule,
+    D, state, render, steps, rule, renderPatches,
     // Add or replace a rule entry (a live run) and show it in the given scenario.
     show(entry, scenario, step = 0) {
       const i = D.rules.findIndex(r => r.id === entry.id);

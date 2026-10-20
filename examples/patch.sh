@@ -21,4 +21,8 @@ check same      '#$route'  '0'
 # A changed condition adds the gating instruction for MET and NOT MET; an exception does not.
 check condition '#$gate > 0' 'true'
 check exception '#$gate'     '0'
+# The tidy drops an echoed label and a trailing bracket the patch added without an opener — and nothing else.
+check same '$tidy%("MET", "MET: Approves unread files.)", "Approves unread files.")' 'Approves unread files.'
+check same '$tidy%("MET", "Approves (after a skim) unread files.", "Approves unread files.")' 'Approves (after a skim) unread files.'
+check same '$tidy%("NOT MET", "Declines (until read).", "Declines (until read).")' 'Declines (until read).'
 echo "patch: all checks passed"

@@ -11,12 +11,24 @@ import sys
 from pathlib import Path
 
 
+def tidy(label, patched, authored):
+    """The patch clean-up (site/spec-lab/patch-route.nlir $tidy): drop an echoed field label and a trailing closing
+    bracket the patch added without an opener."""
+    import re
+    pat = r'(?i)^\W*' + re.escape(label) + r'\b\s*[:.\-–—]?\s*'
+    out = patched if re.match(pat, authored) else re.sub(pat, '', patched, count=1).strip()
+    unmatched = lambda t: t.count(')') - t.count('(')
+    if unmatched(out) > unmatched(authored) and re.search(r'\)\s*$', out):
+        out = re.sub(r'\)\s*$', '', out).rstrip()
+    return out
+
+
 def main():
     patch_path, traces_path = map(Path, sys.argv[1:3])
     P = json.loads(patch_path.read_text())
     S = P['summary']
     rules = {rid: {'title': x.get('title', ''), 'edit': 'An author added the exception: ' + x['exception'], 'before': x['before'], 'after': x['after'],
-                   'fields': {l: {'before': x['authored'][l], 'after': x['patched'][l]} for l in x['authored']}}
+                   'fields': {l: {'before': x['authored'][l], 'after': tidy(l, x['patched'][l], x['authored'][l])} for l in x['authored']}}
              for rid, x in P['results'].items() if rid.startswith('CR V')}
     mixed = sum(1 for x in P['results'].values() if x['after'].get('overlap') and x['before'].get('overlap'))
     note = (f"An author's exception is added to the rule model as a node; then one call per field makes the smallest edit to the AUTHORED field that is consistent with "

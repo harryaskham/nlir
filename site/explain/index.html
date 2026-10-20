@@ -77,6 +77,12 @@
   <section class="verdict" id="verdict"></section>
   <section class="library" id="library"></section>
   <section class="patches" id="patches"></section>
+  <div class="livepatch" id="livePatch" hidden>
+    <label class="small">Your exception <input id="lpText" type="text" placeholder="a case that should not count as a violation"></label>
+    <button id="lpRun">Patch this rule's authored profile live</button>
+    <span id="lpStatus" class="small muted"></span>
+    <p class="small muted">Runs <code>patch-route.nlir</code> and <code>patch.nlir</code> in your browser on your endpoint: the exception is added to the rule model as a node, the routing picks the fields that read exceptions, and only those are patched.</p>
+  </div>
 
   <p class="foot muted small" id="foot"></p>
 </main>

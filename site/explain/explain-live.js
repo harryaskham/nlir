@@ -16,14 +16,16 @@ let nlir, cfgJson = '{}', SRC = {}, ep = loadEndpoint(), busy = false;
 const ready = new Promise(res => (window.EXPLAIN ? res() : document.addEventListener('explain-ready', res, { once: true })));
 
 async function boot() {
-  const [m, lib, prog, back, check] = await Promise.all([
+  const [m, lib, prog, back, check, route, patch] = await Promise.all([
     import('../workspace/pkg/nlir_wasm.js'),
-    ...['profile.nlir', 'program-b-concepts.nlir', 'lens-concepts.nlir', 'lens-check.nlir'].map(f => fetch('../spec-lab/' + f).then(r => r.text())),
+    ...['profile.nlir', 'program-b-concepts.nlir', 'lens-concepts.nlir', 'lens-check.nlir', 'patch-route.nlir', 'patch.nlir'].map(f => fetch('../spec-lab/' + f).then(r => r.text())),
   ]);
   if (m.default) await m.default();
   nlir = m;
   cfgJson = m.defaultConfigJson?.() || '{}';
-  SRC = { lib: strip(lib), prog: strip(prog), back: strip(back), check: strip(check) };
+  // patch-route.nlir ends with {changed, route} for standalone use; joined to patch.nlir only its definitions are kept.
+  SRC = { lib: strip(lib), prog: strip(prog), back: strip(back), check: strip(check),
+          patch: strip(route).replace(/\{changed=\$changed, route=\$route\}\s*$/, '').trim().replace(/;\s*$/, '') + ';\n' + strip(patch) };
 }
 
 function realiser(model, log) {
@@ -132,6 +134,10 @@ function syncEditors() {
 async function main() {
   await ready;
   const E = window.EXPLAIN;
+  if (E.D.patches?.sets?.exception && E.D.rules.some(r => r.concepts?.model)) {
+    $('livePatch').hidden = false;
+    $('lpRun').onclick = () => guard(async () => { try { await livePatch(); } catch (e) { $('lpStatus').textContent = String(e.message || e); throw e; } });
+  }
   const f = $('liveForm');
   for (const [k, id] of [['baseUrl', 'liveBase'], ['apiKey', 'liveKey'], ['writer', 'liveWriter'], ['judge', 'liveJudge']]) {
     $(id).value = ep[k] || '';
@@ -192,6 +198,26 @@ async function main() {
   E.D.rules.forEach(() => {});
   syncEditors();
   document.getElementById('rule').addEventListener('change', syncEditors);
+}
+
+// Live patch forward on the selected rule of the patch view: the reader's exception becomes a node of the recorded rule
+// model; patch-route.nlir decides which fields read it and patch.nlir patches only those in the authored profile.
+async function livePatch() {
+  const E = window.EXPLAIN, P = E.D.patches?.sets?.exception;
+  const rid = E.state.prule && P.rules[E.state.prule] ? E.state.prule : Object.keys(P.rules)[0];
+  const rule = E.D.rules.find(r => r.id === rid), text = $('lpText').value.trim();
+  if (!text) { $('lpStatus').textContent = 'Write an exception first.'; return; }
+  const model = rule.concepts.model, perms = model.permissions || [];
+  const after = { ...model, permissions: [...perms, { id: 'p' + (perms.length + 1), text, source: '(added by the reader)' }] };
+  const profile = Object.fromEntries(Object.entries(P.rules[rid].fields).map(([l, f]) => [l, f.before]));
+  const calls = [];
+  $('lpStatus').textContent = 'Patching…';
+  const out = JSON.parse(await evaluate(SRC.patch, { model, after, profile, note: 'An author added the exception: ' + text }, ep.judge, e => calls.push(e)));
+  E.D.patches.sets.live = { label: `Live: your exception on ${rid}`, checks: [], note: `Patched in your browser with ${ep.judge}: ${calls.length} model call${calls.length === 1 ? '' : 's'}, one per routed field; the other fields are returned exactly as written.`,
+    rules: { [rid]: { title: P.rules[rid].title, edit: 'You added the exception: ' + text, fields: Object.fromEntries(Object.keys(profile).map(l => [l, { before: profile[l], after: out[l] ?? profile[l] }])) } } };
+  E.state.pset = 'live'; E.state.prule = rid;
+  E.renderPatches();
+  $('lpStatus').textContent = `Done: ${calls.length} routed field${calls.length === 1 ? '' : 's'} patched.`;
 }
 
 function applyEdits(model, edits) {

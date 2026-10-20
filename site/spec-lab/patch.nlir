@@ -7,7 +7,6 @@
 -- setting; the decision boundary reads the behaviour. A model call decides only how to word each routed change; every
 -- other field is returned exactly as written. Load after patch-route.nlir, which computes $changed, $route and $gate:
 --   nlir -f patch-route.nlir -f patch.nlir
-unlabel={$trim%($sub%($1, '(?i)^\W*' ++ $0 ++ '\b\s*[:.\-–—]?\s*', ''))};
 patchfield={$parse%(=>("Below are one field of an EVALUATION PROFILE, the RULE MODEL the profile is consistent with, and the same model after an author EDITED it. Make the smallest edit to the field so that it is consistent with the edited model: add, change or delete only the words the edit requires — for instance, an added exception must be counted as NOT MET and excluded from MET. Keep every other word, the authors' style and their order. If the field needs no change, return it unchanged. When a change is needed it is usually a single clause or sentence; do not restate the model or add explanation." ++ $if%($elem%($0, ['MET', 'NOT MET']), $gate, "") ++ "
 Reply with JSON only: {\"changed\": true | false, \"text\": \"<the field, edited, or empty when unchanged>\"}
 
@@ -21,6 +20,6 @@ MODEL AFTER:
 
 FIELD: " ++ $0 ++ "
 " ++ $get%($profile, $0, "")))};
-keep={$if%($get%($1, 'changed', false), $if%($len%($trim%($get%($1, 'text', ''))) == 0, $get%($profile, $0, ''), $unlabel%($0, $get%($1, 'text', ''))), $get%($profile, $0, ''))};
+keep={$if%($get%($1, 'changed', false), $if%($len%($trim%($get%($1, 'text', ''))) == 0, $get%($profile, $0, ''), $tidy%($0, $get%($1, 'text', ''), $get%($profile, $0, ''))), $get%($profile, $0, ''))};
 patched={$if%($elem%($0, $route), $keep%($0, $patchfield%$0), $get%($profile, $0, ''))};
 $json%($dict%({{key=$0, value=$patched%$0}}↦['APPLICABILITY', 'DECISION BOUNDARY', 'MET', 'NOT MET', 'UNCERTAIN']))
