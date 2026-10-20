@@ -50,6 +50,7 @@ scripts/edit-loop.py $L --out i.json --questions OPEN.json      # answer each op
 scripts/edit-loop.py $L --out l.json --fixpoint AUTHOR.json     # settle each model to a fixed point of its authored profile
 scripts/edit-loop.py $L --out k.json --roundtrip AUTHOR.json    # read every patched profile back into the model: is the edit recovered?
 scripts/edit-loop.py $L --out m.json --roundtrip AUTHOR.json --anchor l.json   # ... read back from the fixed point
+(--anchor l.json on an author run maintains from the fixed points instead of m0: same results, not carried — settle for the check, not the edit)
 scripts/edit-loop.py $L --out j.json --consolidate SEQ.json    # tighten what a --sequence run added, judge every edit again (not carried)
 ```
 

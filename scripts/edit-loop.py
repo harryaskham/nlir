@@ -53,6 +53,7 @@ COLLATERAL = ('Below are an evaluation profile for a policy rule as its authors 
               'Does the repair change the verdict for any OTHER kind of case? Reply with JSON only: {"collateral": true|false, "example": "<a case whose verdict changed, or empty>"}')
 VERDICT = ('Below are an evaluation profile for a policy rule and one CASE. Under this profile as written, what is the verdict for the case? '
            'Reply with JSON only: {"verdict": "MET" | "NOT MET" | "UNCERTAIN", "why": "<one sentence>"}')
+ANCHORS = {}  # rule id -> settled model (--anchor without --roundtrip)
 ROUNDTRIP = ('Below are an INTENDED edit to a rule model and the EDITS recovered by reading a profile back into the model. Does any recovered edit make the intended '
              'change (the same kind of node, the same meaning)? How many recovered edits make some other change? Reply with JSON only: '
              '{"recovered": true | false, "other": <number>, "why": "<one sentence>"}')
@@ -374,8 +375,9 @@ class Runner:
         auth = {l: part(item['gold'], l) for l in LABELS}
         rt = json.loads(self.nl(a.editor, {'model': base_model, 'p': item['packet'], 'profile': auth}, [LAB / 'lens-profile.nlir'], tag=f'{rid} rt'))
         m0 = apply(base_model, rt.get('edits', []))
+        m0 = ANCHORS.get(rid, m0)  # --anchor: start from the rule's settled model (a fixed point of the authored profile)
         prop = self.ask(a.editor, PROPOSE + '\n\nPACKET:\n' + json.dumps(item['packet'], ensure_ascii=False) + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False), f'{rid} propose')
-        out = {'title': item['packet'].get('title', ''), 'authored': auth, 'm0': m0, 'proposals': prop, 'edits': {}}
+        out = {'title': item['packet'].get('title', ''), 'authored': auth, 'm0': m0, 'proposals': prop, 'edits': {}, 'anchored': rid in ANCHORS}
         for kind in (('exception', 'requirement') if a.source == 'packet' else a.kinds):
             if kind == 'removal':
                 out['edits'][kind] = self.removal(item, auth, m0)
@@ -490,7 +492,7 @@ def main():
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
-    ap.add_argument('--anchor', help='with --roundtrip: a --fixpoint run whose fixed points to read back from instead of m0')
+    ap.add_argument('--anchor', help='a --fixpoint run: with --roundtrip, read back from its fixed points; otherwise maintain from them instead of m0')
     ap.add_argument('--fixpoint', help='a recorded author run: iterate the backward pass on each authored profile from m0 until it proposes nothing (is the lens idempotent?)')
     ap.add_argument('--roundtrip', help='a recorded author run: read every patched profile back into the model (lens-profile.nlir from m0) and check the intended edit is recovered')
     ap.add_argument('--consolidate', help='a recorded --sequence run: consolidate each final profile (consolidate.nlir) and judge every edit again')
@@ -508,6 +510,8 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.anchor and not a.roundtrip:  # maintain from settled models
+        ANCHORS.update({k: v['fixpoint'] for k, v in json.loads(Path(a.anchor).read_text())['results'].items()})
     if a.fixpoint:  # iterate the backward pass on the authored profile from m0 until it proposes nothing
         FIN = json.loads(Path(a.fixpoint).read_text())['results']
         with ThreadPoolExecutor(a.workers) as ex:

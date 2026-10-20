@@ -447,6 +447,7 @@
       ${(R.warnings || []).map(w => { const g = (GROUPS.find(x => x[0] === w.group) || [w.group, w.group])[1]; const where = Object.keys(READS).filter(f => READS[f].includes(w.group)).join(' or ');
         return `<p class="pwarn small">Not applied: the backward pass also read this edit as a change to the rule's ${esc(g)} (“${esc(w.text || '')}”). An edit to ${esc(R.part || 'this field')} can change only what that field reads; if the author means it, edit ${esc(where)}.</p>`; }).join('')}
       ${(R.sources || []).length ? `<p class="small">Model edits, each quoting the passage it rests on: ${R.sources.map(x => `<span class="chip">${esc((GROUPS.find(g => g[0] === x.group) || [x.group, x.group])[1])}</span> ${esc(x.text)} <span class="muted">— “${esc(x.source)}”</span>`).join('; ')}</p>` : ''}
+      ${R.readback ? `<p class="small" title="${esc(Pt.readback_note || '')}"><b>Reads back as:</b> ${R.readback.recovered ? '<span class="chip changed">the intended edit ✓</span>' : '<span class="chip">not the intended edit ✗</span>'}${R.readback.recovered && R.readback.other ? ` <span class="muted">+${R.readback.other} other</span>` : ''} ${(R.readback.edits || []).map(x => `<span class="chip" title="${esc(R.readback.why || '')}">${esc((GROUPS.find(g => g[0] === x.group) || [x.group, x.group])[1])}</span> ${esc(x.text)}`).join('; ')}</p>` : ''}
       ${routeSvg(R)}
       <div class="pfields">${fields}</div>`;
     $('pset').onchange = e => { state.pset = e.target.value; state.prule = null; renderPatches(); };

@@ -327,6 +327,10 @@ back from the model it produced, the authored profile gives 0.62 edits, then 0.2
 (`--fixpoint`; on representative data 0.50, then none). Settled to that fixed point first, the round trip
 is close to exact — the other edits halve (0.67 to 0.38 a profile; on representative data 0.50 to 0.23,
 about one recovered edit a profile, the intended one) and the authored profile reads back with none.
+Settling is for the check, not the edit: maintaining from the settled model instead (`--anchor` without
+`--roundtrip`) gave the same coverage (every edit 8 of 8 under both judges) and words kept (0.93), with one
+more overlap in three of the six counts — so it was not carried. In the explainer, every patched profile now
+shows what it reads back as: the model edits the prose implies, and whether the intended one is among them.
 
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
