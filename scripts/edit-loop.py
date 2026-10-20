@@ -93,6 +93,33 @@ class Runner:
                 return r.stdout
         raise RuntimeError(f'{tag}: {r.stderr[-300:]}')
 
+    def packet_edit(self, item, auth, m0, kind, txt):
+        """The change starts in the specification: the packet gains a permission (exception) or a requirement in the rule
+        text; lens-packet.nlir turns the change into model edits with provenance; routing and patching are as for an author's
+        edit, but every field starts as the authors wrote it."""
+        a, rid = self.a, item['id']
+        before = item['packet']; after = json.loads(json.dumps(before))
+        if kind == 'exception':
+            passage = txt[0].upper() + txt[1:] + '.'
+            after.setdefault('permissions', []).append({'code': f"{rid} (added)", 'title': 'Added exception', 'text': passage})
+        else:
+            passage = f'This counts as a violation only when {txt}.'
+            after['rule'] = after['rule'].rstrip() + ' ' + passage
+        lens = json.loads(self.nl(a.editor, {'model': m0, 'before': before, 'after': after}, [LAB / 'lens-packet.nlir'], tag=f'{rid} {kind} packet lens'))
+        edits = lens.get('edits', []); m1 = apply(m0, edits)
+        note = f'The rule\'s specification changed: it now says "{passage}"'
+        routing = self.nl(a.editor, {'model': m0, 'after': m1}, [LAB / 'patch-route.nlir'], expr='$json%{changed=$changed, route=$route}', tag=f'{rid} {kind} route')
+        patched = json.loads(self.nl(a.editor, {'model': m0, 'after': m1, 'profile': auth, 'note': note}, [LAB / 'patch-route.nlir', LAB / 'patch.nlir'], tag=f'{rid} {kind} patch'))
+        patched = {l: patched.get(l, auth[l]) for l in LABELS}
+        norm = lambda t: re.sub(r'\W+', ' ', t).lower().strip()
+        sourced = [e for e in edits if e.get('op') in ('add', 'edit')]
+        e = {'text': txt, 'part': None, 'passage': passage, 'author_edit': None, 'model_edits': edits, 'warnings': [], 'routing': json.loads(routing), 'patched': patched,
+             'provenance': {'nodes': len(sourced), 'quote_new_passage': sum(norm(passage)[:40] in norm(x.get('source') or '') or norm(x.get('source') or '')[:40] in norm(passage) for x in sourced)},
+             'before': self.judge(a.judge, kind, txt, auth, f'{rid} {kind} judge before'), 'after': self.judge(a.judge, kind, txt, patched, f'{rid} {kind} judge after')}
+        if a.judge2:
+            e['before2'] = self.judge(a.judge2, kind, txt, auth, f'{rid} {kind} judge2 before'); e['after2'] = self.judge(a.judge2, kind, txt, patched, f'{rid} {kind} judge2 after')
+        return e
+
     def reads(self):
         """The concept layer's dependencies, from patch-route.nlir itself (one source of truth)."""
         if not hasattr(self, '_reads'):
@@ -113,8 +140,11 @@ class Runner:
         m0 = apply(base_model, rt.get('edits', []))
         prop = self.ask(a.editor, PROPOSE + '\n\nPACKET:\n' + json.dumps(item['packet'], ensure_ascii=False) + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False), f'{rid} propose')
         out = {'title': item['packet'].get('title', ''), 'authored': auth, 'm0': m0, 'proposals': prop, 'edits': {}}
-        for kind in ('exception', 'requirement', 'fact'):
+        for kind in (('exception', 'requirement') if a.source == 'packet' else ('exception', 'requirement', 'fact')):
             txt = str(prop[kind]).strip().rstrip('.')
+            if a.source == 'packet':
+                out['edits'][kind] = self.packet_edit(item, auth, m0, kind, txt)
+                continue
             fld = 'UNCERTAIN' if kind == 'fact' else 'MET'
             new = (auth['MET'].rstrip().rstrip('.') + (f', unless {txt}.' if kind == 'exception' else f', and only when {txt}.')) if fld == 'MET' else (auth['UNCERTAIN'].rstrip() + ' ' + txt[0].upper() + txt[1:] + ' can leave the verdict undecided when unclear.')
             back = json.loads(self.nl(a.editor, {'model': m0, 'p': item['packet'], 'part': fld, 'old': auth[fld], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} {kind} back'))
@@ -146,12 +176,17 @@ def summary(results, judge2):
     import difflib
     S = {}
     for kind, qs in QUESTIONS.items():
+        if not all(kind in x['edits'] for x in results.values()):
+            continue
         E = [x['edits'][kind] | {'authored': x['authored']} for x in results.values()]
         others = [(e['authored'][l], e['patched'][l]) for e in E for l in LABELS if l != e['part']]
         S[kind] = {q: {w: sum(bool(e[w].get(q)) for e in E) for w in (('before', 'after') + (('before2', 'after2') if judge2 else ()))} for q in qs} | {
             'rules': len(E), 'other_similarity': round(sum(difflib.SequenceMatcher(a=tok(x), b=tok(y), autojunk=False).ratio() for x, y in others) / len(others), 3),
             'other_unchanged': sum(x.strip() == y.strip() for x, y in others), 'other_fields': len(others),
             'routed_fields': round(sum(len(e['routing']['route']) for e in E) / len(E), 2), 'warnings': sum(bool(e.get('warnings')) for e in E)}
+        if E and E[0].get('provenance'):
+            S[kind]['provenance'] = {'nodes': sum(e['provenance']['nodes'] for e in E), 'quote_new_passage': sum(e['provenance']['quote_new_passage'] for e in E)}
+            S[kind]['unrouted_unchanged'] = sum(e['authored'][l].strip() == e['patched'][l].strip() for e in E for l in LABELS if l not in e['routing']['route'])
         if kind == 'fact':
             S[kind]['verdict_untouched'] = sum(e['authored']['MET'].strip() == e['patched']['MET'].strip() and e['authored']['NOT MET'].strip() == e['patched']['NOT MET'].strip() for e in E)
     return S
@@ -160,19 +195,20 @@ def summary(results, judge2):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--data', required=True); ap.add_argument('--models', required=True); ap.add_argument('--out', required=True)
-    ap.add_argument('--rules', nargs='*'); ap.add_argument('--config'); ap.add_argument('--cache', default='target/edit-loop-cache.jsonl')
+    ap.add_argument('--rules', nargs='*'); ap.add_argument('--rules-file', help='one rule id per line (ids may contain spaces)'); ap.add_argument('--config'); ap.add_argument('--cache', default='target/edit-loop-cache.jsonl')
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
+    ap.add_argument('--source', choices=('author', 'packet'), default='author', help='where the change starts: an author\'s sentence, or the rule\'s packet')
     ap.add_argument('--typed', action='store_true', help='keep only backward node edits in groups the edited field reads; the rest become warnings')
     ap.add_argument('--default-route', nargs='*', default=['opus'], help='models called without --config (their own nlir route)')
     a = ap.parse_args()
     data = {d['id']: d for d in json.loads(Path(a.data).read_text())}
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
-    rules = a.rules or sorted(M)
+    rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
     with ThreadPoolExecutor(a.workers) as ex:
         res = dict(ex.map(lambda r: R.rule(data[r], M[r]), rules))
     S = summary(res, a.judge2)
-    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed}, indent=1, ensure_ascii=False) + '\n')
+    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source}, indent=1, ensure_ascii=False) + '\n')
     print(json.dumps(S, indent=1))
 
 

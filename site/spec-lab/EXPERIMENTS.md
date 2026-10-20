@@ -224,6 +224,16 @@ backward passes and the patches instead of Sol, the typed loop gives the same co
 judges: every exception covered and excluded, every requirement gating MET, every deciding fact in
 UNCERTAIN and nowhere else.
 
+The change can also start in the specification. `lens-packet.nlir` reads the rule model and the packet
+before and after a change and returns the model edits it implies, each quoting the new passage it rests
+on; routing and the patch then run as for an author's edit, starting from the profile exactly as the
+authors wrote it (`edit-loop.py --source packet`). With the same exceptions and requirements added to
+the packets instead — a new permission, or a sentence appended to the rule — every model edit quoted the
+new passage (27 of 27), an added permission reached NOT MET 8 times and was excluded from MET
+8 times, an added requirement gated MET 8 times, and every field the routing did not reach stayed as
+written. A requirement in the specification also tends to bring a deciding fact (whether it holds), so
+UNCERTAIN is patched more often than when an author edits MET.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,
