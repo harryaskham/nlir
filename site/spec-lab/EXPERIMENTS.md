@@ -255,6 +255,14 @@ then delete it again. The backward pass read every deletion as removing the node
 8), and the profile came back to the authors' text — 36 of 40 fields byte-identical; on representative
 data, 98 of 100.
 
+`lens-redundant.nlir` makes that check before an author edits: for each exception in a rule model it asks
+whether the excepted case would count as a violation without it (a carve-out) or already fails one of the
+conditions (a restatement of a boundary), and the explainer marks each exception accordingly. On the
+invented spec, 4 of its 7 exceptions are carve-outs on both judges' reading. On representative data the picture is
+the other way round: of 72 exceptions across 34 rules, both judges read only 6 as carve-outs — most exceptions
+a profile states mark where the conditions already stop — and the check agreed with the judges'
+earlier readings, made from the authored profile rather than the model, on 31–32 of 34.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

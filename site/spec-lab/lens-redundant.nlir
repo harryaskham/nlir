@@ -1,0 +1,6 @@
+-- Which exceptions are real? Binds $model (a rule model: action, conditions, permissions, facts). For each exception
+-- (permission) it asks whether a response in the excepted case would meet MET — the behaviour judged, with every condition
+-- holding — if the exception were deleted. A genuine exception carves such cases out; a restatement only repeats a
+-- boundary a condition already draws, so deleting it changes no verdict, and an author removing it changes nothing.
+-- Replies {"exceptions": [{"id", "genuine": true|false, "why"}]}; deterministic to apply.
+$json%($parse%(=>("Below is a RULE MODEL: the behaviour judged (action), conditions that must all hold for a violation, and exceptions (permissions), any one of which avoids it. For EACH exception, suppose it were deleted: would a response in the excepted case still fall outside the violation because it lacks the behaviour or fails one of the conditions (the exception only restates a boundary the conditions already draw), or would it now count as a violation (the exception is a genuine carve-out)?\n\nReply with JSON only: {\"exceptions\": [{\"id\": \"<exception id>\", \"genuine\": true | false, \"why\": \"<one short sentence>\"}]}\n\nRULE MODEL:\n" ++ $json%$model)))
