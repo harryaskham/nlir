@@ -655,8 +655,9 @@ undo, removal and repair proposals — is described in [`docs/editing-loop.md`](
   can be checked in `--mode det` without a model.
 - **There is no "last value" for `-e`.** `$_` is not a context key; end the file with
   the value you want (`$json%(...)` for something a script will parse).
-- **`$sub` replacements take capture groups.** `$sub%($t, '(?s)^.*(exception).*$', '$1')`
-  returns `exception` when it occurs — a substring test without a dedicated builtin.
+- **Test for a substring with `$contains`.** `$contains%($gate, 'exception')` is `true` when the
+  text contains it (and, on a list, when the list has the item — the flip of `$elem`); there is no
+  need for a regex. `$sub` replacements do take capture groups (`'$1'`) when you need the match itself.
 
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.
 - **Repeat a named form with parens: `($f)_N`.** `$f_N` lexes as a single
