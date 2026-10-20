@@ -207,3 +207,16 @@ are one sentence each, and the words they share name the one act every verdict i
 representative data with longer verdict parts, the same structure roughly halved the overlap between
 verdict parts (0.227 to 0.127, against 0.097 between the authored parts) with no gain in meaning.
 Mutual exclusivity is expressible in the graph; it is not what the writer is missing.
+
+## A shared vocabulary?
+
+Do the authored profiles share structure across rules? With the same prompts as the
+representative-data analysis, a model grouped this spec's additions into conventions and its named
+points into concepts, and an independent model checked every assignment (31 of
+32 and 103 of 103 confirmed). Here the shared structure is thin:
+22 of the 52 additions fall into 2 conventions shared by at least three of the
+12 rules, and only 10 of the 153 named points into concepts shared that widely (`vocabulary.json`).
+Its rules were invented to be distinct. On representative data from a real policy written by domain
+experts, about 82% of the additions were instances of a dozen shared conventions and 58% of the
+named points of about eighty shared concepts — yet substituting the shared item for the authors'
+specific one cost about 0.08 strict F1 there every time.
