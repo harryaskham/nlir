@@ -1,0 +1,19 @@
+-- Merge check: do two authors' edits to the same rule model contradict each other? Binds $model (the rule model both
+-- started from) and $a, $b (each author's model edits, as the backward pass returned them). Two edits that touch the same
+-- part of the model need not conflict — an exception and an unrelated requirement merge (edit-loop.py --merge) — but an
+-- exception for a case and a requirement that makes exactly that case a violation do. The reply names the case, so a
+-- conflict goes back to the authors as a question rather than being merged silently.
+-- In the model a permission always overrides: a case an exception covers is NOT MET whatever new requirement it also meets,
+-- so meeting both is not a clash. An earlier wording without that read such cases as conflicts (9 false alarms in 20).
+--   nlir -f merge-check.nlir --bind model=m.json --bind a=a.json --bind b=b.json
+$json%($parse%(=>("Two authors edited the same RULE MODEL independently; their edits are below. In a rule model MET holds when the behaviour occurs, every condition holds and no permission (exception) applies; a permission always overrides, so a case an exception covers is NOT MET whatever conditions it also meets. Do the two edits CONTRADICT each other? They do only when one edit explicitly treats the case the other carves out or requires the opposite way — for instance a new requirement that names the excepted case as a violation (\"even when …\"), or an exception that removes exactly what the other edit requires. A case that merely meets a new requirement while an exception applies is NOT a contradiction (the exception decides it), and edits about different aspects of the behaviour do not contradict.
+Reply with JSON only: {\"conflict\": true | false, \"case\": \"<the case they treat oppositely, or empty>\", \"why\": \"<one sentence>\"}
+
+RULE MODEL:
+" ++ $json%$model ++ "
+
+AUTHOR A'S EDITS:
+" ++ $json%$a ++ "
+
+AUTHOR B'S EDITS:
+" ++ $json%$b)))

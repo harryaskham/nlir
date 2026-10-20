@@ -444,6 +444,7 @@
       <p class="small">Authored ${verdict(R.before)} &nbsp;→&nbsp; patched ${verdict(R.after)}</p>
       ${S.note ? `<p class="small muted">${esc(S.note)}</p>` : ''}
       ${R.textmerge ? `<p class="small muted">${esc(R.textmerge)}</p>` : ''}
+      ${R.conflict ? (R.conflict.flagged ? `<p class="pwarn small">If the second author had instead written “${esc(R.conflict.requirement)}”, the merge check (merge-check.nlir) flags a conflict — ${esc(R.conflict.case || 'the two edits treat the same case oppositely')} — and it goes back to the authors rather than being merged.${R.conflict.compatible_flagged ? '' : ' It lets the two edits above through.'}</p>` : `<p class="small muted">A contradicting requirement (“${esc(R.conflict.requirement)}”) was not flagged here.</p>`) : ''}
       ${R.collateral ? `<p class="pwarn small">Also moves an adjacent case — review before applying: ${esc(R.collateral)}</p>` : ''}
       ${(R.warnings || []).map(w => { const g = (GROUPS.find(x => x[0] === w.group) || [w.group, w.group])[1]; const where = Object.keys(READS).filter(f => READS[f].includes(w.group)).join(' or ');
         return `<p class="pwarn small">Not applied: the backward pass also read this edit as a change to the rule's ${esc(g)} (“${esc(w.text || '')}”). An edit to ${esc(R.part || 'this field')} can change only what that field reads; if the author means it, edit ${esc(where)}.</p>`; }).join('')}

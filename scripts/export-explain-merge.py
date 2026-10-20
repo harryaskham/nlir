@@ -2,10 +2,11 @@
 """Merge a recorded concurrent-edit run (edit-loop.py --merge) into the explainer's patch sets (site/explain/traces.json) as
 "Two authors at once": the authored profile patched once with both model edits, both edits' checks, and how a text merge of the
 two separately patched profiles fared. Toy rules only.
-Usage: export-explain-merge.py MERGE_JSON TRACES_JSON"""
+Usage: export-explain-merge.py MERGE_JSON [CONFLICTS_JSON] TRACES_JSON"""
 import json, sys
 from pathlib import Path
-merge_path, traces_path = map(Path, sys.argv[1:3])
+merge_path, traces_path = Path(sys.argv[1]), Path(sys.argv[-1])
+CF = json.loads(Path(sys.argv[2]).read_text())['results'] if len(sys.argv) > 3 else {}  # edit-loop.py --conflicts: a contradicting requirement per rule
 R = json.loads(merge_path.read_text())['results']; doc = json.loads(traces_path.read_text())
 def holds(j, k, w):
     v = (j.get(k) or {}).get(w) or {}
@@ -19,7 +20,9 @@ for rid, x in R.items():
                   'route': x['routing'].get('route', []), 'changed': x['routing'].get('changed', []),
                   'textmerge': (f"A text merge of the two separately patched profiles conflicts in {nconf} field{'s' if nconf != 1 else ''}; through the model both edits land in one patch." if nconf
                                 else "A text merge of the two separately patched profiles happens to apply here; through the model both edits land in one patch."),
-                  'fields': {l: {'before': x['authored'][l], 'after': x['merged'][l]} for l in x['authored']}}
+                  'fields': {l: {'before': x['authored'][l], 'after': x['merged'][l]} for l in x['authored']},
+                  **({'conflict': {'requirement': CF[rid]['contradicting'], 'flagged': bool(CF[rid]['conflict_pair'].get('conflict')), 'case': CF[rid]['conflict_pair'].get('case', ''),
+                                   'compatible_flagged': bool(CF[rid]['compatible_pair'].get('conflict'))}} if rid in CF else {})}
 doc.setdefault('patches', {}).setdefault('sets', {})['merge'] = {'label': f'Two authors at once: an exception and a requirement ({len(rules)} rules)',
     'checks': [{'key': 'exc', 'label': 'exception covered and excluded'}, {'key': 'req', 'label': 'requirement gates MET and is covered'}],
     'note': 'Two authors edit the same profile independently. Their prose does not merge — both rewrite MET and NOT MET — but their model edits do: both are applied to the model, routed, and the authored profile is patched once.',

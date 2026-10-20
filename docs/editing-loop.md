@@ -48,6 +48,7 @@ scripts/edit-loop.py $L --out g.json --typed --seed-base 100 # an independent se
 scripts/edit-loop.py $L --out h.json --convention "SENTENCE"  # append a profile-wide convention to every DECISION BOUNDARY
 scripts/edit-loop.py $L --out i.json --questions OPEN.json      # answer each open question both ways: is it settled?
 scripts/edit-loop.py $L --out n.json --merge AUTHOR.json        # two authors at once: merge exception + requirement through the model (and as text)
+scripts/edit-loop.py $L --out o.json --conflicts AUTHOR.json    # ... and does merge-check.nlir flag a requirement that contradicts the exception?
 scripts/edit-loop.py $L --out l.json --fixpoint AUTHOR.json     # settle each model to a fixed point of its authored profile
 scripts/edit-loop.py $L --out k.json --roundtrip AUTHOR.json    # read every patched profile back into the model: is the edit recovered?
 scripts/edit-loop.py $L --out m.json --roundtrip AUTHOR.json --anchor l.json   # ... read back from the fixed point

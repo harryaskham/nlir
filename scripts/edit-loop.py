@@ -66,6 +66,9 @@ def text_merge(base, ours, theirs):
     return {'conflicts': max(0, r.returncode), 'merged': r.stdout}
 
 
+CONTRADICT = ('Below are an evaluation profile for a policy rule and an EXCEPTION one author added. Write the requirement for a violation that a second '
+              'author, working independently, might add which makes exactly the excepted case a violation — a direct contradiction of the exception — '
+              'as one sentence in the profile\'s style. Reply with JSON only: {"requirement": "<the sentence, without a final full stop>"}')
 ANCHORS = {}  # rule id -> settled model (--anchor without --roundtrip)
 ROUNDTRIP = ('Below are an INTENDED edit to a rule model and the EDITS recovered by reading a profile back into the model. Does any recovered edit make the intended '
              'change (the same kind of node, the same meaning)? How many recovered edits make some other change? Reply with JSON only: '
@@ -268,6 +271,21 @@ class Runner:
         return rid, {'title': item['packet'].get('title', ''), 'authored': auth, 'repaired': True, 'profile': conv,
                      'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
                      'indep_before': indep_db(auth, f'{rid} convention indep before'), 'indep_after': indep_db(conv, f'{rid} convention indep after'), 'collateral': col}
+
+    def conflicts(self, item, x):
+        """Merge-conflict detection: the recorded exception against (a) the recorded requirement, which merges, and (b) a requirement
+        written to make exactly the excepted case a violation, taken through the author loop to a model edit. merge-check.nlir judges both."""
+        a, rid = self.a, item['id']
+        auth, m0 = x['authored'], x['m0']
+        exc = x['edits']['exception']
+        txt = str(self.ask(a.editor, CONTRADICT + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False) + '\n\nEXCEPTION: ' + exc['text'], f'{rid} contradict')['requirement']).strip().rstrip('.')
+        fld, new = self.author_new('requirement', auth, txt)
+        back = json.loads(self.nl(a.editor, {'model': m0, 'p': item['packet'], 'part': fld, 'old': auth[fld], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} contradict back'))
+        t = json.loads(self.nl(a.editor, {'model': m0, 'after': m0, 'edits': back.get('edits', []), 'part': fld}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'],
+                               expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{rid} contradict typed'))
+        check = lambda b, tag: json.loads(self.nl(a.judge, {'model': m0, 'a': exc['model_edits'], 'b': b}, [LAB / 'merge-check.nlir'], tag=tag))
+        return rid, {'exception': exc['text'], 'contradicting': txt, 'contradicting_edits': t['kept'], 'requirement': x['edits']['requirement']['text'],
+                     'conflict_pair': check(t['kept'], f'{rid} merge-check conflict'), 'compatible_pair': check(x['edits']['requirement']['model_edits'], f'{rid} merge-check compatible')}
 
     def merge(self, item, x, kinds=('exception', 'requirement')):
         """Concurrent edits: two author edits made independently from the same profile, merged through the model — both model edits
@@ -527,6 +545,7 @@ def main():
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--conflicts', help='a recorded author run: write a requirement contradicting each exception and check merge-check.nlir flags it (and not the recorded, compatible requirement)')
     ap.add_argument('--merge', help='a recorded author run: merge its exception and requirement edits, made independently, through the model; judge both')
     ap.add_argument('--anchor', help='a --fixpoint run: with --roundtrip, read back from its fixed points; otherwise maintain from them instead of m0')
     ap.add_argument('--fixpoint', help='a recorded author run: iterate the backward pass on each authored profile from m0 until it proposes nothing (is the lens idempotent?)')
@@ -546,6 +565,15 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.conflicts:  # does the merge check flag a real contradiction, and leave compatible edits alone?
+        FIN = json.loads(Path(a.conflicts).read_text())['results']
+        with ThreadPoolExecutor(a.workers) as ex:
+            res = dict(ex.map(lambda kv: R.conflicts(data[kv[0]], kv[1]), [(k, v) for k, v in FIN.items() if k in data]))
+        S = {'rules': len(res), 'conflicts_detected': sum(bool(x['conflict_pair'].get('conflict')) for x in res.values()),
+             'compatible_flagged': sum(bool(x['compatible_pair'].get('conflict')) for x in res.values()),
+             'contradicting_without_model_edit': sum(not x['contradicting_edits'] for x in res.values())}
+        Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge}, 'conflicts': True}, indent=1, ensure_ascii=False) + '\n')
+        print(json.dumps(S, indent=1)); return
     if a.merge:  # merge the exception and requirement edits of a recorded author run through the model
         FIN = json.loads(Path(a.merge).read_text())['results']
         with ThreadPoolExecutor(a.workers) as ex:

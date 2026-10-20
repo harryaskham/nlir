@@ -340,6 +340,16 @@ into the authored profile once, both held in all 8 rules under both judges (on r
 with every unrouted field left as written; the stricter judges found a few more overlaps than after either
 edit alone (11 against 8 across the four counts; on representative data 5 against 6).
 
+A merge should also refuse edits that really clash (`merge-check.nlir`, `edit-loop.py --conflicts`). For
+each rule a second requirement was written to make exactly the excepted case a violation, and the check saw
+the base model and both authors' model edits. Its first wording flagged every clash but also many compatible
+pairs (on representative data 9 of 20): it read a case that meets both an exception and an unrelated new
+requirement as a conflict, though in the model a permission overrides. Stating that — and that only an edit
+that explicitly treats the other's case the opposite way contradicts — flagged 7 of the invented spec's 8
+clashes and none of its compatible pairs (on representative design rules not used to write it, 13 of 14 and
+none of 14); the miss here is a clash the backward pass never turned into a model edit. In the explainer each
+merged rule shows the contradicting requirement the check would have sent back to the authors.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,
