@@ -22,6 +22,9 @@ check same      '#$route'  '0'
 check condition "\$sub%(\$gate, '(?s)^.*(condition).*\$', '\$1')" 'condition'
 check exception "\$sub%(\$gate, '(?s)^.*(exception).*\$', '\$1')" 'exception'
 check fact      '#$gate'     '0'
+# In NOT MET an added exception is stated as an alternative: only when an exception changed.
+check exception "\$sub%(\$nmexc, '(?s)^.*(one more alternative).*\$', '\$1')" 'one more alternative'
+check condition '#$nmexc'    '0'
 # The tidy drops an echoed label and a trailing bracket the patch added without an opener — and nothing else.
 check same '$tidy%("MET", "MET: Approves unread files.)", "Approves unread files.")' 'Approves unread files.'
 check same '$tidy%("MET", "Approves (after a skim) unread files.", "Approves unread files.")' 'Approves (after a skim) unread files.'
