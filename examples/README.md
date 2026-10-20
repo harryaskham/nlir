@@ -10,7 +10,8 @@ config (`config.example.yaml`); set `NLIR=/path/to/nlir` to choose a binary.
 | [`exact-over-fuzzy.sh`](exact-over-fuzzy.sh) | yes | the model reads, the evaluator counts: fuzzy extraction under exact folds and filters |
 | [`spec-roundtrip.sh`](spec-roundtrip.sh) | no | a rule spec loaded as data, projected to prose and parsed back exactly (the spec lab's library) |
 | [`lens.sh`](lens.sh) | no | backward passes: edit the prose a program wrote and recover the spec field (or program literal) that would produce it, with the lens laws checked |
-| [`gapfill.sh`](gapfill.sh) | no | gap-filled specs: per-field lists of the points a spec implies and the decisions it leaves open, and the list-guided trim that keeps only what states them — the branch logic and the trim prompt checked |
+| [`gapfill.sh`](gapfill.sh) | no | gap-filled specs with [`lib/gapfill.nlir`](../lib/gapfill.nlir): the coverage score, the pick, the pass-through for fields with no lists, and the writer's prompts, checked offline |
+| [`gapfill-pipeline.sh`](gapfill-pipeline.sh) | yes | the gap-filled writer end to end on an invented code-review rule: read the two lists from the authored sections, then write, trim and pick every field |
 | [`replay.sh`](replay.sh) | yes | the realisation store: record once, replay deterministically, `--replay strict` audits |
 
 The design these follow is [`docs/design/v2.md`](../docs/design/v2.md); the full
