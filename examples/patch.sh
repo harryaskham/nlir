@@ -26,4 +26,14 @@ check fact      '#$gate'     '0'
 check same '$tidy%("MET", "MET: Approves unread files.)", "Approves unread files.")' 'Approves unread files.'
 check same '$tidy%("MET", "Approves (after a skim) unread files.", "Approves unread files.")' 'Approves (after a skim) unread files.'
 check same '$tidy%("NOT MET", "Declines (until read).", "Declines (until read).")' 'Declines (until read).'
+# Typed backward (lens-typed.nlir): an edit to a field changes only the model groups that field reads.
+typed() { "$NLIR" --config config.example.yaml --mode det --quiet --bind model=examples/patch/model.json --bind after=examples/patch/model.json --bind edits=examples/patch/back-fact.json --bind "part=examples/patch/part-$1.json" -f site/spec-lab/patch-route.nlir -f site/spec-lab/lens-typed.nlir -e "$2"; }
+check_typed() {
+  local got; got=$(typed "$1" "$2" | tr '\n' ' ' | sed 's/ *$//')
+  if [ "$got" != "$3" ]; then printf 'FAIL  typed %s %s\n  got:      %s\n  expected: %s\n' "$1" "$2" "$got" "$3"; exit 1; fi
+  printf 'ok    typed %-9s %-26s → %s\n' "$1" "$2" "$got"
+}
+check_typed UNCERTAIN '$map%({$0.group}, $kept)'    'facts'
+check_typed UNCERTAIN '$map%({$0.group}, $dropped)' 'conditions'
+check_typed MET       '$map%({$0.group}, $kept)'    'conditions'
 echo "patch: all checks passed"

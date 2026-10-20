@@ -443,6 +443,8 @@
       <p class="small"><b>Edit:</b> ${esc(R.edit || S.edit || '')}</p>
       <p class="small">Authored ${verdict(R.before)} &nbsp;→&nbsp; patched ${verdict(R.after)}</p>
       ${S.note ? `<p class="small muted">${esc(S.note)}</p>` : ''}
+      ${(R.warnings || []).map(w => { const g = (GROUPS.find(x => x[0] === w.group) || [w.group, w.group])[1]; const where = Object.keys(READS).filter(f => READS[f].includes(w.group)).join(' or ');
+        return `<p class="pwarn small">Not applied: the backward pass also read this edit as a change to the rule's ${esc(g)} (“${esc(w.text || '')}”). An edit to ${esc(R.part || 'this field')} can change only what that field reads; if the author means it, edit ${esc(where)}.</p>`; }).join('')}
       ${routeSvg(R)}
       <div class="pfields">${fields}</div>`;
     $('pset').onchange = e => { state.pset = e.target.value; state.prule = null; renderPatches(); };

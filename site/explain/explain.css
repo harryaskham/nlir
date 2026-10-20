@@ -152,3 +152,4 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 .routefig .node.hot rect, .routefig .node.patched rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; }
 .routefig line.dep { stroke: var(--rule); stroke-width: 1; }
 .routefig line.rt { stroke: var(--accent); stroke-width: 2.2; }
+.pwarn { border-left: 3px solid var(--accent); padding: .2rem .5rem; background: var(--accent-soft); color: var(--accent-ink); }

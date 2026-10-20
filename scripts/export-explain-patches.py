@@ -39,7 +39,7 @@ def main():
     for kind in ('exception', 'requirement', 'fact'):
         sets[kind] = {'label': f"{LABEL[kind]} ({len(R)} rules)", 'checks': CHECKS[kind], 'rules': {
             rid: {'title': x.get('title', ''), 'edit': f"The author edited {e['part']}: “…{e['author_edit'][-180:]}”", 'before': e['before'], 'after': e['after'],
-                  'changed': e['routing']['changed'], 'route': e['routing']['route'],
+                  'changed': e['routing']['changed'], 'route': e['routing']['route'], 'part': e['part'], 'warnings': e.get('warnings', []),
                   'fields': {l: {'before': x['authored'][l], 'after': tidy(l, e['patched'][l], x['authored'][l])} for l in x['authored']}}
             for rid, x in R.items() for e in [x['edits'][kind]]}}
     ex, rq, fc = S['exception'], S['requirement'], S['fact']
@@ -47,8 +47,9 @@ def main():
             f"rule-model edits; patch-route.nlir decides which fields read what changed, and patch.nlir patches only those. Across the {ex['rules']} rules, "
             f"an added exception reaches NOT MET {ex['not_met_covers']['after']} times and is excluded from MET {ex['met_excludes']['after']} times (authored: "
             f"{ex['not_met_covers']['before']} and {ex['met_excludes']['before']}); an added requirement gates MET {rq['met_requires']['after']} times; an added "
-            f"deciding fact reaches UNCERTAIN {fc['uncertain_names']['after']} times and leaves MET and NOT MET as written {fc['verdict_untouched']} times — the "
-            f"others are edits the backward pass also read as a new condition. The fields an edit does not reach keep "
+            f"deciding fact reaches UNCERTAIN {fc['uncertain_names']['after']} times and leaves MET and NOT MET as written {fc['verdict_untouched']} times"
+            + (f"; the backward pass is typed (an edit changes only the model groups its field reads), and {sum(S[k].get('warnings', 0) for k in S)} node edit(s) it would have made elsewhere are shown as warnings instead" if P.get('typed') else
+               " — the others are edits the backward pass also read as a new condition") + f". The fields an edit does not reach keep "
             f"{round(100 * (ex['other_similarity'] + rq['other_similarity'] + fc['other_similarity']) / 3)}% of the authors' words. Judge {P['models']['judge']}"
             + (f"; a second judge ({P['models']['judge2']}) agrees on these counts." if P['models'].get('judge2') and ex['not_met_covers']['after2'] == ex['not_met_covers']['after'] else '.'))
     doc['patches'] = {'note': note, 'sets': sets}

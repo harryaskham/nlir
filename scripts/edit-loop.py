@@ -10,7 +10,7 @@ and the patched profile after it.
 
 Usage:
   edit-loop.py --data DATASET.json --models MODELS.json --out OUT.json [--rules ID ...] [--config CFG] \
-               [--editor sol] [--judge sol] [--judge2 opus] [--cache CACHE.jsonl]
+               [--editor sol] [--judge sol] [--judge2 opus] [--typed] [--cache CACHE.jsonl]
 
 DATASET is a list of {id, packet, gold} (gold: {applicability: [...], decision_boundary: ['MET: ...', ...]}); MODELS maps
 rule id -> the concept layer's rule model (or {results: {id: {model}}}, as target/runs/propagation.json). No endpoint or key
@@ -80,7 +80,7 @@ class Runner:
 
     def nl(self, model, binds, files=(), expr=None, tag='call'):
         d = self.work / re.sub(r'[^A-Za-z0-9]+', '-', tag); d.mkdir(parents=True, exist_ok=True)
-        args = [NLIR, '--quiet', '--model', model] + (['--config', self.a.config] if self.a.config and model != self.a.judge2 else []) + ['--cache-file', self.a.cache]
+        args = [NLIR, '--quiet', '--model', model] + (['--config', self.a.config] if self.a.config and model not in self.a.default_route else []) + ['--cache-file', self.a.cache]
         for k, v in binds.items():
             (d / f'{k}.json').write_text(json.dumps(v, ensure_ascii=False)); args += ['--bind', f"{k}={d / (k + '.json')}"]
         for f in files:
@@ -92,6 +92,13 @@ class Runner:
             if r.returncode == 0:
                 return r.stdout
         raise RuntimeError(f'{tag}: {r.stderr[-300:]}')
+
+    def reads(self):
+        """The concept layer's dependencies, from patch-route.nlir itself (one source of truth)."""
+        if not hasattr(self, '_reads'):
+            out = self.nl(self.a.editor, {'model': {}, 'after': {}}, [LAB / 'patch-route.nlir'], expr='$json%$reads', tag='reads')
+            self._reads = {f: set(g) for f, g in json.loads(out)}
+        return self._reads
 
     def ask(self, model, q, tag):
         return json.loads(self.nl(model, {'q': {'q': q}}, expr='$json%($parse%(=>($q.q)))', tag=tag))
@@ -111,7 +118,14 @@ class Runner:
             fld = 'UNCERTAIN' if kind == 'fact' else 'MET'
             new = (auth['MET'].rstrip().rstrip('.') + (f', unless {txt}.' if kind == 'exception' else f', and only when {txt}.')) if fld == 'MET' else (auth['UNCERTAIN'].rstrip() + ' ' + txt[0].upper() + txt[1:] + ' can leave the verdict undecided when unclear.')
             back = json.loads(self.nl(a.editor, {'model': m0, 'p': item['packet'], 'part': fld, 'old': auth[fld], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} {kind} back'))
-            m1 = apply(m0, back.get('edits', []))
+            # Typed backward (lens-typed.nlir): an edited field can only change the model groups it reads; node edits
+            # elsewhere are not applied but kept as warnings for the author.
+            kept, dropped = back.get('edits', []), []
+            if a.typed:
+                t = json.loads(self.nl(a.editor, {'model': m0, 'after': m0, 'edits': back.get('edits', []), 'part': fld}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'],
+                                       expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{rid} {kind} typed'))
+                kept, dropped = t['kept'], t['dropped']
+            m1 = apply(m0, kept)
             edited = dict(auth); edited[fld] = new
             note = {'exception': 'An author edited MET to add the exception: ', 'requirement': 'An author edited MET to add the requirement for a violation: ', 'fact': 'An author edited UNCERTAIN to add the deciding fact: '}[kind] + txt
             routing = self.nl(a.editor, {'model': m0, 'after': m1}, [LAB / 'patch-route.nlir'], expr='$json%{changed=$changed, route=$route}', tag=f'{rid} {kind} route')
@@ -119,7 +133,7 @@ class Runner:
             # A field the route does not reach keeps the author's text, including the edited field itself when the model edit
             # landed elsewhere (then the author's sentence stands as written).
             patched = {l: patched.get(l, edited[l]) for l in LABELS}
-            e = {'text': txt, 'part': fld, 'author_edit': new, 'model_edits': back.get('edits', []), 'routing': json.loads(routing), 'patched': patched,
+            e = {'text': txt, 'part': fld, 'author_edit': new, 'model_edits': kept, 'warnings': dropped, 'routing': json.loads(routing), 'patched': patched,
                  'before': self.judge(a.judge, kind, txt, auth, f'{rid} {kind} judge before'), 'after': self.judge(a.judge, kind, txt, patched, f'{rid} {kind} judge after')}
             if a.judge2:
                 e['before2'] = self.judge(a.judge2, kind, txt, auth, f'{rid} {kind} judge2 before'); e['after2'] = self.judge(a.judge2, kind, txt, patched, f'{rid} {kind} judge2 after')
@@ -137,7 +151,7 @@ def summary(results, judge2):
         S[kind] = {q: {w: sum(bool(e[w].get(q)) for e in E) for w in (('before', 'after') + (('before2', 'after2') if judge2 else ()))} for q in qs} | {
             'rules': len(E), 'other_similarity': round(sum(difflib.SequenceMatcher(a=tok(x), b=tok(y), autojunk=False).ratio() for x, y in others) / len(others), 3),
             'other_unchanged': sum(x.strip() == y.strip() for x, y in others), 'other_fields': len(others),
-            'routed_fields': round(sum(len(e['routing']['route']) for e in E) / len(E), 2)}
+            'routed_fields': round(sum(len(e['routing']['route']) for e in E) / len(E), 2), 'warnings': sum(bool(e.get('warnings')) for e in E)}
         if kind == 'fact':
             S[kind]['verdict_untouched'] = sum(e['authored']['MET'].strip() == e['patched']['MET'].strip() and e['authored']['NOT MET'].strip() == e['patched']['NOT MET'].strip() for e in E)
     return S
@@ -148,6 +162,8 @@ def main():
     ap.add_argument('--data', required=True); ap.add_argument('--models', required=True); ap.add_argument('--out', required=True)
     ap.add_argument('--rules', nargs='*'); ap.add_argument('--config'); ap.add_argument('--cache', default='target/edit-loop-cache.jsonl')
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
+    ap.add_argument('--typed', action='store_true', help='keep only backward node edits in groups the edited field reads; the rest become warnings')
+    ap.add_argument('--default-route', nargs='*', default=['opus'], help='models called without --config (their own nlir route)')
     a = ap.parse_args()
     data = {d['id']: d for d in json.loads(Path(a.data).read_text())}
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
@@ -156,7 +172,7 @@ def main():
     with ThreadPoolExecutor(a.workers) as ex:
         res = dict(ex.map(lambda r: R.rule(data[r], M[r]), rules))
     S = summary(res, a.judge2)
-    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}}, indent=1, ensure_ascii=False) + '\n')
+    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed}, indent=1, ensure_ascii=False) + '\n')
     print(json.dumps(S, indent=1))
 
 

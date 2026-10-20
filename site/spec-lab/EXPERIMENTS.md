@@ -215,6 +215,15 @@ case beside a separate violation), most of them present before the edit. The exp
 edit as a word diff with its routing drawn as the program's graph, and patches a rule's authored
 profile live with your own exception.
 
+The backward pass can over-read an edit: twice it took a sentence added to UNCERTAIN as also adding a
+condition, which routing then carried into MET. Typing the backward pass (`lens-typed.nlir`) closes
+this by construction — an edit to a field can change only the model groups that field reads, and
+any other node edit becomes a warning for the author instead — and leaves MET and NOT MET as written
+for all 8 deciding facts (untyped: 6), with the other results unchanged. With Opus writing the
+backward passes and the patches instead of Sol, the typed loop gives the same counts under both
+judges: every exception covered and excluded, every requirement gating MET, every deciding fact in
+UNCERTAIN and nowhere else.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,
