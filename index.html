@@ -666,6 +666,15 @@ of two equal programs. On the toy spec the learned program goes from
 GPT-6.1 Sol runs the same program; every version reviews clean at under
 2 kB. The design is in <a
 href="https://github.com/harryaskham/nlir/blob/main/docs/design/v2.md"><code>docs/design/v2.md</code></a>.</p>
+<p>What a spec cannot supply is its authors' selection of points and the
+decisions it leaves open. <a
+href="https://github.com/harryaskham/nlir/blob/main/lib/gapfill.nlir"><code>lib/gapfill.nlir</code></a> packages the
+method that closes that gap as reusable forms: read two short lists from
+authored prose, write each field from the spec plus its lists, trim to
+the lists, and keep the draft that covers them best (<a
+href="https://github.com/harryaskham/nlir/blob/main/docs/cookbook.md">cookbook §17</a>; checked offline by
+<code>examples/gapfill.sh</code>, end to end in
+<code>examples/gapfill-pipeline.sh</code>).</p>
 <h2 id="editing-backwards--lenses">Editing backwards — lenses</h2>
 <p>A program maps inputs to output; <code>nlir put</code> runs it
 backwards. Edit the prose a program produced and it reports which input
