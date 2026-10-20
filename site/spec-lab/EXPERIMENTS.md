@@ -315,6 +315,13 @@ applied by exact replacement, shortened the invented spec's profiles (188 to 170
 requirements 2 to 4). The words an edit adds are doing work: the shape lost after several edits is mostly
 the price of what they say.
 
+A maintained profile reads back to the edited model (`edit-loop.py --roundtrip`). Read back through
+lens-profile.nlir from the model before the edit, the invented spec's patched profiles gave back the
+intended edit in 20 of 24 (on representative data 49 of 60), with as many other edits as reading back the
+authors' own, unedited profile (0.5–0.75 a profile against 0.62). The misses still recover a node for the
+edit — the right kind with a different scope, or the same content as another kind — so the program and the
+prose stay a pair through maintenance.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

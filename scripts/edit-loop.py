@@ -53,6 +53,9 @@ COLLATERAL = ('Below are an evaluation profile for a policy rule as its authors 
               'Does the repair change the verdict for any OTHER kind of case? Reply with JSON only: {"collateral": true|false, "example": "<a case whose verdict changed, or empty>"}')
 VERDICT = ('Below are an evaluation profile for a policy rule and one CASE. Under this profile as written, what is the verdict for the case? '
            'Reply with JSON only: {"verdict": "MET" | "NOT MET" | "UNCERTAIN", "why": "<one sentence>"}')
+ROUNDTRIP = ('Below are an INTENDED edit to a rule model and the EDITS recovered by reading a profile back into the model. Does any recovered edit make the intended '
+             'change (the same kind of node, the same meaning)? How many recovered edits make some other change? Reply with JSON only: '
+             '{"recovered": true | false, "other": <number>, "why": "<one sentence>"}')
 SUMMARISE = ('Summarise the CASE below as one short noun phrase that names what kind of response it is, for an author to write "Cases like <phrase> are MET" — '
              'specific enough to pick out this kind of case, general enough to cover others like it. Reply with JSON only: {"phrase": "<the phrase>"}')
 NAME = {'exception': 'EXCEPTION', 'requirement': 'REQUIREMENT', 'fact': 'DECIDING FACT', 'removal': 'REMOVED EXCEPTION'}
@@ -251,6 +254,19 @@ class Runner:
         return rid, {'title': item['packet'].get('title', ''), 'authored': auth, 'repaired': True, 'profile': conv,
                      'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
                      'indep_before': indep_db(auth, f'{rid} convention indep before'), 'indep_after': indep_db(conv, f'{rid} convention indep after'), 'collateral': col}
+
+    def roundtrip(self, item, x):
+        """Does a maintained profile read back to the edited model? lens-profile.nlir from m0 on each patched profile, and on the authored
+        profile as the baseline (m0 was derived from it, so any edit there is spurious)."""
+        a, rid = self.a, item['id']
+        read = lambda prof, tag: json.loads(self.nl(a.editor, {'model': x['m0'], 'p': item['packet'], 'profile': prof}, [LAB / 'lens-profile.nlir'], tag=tag)).get('edits', [])
+        base = read(x['authored'], f'{rid} rtm authored')
+        out = {'baseline_edits': base, 'edits': {}}
+        for kind, e in x['edits'].items():
+            got = read(e['patched'], f'{rid} rtm {kind}')
+            v = self.ask(a.judge, ROUNDTRIP + '\n\nINTENDED:\n' + json.dumps(e['model_edits'], ensure_ascii=False) + '\n\nRECOVERED:\n' + json.dumps(got, ensure_ascii=False), f'{rid} rtm {kind} judge')
+            out['edits'][kind] = {'intended': e['model_edits'], 'recovered_edits': got, 'recovered': bool(v.get('recovered')), 'other': int(v.get('other') or 0), 'why': v.get('why', '')}
+        return rid, out
 
     def answer(self, item, base_model, case, verdict):
         """An author answers an open question: "Cases like <phrase> are <verdict>." appended to that field; the loop as for any edit;
@@ -461,6 +477,7 @@ def main():
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--roundtrip', help='a recorded author run: read every patched profile back into the model (lens-profile.nlir from m0) and check the intended edit is recovered')
     ap.add_argument('--consolidate', help='a recorded --sequence run: consolidate each final profile (consolidate.nlir) and judge every edit again')
     ap.add_argument('--questions', help='an open-questions file (rows with rule, case, open): answer each open case both ways and check it is settled')
     ap.add_argument('--convention', help='append this sentence to every authored DECISION BOUNDARY and check overlaps and gaps before and after')
@@ -476,6 +493,18 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.roundtrip:  # read every patched profile of a recorded author run back into the model
+        FIN = json.loads(Path(a.roundtrip).read_text())['results']
+        with ThreadPoolExecutor(a.workers) as ex:
+            res = dict(ex.map(lambda kv: R.roundtrip(data[kv[0]], kv[1]), [(k, v) for k, v in FIN.items() if k in data]))
+        kinds = sorted({k for x in res.values() for k in x['edits']})
+        S = {k: {'n': sum(k in x['edits'] for x in res.values()), 'recovered': sum(x['edits'][k]['recovered'] for x in res.values() if k in x['edits']),
+                 'other_per_profile': round(sum(x['edits'][k]['other'] for x in res.values() if k in x['edits']) / max(1, sum(k in x['edits'] for x in res.values())), 2),
+                 'recovered_edits_per_profile': round(sum(len(x['edits'][k]['recovered_edits']) for x in res.values() if k in x['edits']) / max(1, sum(k in x['edits'] for x in res.values())), 2)} for k in kinds}
+        S['authored_baseline'] = {'rules': len(res), 'edits_per_profile': round(sum(len(x['baseline_edits']) for x in res.values()) / max(1, len(res)), 2),
+                                  'profiles_with_none': sum(not x['baseline_edits'] for x in res.values())}
+        Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge}, 'roundtrip': True}, indent=1, ensure_ascii=False) + '\n')
+        print(json.dumps(S, indent=1)); return
     if a.consolidate:  # consolidate the final profiles of a recorded --sequence run, then judge every edit again
         SQ = json.loads(Path(a.consolidate).read_text())['results']
         with ThreadPoolExecutor(a.workers) as ex:
