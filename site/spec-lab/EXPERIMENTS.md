@@ -308,7 +308,7 @@ authors' shape whatever the edit.
 
 Can a pass after the edits win the authors' shape back? Not without cost (`consolidate.nlir`,
 `edit-loop.py --consolidate`; neither version carried). Rewriting whole fields restored the authors'
-sentences beside the edited ones — on representative data the profiles grew (329 to 352 words a rule) and
+sentences beside the edited ones — on representative data the profiles grew (330 to 354 words a rule) and
 new overlaps appeared. Freezing the authors' sentences and letting the model rewrite only the added ones,
 applied by exact replacement, shortened the invented spec's profiles (188 to 170 words, style 0.79 to
 0.81) and kept every edit covered, but the stricter judge found new overlaps (exceptions 0 to 3,
