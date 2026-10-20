@@ -156,3 +156,8 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 .node .lint { display: block; margin-top: .15rem; font: 500 .66rem var(--mono); }
 .node .lint.genuine { color: var(--accent-ink); }
 .node .lint.restates { color: var(--muted); }
+.questions { margin-top: 1.6rem; border-top: 1px solid var(--rule); padding-top: 1rem; scroll-margin-top: 7.5rem; }
+.questions h2 { font: 600 1rem var(--sans); margin: 0 0 .4rem; }
+.qrule { margin: .6rem 0; }
+.qitem { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: .4rem .6rem; margin-top: .35rem; background: var(--paper); line-height: 1.45; }
+.qitem .qv { margin-top: .3rem; }

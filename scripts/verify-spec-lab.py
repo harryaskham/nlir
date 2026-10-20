@@ -148,6 +148,8 @@ def check_explain_traces():
         if r.get('lint'):
             ids = {p['id'] for p in r['concepts']['model'].get('permissions', [])}
             assert set(r['lint']) <= ids and all(isinstance(v.get('genuine'), bool) for v in r['lint'].values()), f"explain/traces.json: lint for {r['id']} names a node its model lacks"
+    for q in (doc.get('questions') or {}).get('items', []):
+        assert q['rule'].startswith('CR V') and q['a'].get('verdict') != q['b'].get('verdict'), f"explain/traces.json: question {q['rule']} is not open or not toy"
     for sk, S in (doc.get('patches') or {}).get('sets', {}).items():
         assert S['rules'] and all(rid.startswith('CR V') for rid in S['rules']), f'explain/traces.json: non-toy patched rule in {sk}'
         for rid, R in S['rules'].items():

@@ -453,6 +453,20 @@
     $('prule').onchange = e => { state.prule = e.target.value; renderPatches(); };
   }
 
+  // Questions for the authors (when the data has them): cases the authored profile leaves open — two judges, each asked for a
+  // single verdict under the profile as written, disagree — listed by rule with both readings.
+  function renderQuestions() {
+    const box = $('questions'), Q = D.questions;
+    if (!box) return;
+    if (!Q || !Q.items?.length) { box.innerHTML = ''; return; }
+    const byRule = {};
+    for (const q of Q.items) (byRule[q.rule] = byRule[q.rule] || []).push(q);
+    const chip = (who, v) => `<span class="chip" title="${esc(v.why || '')}">${esc(who)}: ${esc(v.verdict)}</span>`;
+    box.innerHTML = `<h2>Questions for the authors</h2><p class="muted small">${esc(Q.note || '')}</p>` +
+      Object.entries(byRule).map(([rid, qs]) => `<div class="qrule"><b>${esc(rid)}</b> <span class="muted small">${esc(Q.titles?.[rid] || '')}</span>` +
+        qs.map(q => `<div class="qitem"><span class="chip">${q.kind === 'gap' ? 'neither MET nor NOT MET?' : 'both MET and NOT MET?'}</span> ${esc(q.case)}<div class="qv">${chip(Q.judges?.[0] || 'judge 1', q.a)} ${chip(Q.judges?.[1] || 'judge 2', q.b)}</div></div>`).join('') + '</div>').join('');
+  }
+
   $('rule').innerHTML = D.rules.map((r, i) => `<option value="${i}">${esc(r.id)} · ${esc(r.title)}</option>`).join('');
   $('rule').onchange = e => { state.rule = Number(e.target.value); state.step = 0; render(); };
   for (const b of document.querySelectorAll('#program button')) b.onclick = () => { state.program = b.dataset.program; state.step = 0; render(); };
@@ -472,6 +486,7 @@
   render();
   renderLibrary();
   renderPatches();
+  renderQuestions();
   window.EXPLAIN = {
     D, state, render, steps, rule, renderPatches,
     // Add or replace a rule entry (a live run) and show it in the given scenario.

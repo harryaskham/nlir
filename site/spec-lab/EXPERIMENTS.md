@@ -286,6 +286,12 @@ responses the authors' wording leaves open. Whether an exception covers a respon
 in the evaluation procedure, settled once; the boundary cases are what any rule written in prose leaves,
 and the place for them is a proposal the authors decide.
 
+The consistency question overstates how open a profile is. Asked instead for one verdict under the
+profile as written, two judges agree on most of the cases it offered (4 of 8 overlaps and 3 of 7 gaps on the
+invented spec; on representative data 21 of 27 and 23 of 31): the profile decides those. The cases they
+disagree on are the real questions, and the explainer lists them by rule with both readings — a short
+review list for the authors rather than a defect in every profile.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,
