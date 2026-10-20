@@ -645,6 +645,18 @@ model to leave the rest alone did worse on each. The checked skeleton is
 
 ## Gotchas
 
+- **A list literal spreads into arguments.** `$json%[$a, $b]` calls `$json` with two
+  arguments (the second read as an indent) — `$len%[a,b,c]` counts 3 for the same
+  reason. Wrap the value: `$json%{a=$a, b=$b}` or `$json%([[$a, $b]])`.
+- **`-f` evaluates a file's last expression.** A library loaded with `-f` runs its
+  final expression (and any model calls in it) before `-e`. Keep deterministic
+  definitions in their own file — `patch-route.nlir` beside `patch.nlir` — so they
+  can be checked in `--mode det` without a model.
+- **There is no "last value" for `-e`.** `$_` is not a context key; end the file with
+  the value you want (`$json%(...)` for something a script will parse).
+- **`$sub` replacements take capture groups.** `$sub%($t, '(?s)^.*(exception).*$', '$1')`
+  returns `exception` when it occurs — a substring test without a dedicated builtin.
+
 - **Call named forms with `$name`, not `name`.** `$f%5` works; `f%5` errors.
 - **Repeat a named form with parens: `($f)_N`.** `$f_N` lexes as a single
   identifier `f_N` (underscore is an identifier char), giving *"unknown context

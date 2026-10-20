@@ -120,6 +120,43 @@ class Runner:
             e['before2'] = self.judge(a.judge2, kind, txt, auth, f'{rid} {kind} judge2 before'); e['after2'] = self.judge(a.judge2, kind, txt, patched, f'{rid} {kind} judge2 after')
         return e
 
+    def author_new(self, kind, cur, txt):
+        fld = 'UNCERTAIN' if kind == 'fact' else 'MET'
+        new = (cur['MET'].rstrip().rstrip('.') + (f', unless {txt}.' if kind == 'exception' else f', and only when {txt}.')) if fld == 'MET' else (cur['UNCERTAIN'].rstrip() + ' ' + txt[0].upper() + txt[1:] + ' can leave the verdict undecided when unclear.')
+        return fld, new
+
+    def sequence(self, item, base_model):
+        """Do edits compose? Three author edits in turn — an exception, a requirement, a deciding fact — each applied to the
+        previous step's patched profile and model; each judged right after its step, and all three on the final profile."""
+        a, rid = self.a, item['id']
+        auth = {l: part(item['gold'], l) for l in LABELS}
+        rt = json.loads(self.nl(a.editor, {'model': base_model, 'p': item['packet'], 'profile': auth}, [LAB / 'lens-profile.nlir'], tag=f'{rid} rt'))
+        model = apply(base_model, rt.get('edits', []))
+        prop = self.ask(a.editor, PROPOSE + '\n\nPACKET:\n' + json.dumps(item['packet'], ensure_ascii=False) + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False), f'{rid} propose')
+        cur, steps = dict(auth), []
+        for kind in ('exception', 'requirement', 'fact'):
+            txt = str(prop[kind]).strip().rstrip('.')
+            fld, new = self.author_new(kind, cur, txt)
+            back = json.loads(self.nl(a.editor, {'model': model, 'p': item['packet'], 'part': fld, 'old': cur[fld], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} seq {kind} back'))
+            t = json.loads(self.nl(a.editor, {'model': model, 'after': model, 'edits': back.get('edits', []), 'part': fld}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'],
+                                   expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{rid} seq {kind} typed'))
+            after_model = apply(model, t['kept'])
+            edited = dict(cur); edited[fld] = new
+            note = {'exception': 'An author edited MET to add the exception: ', 'requirement': 'An author edited MET to add the requirement for a violation: ', 'fact': 'An author edited UNCERTAIN to add the deciding fact: '}[kind] + txt
+            routing = json.loads(self.nl(a.editor, {'model': model, 'after': after_model}, [LAB / 'patch-route.nlir'], expr='$json%{changed=$changed, route=$route}', tag=f'{rid} seq {kind} route'))
+            patched = json.loads(self.nl(a.editor, {'model': model, 'after': after_model, 'profile': edited, 'note': note}, [LAB / 'patch-route.nlir', LAB / 'patch.nlir'], tag=f'{rid} seq {kind} patch'))
+            patched = {l: patched.get(l, edited[l]) for l in LABELS}
+            steps.append({'kind': kind, 'text': txt, 'part': fld, 'author_edit': new, 'model_edits': t['kept'], 'warnings': t['dropped'], 'routing': routing, 'profile': patched,
+                          'at_step': self.judge(a.judge, kind, txt, patched, f'{rid} seq {kind} judge at step')})
+            cur, model = patched, after_model
+        final = {}
+        for s_ in steps:
+            k = s_['kind']
+            final[k] = {'before': self.judge(a.judge, k, s_['text'], auth, f'{rid} {k} judge before'), 'after': self.judge(a.judge, k, s_['text'], cur, f'{rid} seq {k} judge final')}
+            if a.judge2:
+                final[k] |= {'before2': self.judge(a.judge2, k, s_['text'], auth, f'{rid} {k} judge2 before'), 'after2': self.judge(a.judge2, k, s_['text'], cur, f'{rid} seq {k} judge2 final')}
+        return rid, {'title': item['packet'].get('title', ''), 'authored': auth, 'm0': rt.get('edits', []), 'proposals': prop, 'steps': steps, 'final_profile': cur, 'final': final}
+
     def reads(self):
         """The concept layer's dependencies, from patch-route.nlir itself (one source of truth)."""
         if not hasattr(self, '_reads'):
@@ -171,6 +208,22 @@ class Runner:
         return rid, out
 
 
+def summary_sequence(results, judge2):
+    import difflib
+    tok = lambda s: re.findall(r'\S+', s)
+    S = {}
+    for kind, qs in QUESTIONS.items():
+        rows = [(x['steps'][[s['kind'] for s in x['steps']].index(kind)], x['final'][kind]) for x in results.values()]
+        S[kind] = {q: {'at_step': sum(bool(st['at_step'].get(q)) for st, _ in rows), 'final': sum(bool(f['after'].get(q)) for _, f in rows),
+                       'before': sum(bool(f['before'].get(q)) for _, f in rows)} | ({'final2': sum(bool(f['after2'].get(q)) for _, f in rows), 'before2': sum(bool(f['before2'].get(q)) for _, f in rows)} if judge2 else {}) for q in qs}
+    pairs = [(x['authored'][l], x['final_profile'][l]) for x in results.values() for l in LABELS]
+    S['final_profile'] = {'similarity': round(sum(difflib.SequenceMatcher(a=tok(a), b=tok(b), autojunk=False).ratio() for a, b in pairs) / len(pairs), 3),
+                          'untouched': sum(a.strip() == b.strip() for a, b in pairs), 'fields': len(pairs),
+                          'words_added_per_rule': round(sum(sum(j2 - j1 for op, i1, i2, j1, j2 in difflib.SequenceMatcher(a=tok(a), b=tok(b), autojunk=False).get_opcodes() if op in ('insert', 'replace')) for a, b in pairs) / len(results), 1),
+                          'warnings': sum(len(s['warnings']) for x in results.values() for s in x['steps'])}
+    return S
+
+
 def summary(results, judge2):
     tok = lambda s: re.findall(r'\S+', s)
     import difflib
@@ -197,6 +250,7 @@ def main():
     ap.add_argument('--data', required=True); ap.add_argument('--models', required=True); ap.add_argument('--out', required=True)
     ap.add_argument('--rules', nargs='*'); ap.add_argument('--rules-file', help='one rule id per line (ids may contain spaces)'); ap.add_argument('--config'); ap.add_argument('--cache', default='target/edit-loop-cache.jsonl')
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
+    ap.add_argument('--sequence', action='store_true', help='apply an exception, a requirement and a deciding fact in turn to the same profile (do edits compose?)')
     ap.add_argument('--source', choices=('author', 'packet'), default='author', help='where the change starts: an author\'s sentence, or the rule\'s packet')
     ap.add_argument('--typed', action='store_true', help='keep only backward node edits in groups the edited field reads; the rest become warnings')
     ap.add_argument('--default-route', nargs='*', default=['opus'], help='models called without --config (their own nlir route)')
@@ -206,9 +260,9 @@ def main():
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
     with ThreadPoolExecutor(a.workers) as ex:
-        res = dict(ex.map(lambda r: R.rule(data[r], M[r]), rules))
-    S = summary(res, a.judge2)
-    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source}, indent=1, ensure_ascii=False) + '\n')
+        res = dict(ex.map(lambda r: (R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
+    S = summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
+    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence}, indent=1, ensure_ascii=False) + '\n')
     print(json.dumps(S, indent=1))
 
 
