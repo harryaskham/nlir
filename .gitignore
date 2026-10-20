@@ -34,3 +34,7 @@ __pycache__/
 # co-built into the site by pages.yml / local previews
 site/workspace/config.example.yaml
 .playwright-cli/
+
+# Site build output (scripts/build-site.sh): built from the commit in CI, never committed
+_site/
+site/workspace/pkg/
