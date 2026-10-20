@@ -609,6 +609,36 @@ specification**) and a recorded run for each rule; the checked skeleton is
 `$trim`; nlir warns (`eval::shadowed_builtins`), and the original version of
 this program failed every call until it was renamed `keep_listed`.
 
+## 18. Edits that follow the program's structure — routed patch forward
+
+When prose is written from a structured model of a rule (its behaviour, the
+conditions that must all hold, the exceptions, the facts a verdict turns on),
+an edit belongs in the model, and the prose that already exists — say, a
+profile its authors wrote — should change only where the edit reaches. Which
+fields it reaches is a property of the program, not of a model: MET and NOT MET
+read the behaviour, conditions and exceptions; UNCERTAIN reads the facts. So
+compute it deterministically from the two models, and send only the routed
+fields to a model for the smallest consistent edit:
+
+```
+groups=['action', 'setting', 'conditions', 'permissions', 'facts'];
+changed=$filter%({$json%($get%($model,$0,[])) != $json%($get%($after,$0,[]))}, $groups);
+reads=[['MET', ['action','conditions','permissions']], ['UNCERTAIN', ['facts']], …];
+route={$0.0}↦($filter%({$len%($inter%($0.1, $changed)) != 0}, $reads));
+$route        → UNCERTAIN          (an added fact)
+$route        → MET / NOT MET       (an added exception or a changed condition)
+```
+
+[`site/spec-lab/patch-route.nlir`](../site/spec-lab/patch-route.nlir) is the
+routing and [`site/spec-lab/patch.nlir`](../site/spec-lab/patch.nlir) the patch
+(load both: `-f patch-route.nlir -f patch.nlir`); every unrouted field is
+returned byte-for-byte. On representative data, routing an author's edit this
+way carried every added exception and requirement into the profile's verdict
+logic while leaving the fields it does not reach untouched, and kept no deciding
+fact from leaking into MET or NOT MET; patching every field and trusting the
+model to leave the rest alone did worse on each. The checked skeleton is
+[`examples/patch.sh`](../examples/patch.sh).
+
 ---
 
 ## Gotchas

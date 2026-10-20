@@ -11,6 +11,7 @@ config (`config.example.yaml`); set `NLIR=/path/to/nlir` to choose a binary.
 | [`spec-roundtrip.sh`](spec-roundtrip.sh) | no | a rule spec loaded as data, projected to prose and parsed back exactly (the spec lab's library) |
 | [`lens.sh`](lens.sh) | no | backward passes: edit the prose a program wrote and recover the spec field (or program literal) that would produce it, with the lens laws checked |
 | [`gapfill.sh`](gapfill.sh) | no | gap-filled specs: per-field lists of the points a spec implies and the decisions it leaves open, and the list-guided trim that keeps only what states them — the branch logic and the trim prompt checked |
+| [`patch.sh`](patch.sh) | no | routed patch forward: an edit to a rule model reaches only the profile fields whose derivation reads what it changed (a fact → UNCERTAIN, an exception or condition → MET and NOT MET) — the deterministic routing and the gating instruction checked |
 | [`replay.sh`](replay.sh) | yes | the realisation store: record once, replay deterministically, `--replay strict` audits |
 
 The design these follow is [`docs/design/v2.md`](../docs/design/v2.md); the full

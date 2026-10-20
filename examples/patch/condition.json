@@ -1,0 +1,1 @@
+{"action": "approving a pull request", "conditions": [{"id": "c1", "text": "The reviewer has not opened every changed source file."}], "permissions": [{"id": "p1", "text": "The change is a generated lockfile update."}], "facts": [{"id": "f1", "text": "Whether every changed file was opened."}]}
