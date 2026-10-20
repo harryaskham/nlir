@@ -464,7 +464,8 @@
     const chip = (who, v) => `<span class="chip" title="${esc(v.why || '')}">${esc(who)}: ${esc(v.verdict)}</span>`;
     box.innerHTML = `<h2>Questions for the authors</h2><p class="muted small">${esc(Q.note || '')}</p>` +
       Object.entries(byRule).map(([rid, qs]) => `<div class="qrule"><b>${esc(rid)}</b> <span class="muted small">${esc(Q.titles?.[rid] || '')}</span>` +
-        qs.map(q => `<div class="qitem"><span class="chip">${q.kind === 'gap' ? 'neither MET nor NOT MET?' : 'both MET and NOT MET?'}</span> ${esc(q.case)}<div class="qv">${chip(Q.judges?.[0] || 'judge 1', q.a)} ${chip(Q.judges?.[1] || 'judge 2', q.b)}</div></div>`).join('') + '</div>').join('');
+        qs.map(q => `<div class="qitem"><span class="chip">${q.kind === 'gap' ? 'neither MET nor NOT MET?' : 'both MET and NOT MET?'}</span> ${esc(q.case)}<div class="qv">${chip(Q.judges?.[0] || 'judge 1', q.a)} ${chip(Q.judges?.[1] || 'judge 2', q.b)}</div>` +
+          (q.answers || []).map(ans => `<details class="qans"><summary>If the authors answer ${esc(ans.answer)} — ${ans.settled ? 'both judges then agree' : 'not settled'}</summary><p class="small muted">The authors add “${esc(ans.sentence)}” to ${esc(ans.answer)}; the loop patches the fields that read what it changed.</p>${Object.entries(ans.fields).filter(([, f]) => f.before.trim() !== f.after.trim()).map(([l, f]) => `<div class="pfield"><div class="phead"><b>${esc(l)}</b></div><p>${diff(f.before, f.after)}</p></div>`).join('')}</details>`).join('') + `</div>`).join('') + '</div>').join('');
   }
 
   $('rule').innerHTML = D.rules.map((r, i) => `<option value="${i}">${esc(r.id)} · ${esc(r.title)}</option>`).join('');

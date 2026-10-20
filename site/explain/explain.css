@@ -161,3 +161,6 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 .qrule { margin: .6rem 0; }
 .qitem { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: .4rem .6rem; margin-top: .35rem; background: var(--paper); line-height: 1.45; }
 .qitem .qv { margin-top: .3rem; }
+.qans { margin-top: .35rem; }
+.qans summary { cursor: pointer; font: 500 .8rem var(--sans); color: var(--accent-ink); }
+.qans .pfield { margin-top: .3rem; }
