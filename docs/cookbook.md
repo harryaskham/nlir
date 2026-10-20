@@ -518,6 +518,7 @@ Bools coerce true→1 under `+`, so map a predicate then fold to **count**:
 ```
 $fold%({$0+$1}, $map%({$lt%($0, 5)}, 0..10))          -> 5   (how many are < 5)
 $fold%({$0+$1}, $map%({$not%($lt%($0, 3))}, 1..5))    -> 3   (how many are NOT < 3)
+$filter%({$and%($gt%($0,1), $lt%($0,4))}, 1..5)         -> 2,3 (AND; `$or` likewise; both short-circuit)
 ```
 
 All deterministic and exact — count-if / count-if-NOT with no model.

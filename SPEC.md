@@ -368,6 +368,8 @@ non-strict, so `$gt%(3,3)` → false where `3>=3` → true. Operands coerce to n
 like `>=`/`<=`.
 
 **`$not%(x)`** — boolean NOT: negates `x`'s truthiness and returns a `Bool`.
+
+**`$and%(a, b, ...)` / `$or%(a, b, ...)`** — boolean AND / OR over two or more operands' truthiness, returning a `Bool`. They short-circuit left to right: an operand that is not needed is never evaluated (no model call, no error), so `$and%($has%($x, 'k'), $gt%($x.k, 0))` is a safe guard. (`&` is not boolean AND: it is a semantic operator.)
 Unlike `!` (which is *textual* negation, e.g. `!(3>=5)` → the string "not (false)"),
 `$not` inverts any Bool — including a fuzzy `~>` result — so it composes in
 fold-fusion count-if-NOT. Since Bools coerce true→1 under `+`, map a predicate then
