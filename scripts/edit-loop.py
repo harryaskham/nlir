@@ -203,6 +203,62 @@ class Runner:
             e['before2'] = self.judge(a.judge2, 'removal', txt, auth, f'{rid} removal judge2 before'); e['after2'] = self.judge(a.judge2, 'removal', txt, patched, f'{rid} removal judge2 after')
         return e
 
+    def session(self, item, base_model):
+        """A maintenance session: different kinds of change in turn on one profile — an author's exception, a requirement the
+        specification gains, an author's deciding fact, and the author undoing the exception — each from the previous step's profile
+        and model; then every change checked on the final profile."""
+        a, rid = self.a, item['id']
+        auth = {l: part(item['gold'], l) for l in LABELS}
+        rt = json.loads(self.nl(a.editor, {'model': base_model, 'p': item['packet'], 'profile': auth}, [LAB / 'lens-profile.nlir'], tag=f'{rid} rt'))
+        model = apply(base_model, rt.get('edits', []))
+        prop = self.ask(a.editor, PROPOSE + '\n\nPACKET:\n' + json.dumps(item['packet'], ensure_ascii=False) + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False), f'{rid} propose')
+        exc, req, fact = (str(prop[k]).strip().rstrip('.') for k in ('exception', 'requirement', 'fact'))
+        packet = item['packet']
+        def patch(model, after, prof, note, tag):
+            routing = json.loads(self.nl(a.editor, {'model': model, 'after': after}, [LAB / 'patch-route.nlir'], expr='$json%{changed=$changed, route=$route}', tag=f'{rid} {tag} route'))
+            out = json.loads(self.nl(a.editor, {'model': model, 'after': after, 'profile': prof, 'note': note}, [LAB / 'patch-route.nlir', LAB / 'patch.nlir'], tag=f'{rid} {tag} patch'))
+            return {l: out.get(l, prof[l]) for l in LABELS}, routing
+        def author(model, prof, fld, new, note, tag):
+            back = json.loads(self.nl(a.editor, {'model': model, 'p': packet, 'part': fld, 'old': prof[fld], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} {tag} back'))
+            t = json.loads(self.nl(a.editor, {'model': model, 'after': model, 'edits': back.get('edits', []), 'part': fld}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'],
+                                   expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{rid} {tag} typed'))
+            m1 = apply(model, t['kept']); edited = dict(prof); edited[fld] = new
+            p1, routing = patch(model, m1, edited, note, tag)
+            return m1, p1, {'kind': tag, 'author_edit': new, 'model_edits': t['kept'], 'warnings': t['dropped'], 'routing': routing, 'profile': p1}
+        steps = []
+        # 1. an author's exception
+        fld, new = self.author_new('exception', auth, exc)
+        model, cur, st = author(model, auth, fld, new, 'An author edited MET to add the exception: ' + exc, 'session exception'); steps.append(st)
+        # 2. the specification gains a requirement
+        passage = f'This counts as a violation only when {req}.'
+        after_packet = json.loads(json.dumps(packet)); after_packet['rule'] = after_packet['rule'].rstrip() + ' ' + passage
+        lens = json.loads(self.nl(a.editor, {'model': model, 'before': packet, 'after': after_packet}, [LAB / 'lens-packet.nlir'], tag=f'{rid} session spec lens'))
+        m1 = apply(model, lens.get('edits', []))
+        cur2, routing = patch(model, m1, cur, f'The rule\'s specification changed: it now says "{passage}"', 'session spec')
+        steps.append({'kind': 'session spec', 'passage': passage, 'model_edits': lens.get('edits', []), 'routing': routing, 'profile': cur2})
+        model, cur, packet = m1, cur2, after_packet
+        # 3. an author's deciding fact
+        fld, new = self.author_new('fact', cur, fact)
+        model, cur, st = author(model, cur, fld, new, 'An author edited UNCERTAIN to add the deciding fact: ' + fact, 'session fact'); steps.append(st)
+        # 4. the author undoes the exception: deletes it from NOT MET
+        loc = self.ask(a.editor, REMOVE_NODE + f"\n\nEXCEPTION: {exc}\n\nNOT MET: {cur['NOT MET']}", f'{rid} session undo locate')
+        span = str(loc.get('span', '')).strip(); ws = lambda t_: re.sub(r'\s+', ' ', t_).strip()
+        undone = False
+        if span and ws(span) in ws(cur['NOT MET']):
+            new = ws(ws(cur['NOT MET']).replace(ws(span), '', 1)); new = re.sub(r'\s+([,.;:])', r'\1', new); new = re.sub(r'([,;:])\s*([.;])', r'\2', new); new = re.sub(r'^[,;:\s]+', '', new)
+            model, cur, st = author(model, cur, 'NOT MET', new, 'An author deleted from NOT MET the exception: ' + exc + ' — it now counts as a violation when the behaviour and conditions hold', 'session undo'); steps.append(st)
+            undone = True
+        final = {}
+        for w, model_j in (('', a.judge), ('2', a.judge2)):
+            if not model_j: continue
+            final['requirement' + w] = self.judge(model_j, 'requirement', req, cur, f'{rid} session final requirement {w}')
+            final['fact' + w] = self.judge(model_j, 'fact', fact, cur, f'{rid} session final fact {w}')
+            final['removal' + w] = self.judge(model_j, 'removal', exc, cur, f'{rid} session final removal {w}')
+            final['consist' + w] = self.ask(model_j, CONSIST + '\n\nPROFILE:\n' + json.dumps(cur, ensure_ascii=False), f'{rid} session final consist {w}')
+            final['consist_authored' + w] = self.ask(model_j, CONSIST + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False), f'{rid} session authored consist {w}')
+        return rid, {'title': item['packet'].get('title', ''), 'authored': auth, 'proposals': {'exception': exc, 'requirement': req, 'fact': fact}, 'steps': steps,
+                     'undone': undone, 'span': span, 'final_profile': cur, 'final': final}
+
     def undo(self, item, base_model):
         """Add an exception, then delete it again from the patched NOT MET: the case should count as a violation again and the
         profile come back close to the authors'. The added exception is genuine by construction."""
@@ -554,6 +610,20 @@ def summary_undo(results, judge2):
     return S
 
 
+def summary_session(results, judge2):
+    """--session: every change checked on the final profile, per judge."""
+    rs = list(results.values()); S = {'rules': len(rs), 'undone_located': sum(x['undone'] for x in rs)}
+    for w in ('', '2') if judge2 else ('',):
+        f = lambda x, k: x['final'].get(k + w) or {}
+        S['judge' + (w or '1')] = {
+            'requirement_holds': sum(bool(f(x, 'requirement').get('met_requires') and f(x, 'requirement').get('not_met_covers')) for x in rs),
+            'fact_named': sum(bool(f(x, 'fact').get('uncertain_names')) for x in rs),
+            'exception_undone': sum(bool(f(x, 'removal').get('met_covers') and f(x, 'removal').get('not_met_drops')) for x in rs),
+            'overlaps_final': sum(bool(f(x, 'consist').get('overlap')) for x in rs), 'overlaps_authored': sum(bool(f(x, 'consist_authored').get('overlap')) for x in rs)}
+    S['untouched'] = {l: sum(x['authored'][l].strip() == x['final_profile'][l].strip() for x in rs) for l in ('APPLICABILITY', 'DECISION BOUNDARY')}
+    return S
+
+
 def summary_sequence(results, judge2):
     import difflib
     tok = lambda s: re.findall(r'\S+', s)
@@ -610,6 +680,7 @@ def main():
     ap.add_argument('--impact-apply', help='a recorded --impact run: patch the rules its first judge selected for each changed definition, then ask the judges again')
     ap.add_argument('--impact-models', help='with --impact: comma-separated recorded runs whose m0 models to use')
     ap.add_argument('--conflicts', help='a recorded author run: write a requirement contradicting each exception and check merge-check.nlir flags it (and not the recorded, compatible requirement)')
+    ap.add_argument('--session', action='store_true', help='a maintenance session per rule: author exception, specification requirement, author fact, undo the exception; all checked at the end')
     ap.add_argument('--retry-declined', action='store_true', help='typed: when every node edit of an author sentence is declined, ask the backward pass once more')
     ap.add_argument('--merge', help='a recorded author run: merge its exception and requirement edits, made independently, through the model; judge both')
     ap.add_argument('--anchor', help='a --fixpoint run: with --roundtrip, read back from its fixed points; otherwise maintain from them instead of m0')
@@ -768,8 +839,8 @@ def main():
         Path(a.out).write_text(json.dumps({'summary': S, 'rows': rows, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'answers': True}, indent=1, ensure_ascii=False) + '\n')
         print(json.dumps(S, indent=1)); return
     with ThreadPoolExecutor(a.workers) as ex:
-        res = dict(ex.map(lambda r: (R.convention if a.convention else R.repair if a.repair else R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
-    S = summary_repair(res) if (a.repair or a.convention) else summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
+        res = dict(ex.map(lambda r: (R.session if a.session else R.convention if a.convention else R.repair if a.repair else R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
+    S = summary_session(res, a.judge2) if a.session else summary_repair(res) if (a.repair or a.convention) else summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
     Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo, 'repair': a.repair, 'narrow': a.narrow, 'seed_base': a.seed_base, 'convention': a.convention}, indent=1, ensure_ascii=False) + '\n')
     print(json.dumps(S, indent=1))
 

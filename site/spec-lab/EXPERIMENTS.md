@@ -377,6 +377,16 @@ had been recorded as a deciding fact, which reaches UNCERTAIN only, though the t
 to make that change, 8 of 10 selected rules were brought up to date under both judges, with every field the
 routing did not reach left as written.
 
+A maintenance session (`edit-loop.py --session`): four different changes in turn on one profile — an
+author's exception, a requirement the specification gains, an author's deciding fact, and the author
+undoing the exception — each from the previous step. At the end, on the invented spec, the requirement held
+in 8 of 8 rules and the fact in 8 under both judges, overlaps stayed within one of the authors' own, and
+every applicability and decision boundary was left as written; on representative data the same, with every
+requirement and fact held in all 20. The undo is harder to score: a judge asked whether the excepted case
+counts as a violation again said no in about a quarter of the rules — but in nearly all of them because the
+case fails a requirement the profile now states (often the one the specification added), so not counting it
+is right. A removal check alone cannot score an undo inside a mixed session.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,
