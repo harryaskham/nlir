@@ -639,7 +639,8 @@ way carried every added exception and requirement into the profile's verdict
 logic while leaving the fields it does not reach untouched, and kept no deciding
 fact from leaking into MET or NOT MET; patching every field and trusting the
 model to leave the rest alone did worse on each. The checked skeleton is
-[`examples/patch.sh`](../examples/patch.sh).
+[`examples/patch.sh`](../examples/patch.sh). The whole loop — author edits, specification changes, sequences,
+undo, removal and repair proposals — is described in [`docs/editing-loop.md`](editing-loop.md).
 
 ---
 

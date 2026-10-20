@@ -87,5 +87,37 @@ class Summaries(unittest.TestCase):
         self.assertEqual(EX.tidy('MET', 'Approves (after a skim) files.', 'Approves files.'), 'Approves (after a skim) files.')
 
 
+class MoreSummaries(unittest.TestCase):
+    def prof(self, **over):
+        auth = {l: EL.part(GOLD, l) for l in EL.LABELS}; auth.update(over); return auth
+
+    def test_sequence(self):
+        auth = self.prof()
+        step = lambda k, ok: {'kind': k, 'text': 't', 'part': 'MET', 'model_edits': [], 'warnings': [], 'routing': {'changed': [], 'route': []}, 'profile': auth,
+                              'at_step': {q: ok for q in EL.QUESTIONS[k]}}
+        fin = lambda k, ok: {'before': {}, 'after': {q: ok for q in EL.QUESTIONS[k]}, 'before2': {}, 'after2': {q: ok for q in EL.QUESTIONS[k]}}
+        R = {'CR V 9.1': {'authored': auth, 'final_profile': auth, 'steps': [step(k, True) for k in ('exception', 'requirement', 'fact')],
+                          'final': {'exception': fin('exception', False), 'requirement': fin('requirement', True), 'fact': fin('fact', True)}}}
+        S = EL.summary_sequence(R, 'opus')
+        self.assertEqual(S['exception']['not_met_covers'], {'at_step': 1, 'final': 0, 'before': 0, 'final2': 0, 'before2': 0})
+        self.assertEqual(S['final_profile']['untouched'], 5); self.assertEqual(S['final_profile']['similarity'], 1.0)
+
+    def test_undo_and_invalid(self):
+        auth = self.prof()
+        R = {'CR V 9.1': {'authored': auth, 'added_node': True, 'removed_node': True, 'after_add': {'not_met_covers': True, 'met_excludes': True}, 'after_undo': {'met_covers': True},
+                          'after_add2': {'not_met_covers': True}, 'after_undo2': {}, 'final_similarity_to_authored': 1.0, 'final_untouched': 5},
+             'CR V 9.2': {'authored': auth, 'added_node': True, 'invalid': True}}
+        S = EL.summary_undo(R, 'opus')
+        self.assertEqual((S['rules'], S['valid'], S['removed_node'], S['final_untouched']), (2, 1, 1, 5))
+
+    def test_repair(self):
+        a = self.prof(); b = self.prof(MET='Approves unread files outside generated code.')
+        R = {'CR V 9.1': {'authored': a, 'repaired': True, 'profile': b, 'check_before': {'overlap': True}, 'check_after': {'overlap': False}, 'indep_before': {'gap': True}, 'indep_after': {'gap': True}, 'collateral': {'collateral': True}},
+             'CR V 9.2': {'authored': a, 'repaired': False, 'check_before': {}, 'indep_before': {}}}
+        S = EL.summary_repair(R)
+        self.assertEqual((S['flagged'], S['collateral'], S['untouched']), (1, 1, 4))
+        self.assertEqual(S['check']['overlap'], {'before': 1, 'after': 0}); self.assertEqual(S['independent']['gap'], {'before': 1, 'after': 1})
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

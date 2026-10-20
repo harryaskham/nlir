@@ -99,7 +99,7 @@ class Runner:
             args += ['-f', str(f)]
         if expr:
             args += ['-e', expr]
-        for seed in (0, 1, 2):
+        for seed in (self.a.seed_base, self.a.seed_base + 1, self.a.seed_base + 2):
             r = subprocess.run(args + ['--seed', str(seed)], capture_output=True, text=True, timeout=1200)
             if r.returncode == 0:
                 return r.stdout
@@ -350,6 +350,8 @@ def summary_sequence(results, judge2):
     tok = lambda s: re.findall(r'\S+', s)
     S = {}
     for kind, qs in QUESTIONS.items():
+        if not all(kind in [s['kind'] for s in x['steps']] for x in results.values()):
+            continue  # a kind the sequence did not include (removal is not a step of --sequence)
         rows = [(x['steps'][[s['kind'] for s in x['steps']].index(kind)], x['final'][kind]) for x in results.values()]
         S[kind] = {q: {'at_step': sum(bool(st['at_step'].get(q)) for st, _ in rows), 'final': sum(bool(f['after'].get(q)) for _, f in rows),
                        'before': sum(bool(f['before'].get(q)) for _, f in rows)} | ({'final2': sum(bool(f['after2'].get(q)) for _, f in rows), 'before2': sum(bool(f['before2'].get(q)) for _, f in rows)} if judge2 else {}) for q in qs}
@@ -393,6 +395,7 @@ def main():
     ap.add_argument('--data', required=True); ap.add_argument('--models', required=True); ap.add_argument('--out', required=True)
     ap.add_argument('--rules', nargs='*'); ap.add_argument('--rules-file', help='one rule id per line (ids may contain spaces)'); ap.add_argument('--config'); ap.add_argument('--cache', default='target/edit-loop-cache.jsonl')
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
+    ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
     ap.add_argument('--narrow', action='store_true', help='with --repair: move only cases like the flagged one (fewer neighbours moved, more words)')
     ap.add_argument('--repair', action='store_true', help='check each authored profile and repair an overlap or gap with the smallest edit')
@@ -409,7 +412,7 @@ def main():
     with ThreadPoolExecutor(a.workers) as ex:
         res = dict(ex.map(lambda r: (R.repair if a.repair else R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
     S = summary_repair(res) if a.repair else summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
-    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo, 'repair': a.repair, 'narrow': a.narrow}, indent=1, ensure_ascii=False) + '\n')
+    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo, 'repair': a.repair, 'narrow': a.narrow, 'seed_base': a.seed_base}, indent=1, ensure_ascii=False) + '\n')
     print(json.dumps(S, indent=1))
 
 
