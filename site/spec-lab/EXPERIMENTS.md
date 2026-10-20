@@ -193,6 +193,55 @@ drafts, one coverage check per draft by the judge model, and a picked run you ca
 raised strict F1 from 0.586 to 0.619 on twenty untouched rules, about +0.02 of it confirmed by an independent judge
 that also did the picking; picking from eight drafts did no better than from four.
 
+## Shared structure
+
+The learned programs are prompt concatenators: one context, five independent model calls (one per
+part), merged. **B·structured** (`program-b-structured.nlir`, made from B·clean by
+`scripts/make-structured-program.py`) adds one shared node to the graph: a model call that lists the
+rule's distinct cases, each assigned to exactly one verdict, and deterministic forms that give each
+verdict part its own cases and the other verdicts' cases as an exclusion set. It is in the Run tab;
+step through it to see the case list feed all three verdict parts. On the 8 toy rules (four samples
+each) it changes neither meaning (strict F1 0.346 to 0.357, +0.011 [-0.022, +0.043]) nor how much the
+verdict parts overlap (word overlap 0.280 to 0.256, -0.024 [-0.086, +0.034]): the toy's verdict parts
+are one sentence each, and the words they share name the one act every verdict is about. On
+representative data with longer verdict parts, the same structure roughly halved the overlap between
+verdict parts (0.227 to 0.127, against 0.097 between the authored parts) with no gain in meaning.
+Mutual exclusivity is expressible in the graph; it is not what the writer is missing.
+
+## A shared vocabulary?
+
+Do the authored profiles share structure across rules? With the same prompts as the
+representative-data analysis, a model grouped this spec's additions into conventions and its named
+points into concepts, and an independent model checked every assignment (31 of
+32 and 103 of 103 confirmed). Here the shared structure is thin:
+22 of the 52 additions fall into 2 conventions shared by at least three of the
+12 rules, and only 10 of the 153 named points into concepts shared that widely (`vocabulary.json`).
+Its rules were invented to be distinct. On representative data from a real policy written by domain
+experts, about 82% of the additions were instances of a dozen shared conventions and 58% of the
+named points of about eighty shared concepts — yet substituting the shared item for the authors'
+specific one cost about 0.08 strict F1 there every time.
+
+## The method as a library
+
+[`lib/gapfill.nlir`](https://github.com/harryaskham/nlir/blob/main/lib/gapfill.nlir) packages the
+gap-filled writer as reusable forms: read the two lists from authored prose, write each field from
+the spec plus its lists, trim each draft to the lists, keep the best of four by list coverage. On
+this spec's eight evaluation rules (four seeds each, the same strict judge):
+
+| | strict F1 |
+|---|---:|
+| the spec alone (learned writer) | 0.35 |
+| the library, no guidance | 0.32 |
+| the library with the learned writer's guidance as data | 0.48 |
+| the same, with the research pipeline's lists | 0.46 |
+| the research pipeline (learned writer + lists, trimmed) | 0.50 |
+
+Without guidance the library's generic writer does not know what the profile's fields mean — it
+writes MET as an obligation rather than as the violation — and is no better than the spec alone.
+With the guidance (`examples/data/code-review-guide.json`, set as `gf_guide` / `gf_field_guides`)
+it is within noise of the research pipeline, whichever lists it is given. The lists carry the
+authors' selection; what the format means has to come from the writer.
+
 ## Maintaining authored profiles — the editing loop (`../explain/`, `scripts/edit-loop.py`)
 
 Profiles that authors have already written should change only where a change to the rule reaches.

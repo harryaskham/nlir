@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check recorded public toy experiments: metric labels, splits, numeric values and SVGs."""
 import json
+import sys
 import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -41,6 +42,16 @@ def check(name, mode, profiles=None):
 
 
 VERDICTS={'determined','partly determined','witnessed open','open, witness rejected','derivation rejected','unverifiable'}
+
+
+def check_vocabulary(name='vocabulary.json'):
+    """The toy vocabulary: toy rules only, counts consistent with the listed groups."""
+    doc=json.loads((ROOT/name).read_text()); S=doc['summary']
+    rules=[r for c in doc['conventions'] for r in c['rules']]+[r for cs in doc['concepts'].values() for c in cs for r in c['rules']]
+    assert rules and all(r.startswith('CR V') for r in rules), 'vocabulary.json: non-toy rule'
+    assert S['additions_in_shared']==sum(c['additions'] for c in doc['conventions']), 'vocabulary.json: convention counts'
+    assert S['points_in_shared']==sum(c['points'] for cs in doc['concepts'].values() for c in cs), 'vocabulary.json: concept counts'
+    print(f"vocabulary.json: {S['additions_in_shared']}/{S['additions']} additions and {S['points_in_shared']}/{S['points']} points in shared groups")
 
 
 def check_gapfill(name='gapfill.json'):
@@ -181,7 +192,10 @@ if __name__=='__main__':
     check('trace-strict-b.json','strict',2)
     if (ROOT/'witness.json').exists():check_witness()
     if (ROOT/'gapfill.json').exists():check_gapfill()
+    if (ROOT/'vocabulary.json').exists():check_vocabulary()
     check_run_assets()
     check_no_private_domain()
     if (ROOT.parent/'explain'/'traces.json').exists():check_explain_traces()
+    import subprocess
+    subprocess.run([sys.executable, str(Path(__file__).with_name('make-structured-program.py')), '--check'], check=True)
     check_b_clean()

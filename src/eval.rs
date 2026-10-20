@@ -1294,6 +1294,9 @@ impl<'a> Evaluator<'a> {
                     | "gt"
                     | "lt"
                     | "not"
+                    | "and"
+                    | "or"
+                    | "try"
                     | "floor"
                     | "ceil"
                     | "round"
@@ -1461,6 +1464,34 @@ impl<'a> Evaluator<'a> {
                     return Err(builtin_arity_err(name, "(x)", args.len()));
                 }
                 Ok(Value::bool(!value_is_truthy(&self.eval(&args[0])?)))
+            }
+            // Boolean AND / OR over two or more operands, short-circuiting left to right
+            // (like `$if`, an operand that is not needed is never evaluated — no model
+            // call, no error), so `$and%($has%($x, 'k'), $x.k > 0)` is a safe guard.
+            "and" | "or" => {
+                if args.len() < 2 {
+                    return Err(builtin_arity_err(name, "(a, b, ...)", args.len()));
+                }
+                let want = name == "or";
+                for a in args {
+                    if value_is_truthy(&self.eval(a)?) == want {
+                        return Ok(Value::bool(want));
+                    }
+                }
+                Ok(Value::bool(!want))
+            }
+            // `$try%(expr, fallback)`: `expr`'s value, or — if evaluating it fails (a model call
+            // that errors or returns nothing, a missing key, a bad index) — `fallback`'s. Lazy
+            // like `$if`: the fallback is evaluated only when needed. Keeps one failed call from
+            // aborting a long pipeline, e.g. `$try%(=>(...), $draft)`.
+            "try" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(expr, fallback)", args.len()));
+                }
+                match self.eval(&args[0]) {
+                    Ok(v) => Ok(v),
+                    Err(_) => self.eval(&args[1]),
+                }
             }
             // Modulo builtin (mathy golf, msm-3): mathematical modulo via
             // rem_euclid — non-negative result in [0, |b|), so `$mod%(-1,3)`→2
@@ -1634,6 +1665,27 @@ impl<'a> Evaluator<'a> {
                 Ok(Value::bool(!value_is_truthy(
                     &self.eval_async(&args[0], realiser).await?,
                 )))
+            }
+            "and" | "or" => {
+                if args.len() < 2 {
+                    return Err(builtin_arity_err(name, "(a, b, ...)", args.len()));
+                }
+                let want = name == "or";
+                for a in args {
+                    if value_is_truthy(&self.eval_async(a, realiser).await?) == want {
+                        return Ok(Value::bool(want));
+                    }
+                }
+                Ok(Value::bool(!want))
+            }
+            "try" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(expr, fallback)", args.len()));
+                }
+                match self.eval_async(&args[0], realiser).await {
+                    Ok(v) => Ok(v),
+                    Err(_) => self.eval_async(&args[1], realiser).await,
+                }
             }
             "mod" => {
                 if args.len() != 2 {
@@ -1861,8 +1913,8 @@ pub const BUILTIN_NAMES: &[&str] = &[
     "access", "and", "ceil", "contains", "dict", "diff", "draw", "elem", "entries", "filter",
     "flat", "floor", "fold", "get", "gt", "has", "if", "inter", "join", "json", "keys", "len",
     "lines", "lower", "lt", "map", "match", "matches", "medoid", "mod", "not", "nth", "omit", "or",
-    "parse", "pick", "replace", "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "type",
-    "union", "upper", "values", "zip",
+    "parse", "pick", "replace", "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "try",
+    "type", "union", "upper", "values", "zip",
 ];
 
 const PURE_BUILTIN_OPS: &[&str] = &[
@@ -2384,6 +2436,9 @@ impl<'a> Evaluator<'a> {
                                 | "gt"
                                 | "lt"
                                 | "not"
+                                | "and"
+                                | "or"
+                                | "try"
                                 | "floor"
                                 | "ceil"
                                 | "round"
@@ -5981,6 +6036,96 @@ operators:
         assert_eq!(det("$not%(1)"), "false"); // nonzero is truthy
         // Composes with $if (gate on a strict comparison).
         assert_eq!(det("$if%($lt%(2,5),'less','not')"), "less");
+        // $and / $or — boolean AND / OR over two or more operands, short-circuiting.
+        assert_eq!(det("$and%($lt%(1,2), $lt%(2,3))"), "true");
+        assert_eq!(det("$and%($lt%(1,2), $lt%(3,2))"), "false");
+        assert_eq!(det("$or%($lt%(3,2), $lt%(1,2))"), "true");
+        assert_eq!(det("$or%($lt%(3,2), $lt%(4,2))"), "false");
+        assert_eq!(det("$and%(1, 1, 0)"), "false"); // variadic
+        assert_eq!(det("$or%(0, 0, 1)"), "true");
+        // Short-circuit: the unneeded operand is never evaluated (an unknown key would error).
+        assert_eq!(det("$or%($lt%(1,2), $nosuch%1)"), "true");
+        assert_eq!(det("$and%($lt%(3,2), $nosuch%1)"), "false");
+        // Usable as a filter predicate (the use that motivated it: `&` is not boolean AND).
+        assert_eq!(
+            det("_sep=',';$filter%({$and%($gt%($0,1), $lt%($0,4))}, 1..5)"),
+            "2,3"
+        );
+    }
+
+    #[test]
+    fn try_builtin_falls_back_on_error_only() {
+        // $try%(expr, fallback): expr's value, or fallback's when evaluating expr fails.
+        assert_eq!(det("$try%($nosuch%1, 'fallback')"), "fallback");
+        assert_eq!(det("$try%($nth%(5, [1,2]), 0)"), "0");
+        assert_eq!(det("$try%(1+1, 'fallback')"), "2");
+        // Lazy: the fallback is not evaluated when expr succeeds (an unknown key would error).
+        assert_eq!(det("$try%(7, $nosuch%1)"), "7");
+        // Nested: the first fallback that succeeds.
+        assert_eq!(det("$try%($nosuch%1, $try%($nosuch%2, 'third'))"), "third");
+        // A failing fallback still fails.
+        assert!(
+            evaluate(
+                "$try%($nosuch%1, $nosuch%2)",
+                &config(),
+                &mut Context::empty(&config().context),
+                Mode::Det
+            )
+            .is_err()
+        );
+        assert!(
+            evaluate(
+                "$try%(1)",
+                &config(),
+                &mut Context::empty(&config().context),
+                Mode::Det
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn try_builtin_matches_on_the_async_path() {
+        use crate::realiser::{NativeRealiser, block_on_ready};
+        let cfg = config();
+        for (src, want) in [
+            ("$try%($nosuch%1, 'fallback')", "fallback"),
+            ("$try%(7, $nosuch%1)", "7"),
+        ] {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = block_on_ready(evaluate_async(
+                src,
+                &cfg,
+                &mut ctx,
+                Mode::Det,
+                &NativeRealiser,
+            ))
+            .expect("async try");
+            assert_eq!(out.render(&ctx.sep()), want, "{src}");
+        }
+    }
+
+    #[test]
+    fn and_or_builtins_match_on_the_async_path() {
+        // The browser evaluates through eval_async: $and / $or must dispatch there too.
+        use crate::realiser::{NativeRealiser, block_on_ready};
+        let cfg = config();
+        for (src, want) in [
+            ("$and%($lt%(1,2), $or%($lt%(3,2), $lt%(2,3)))", "true"),
+            ("$or%($lt%(1,2), $nosuch%1)", "true"),
+            ("$and%($lt%(3,2), $nosuch%1)", "false"),
+        ] {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = block_on_ready(evaluate_async(
+                src,
+                &cfg,
+                &mut ctx,
+                Mode::Det,
+                &NativeRealiser,
+            ))
+            .expect("async and/or");
+            assert_eq!(out.render(&ctx.sep()), want, "{src}");
+        }
     }
 
     #[test]

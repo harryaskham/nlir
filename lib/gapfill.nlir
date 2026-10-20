@@ -1,0 +1,62 @@
+-- gapfill.nlir: a gap-filled writer for spec -> prose, as reusable forms (docs/cookbook.md §17).
+--
+-- A specification implies more points than its authors' prose makes, and leaves some decisions open.
+-- Two short lists per field close the gap: named POINTS (the spec implies them; the authors chose to
+-- make them) and ADDITIONS (the spec does not imply them). Given the lists, write each field from the
+-- spec, trim each draft to what states a listed item, and keep, per field, the draft that covers the
+-- lists best. Load with `nlir -f lib/gapfill.nlir -f yours.nlir`; nothing here is domain-specific.
+--
+--   lists:  {field: {points: [names], additions: [sentences]}}
+--   $gf_extract%(spec, text, fields)          -> lists read from an authored text (one model call)
+--   $gf_document%(spec, lists, fields, k)     -> {field: text}, each field the best of k trimmed drafts
+--   building blocks: gf_items, gf_write, gf_trim, gf_cover, gf_score, gf_argmax, gf_drafts, gf_best
+
+gf_extract = {$parse%(=>("You compare a TEXT written for a SPECIFICATION with that specification. For each field of the text (" ++ $join%($2, ', ') ++ "), sort every point the field makes into exactly one of two lists:\n- points: the specification implies it (even if not in these words). Name each in at most six words, as a noun phrase naming the consideration, not the requirement or verdict.\n- additions: the specification does not imply it (a convention, threshold, case or distinction it leaves undecided). Restate each as one short requirement sentence.\n\nReply with JSON only, one key per field: {\"<field>\": {\"points\": [], \"additions\": []}}\n\nSPECIFICATION:\n" ++ $json%$0 ++ "\n\nTEXT:\n" ++ $json%$1))};
+
+-- Optional guidance the caller sets after loading: what the document and its fields mean (and any worked
+-- examples), and per-field instructions. Lists supply the authors' selection; the guide supplies the format's
+-- semantics, which a generic writer cannot know (e.g. whether a "MET" field describes a violation).
+gf_guide='';
+gf_field_guides={};
+gf_preamble={$if%($gt%(#$gf_guide, 0), "GUIDANCE:\n" ++ $gf_guide ++ "\n\n", "") ++ $if%($gt%(#($get%($gf_field_guides, $0, '')), 0), "FIELD GUIDANCE (" ++ $0 ++ "):\n" ++ $get%($gf_field_guides, $0, '') ++ "\n\n", "")};
+
+-- Derive a guide from worked examples when no good writer exists yet (examples, fields) -> {guide, fields}:
+-- examples are [{spec, document: {field: text}}]; one model call. Set the result as gf_guide / gf_field_guides.
+gf_guide_prompt = {"Below are worked EXAMPLES of a document format: each pairs a SPECIFICATION with the document its authors wrote from it, field by field (" ++ $join%($1, ', ') ++ "). Write guidance for a writer who must produce this document for a NEW specification: what the document is for; for each field, what it means and decides (including which way any verdict or label points), what it contains and never contains, its register and typical length. Generalise across the examples: do not copy their content, topics or wording.\n\nReply with JSON only: {\"guide\": \"<shared guidance>\", \"fields\": {\"<field>\": \"<instructions for that field>\"}} with one key per field.\n\nEXAMPLES:\n" ++ $json%$0};
+gf_derive_guide = {$parse%(=>($gf_guide_prompt%($0, $1)))};
+
+-- The listed items of one field, points first (lists, field).
+gf_items = {$get%($get%($0, $1, {}), 'points', []) ++ $get%($get%($0, $1, {}), 'additions', [])};
+
+-- One draft of a field from the spec plus its lists (spec, lists, field, draft number). A field with no listed
+-- items is written from the spec alone: told to add nothing beyond empty lists, a writer rightly returns nothing.
+gf_write = {$if%($gt%(#($gf_items%($1, $2)), 0), =>($gf_preamble%$2 ++ "Write the " ++ $2 ++ " field of a document from the SPECIFICATION below. For each NAMED POINT, state what the specification requires about it, at its strength and with its qualifiers; state each ADDITION as well; add no other points. Return only the field's prose. (Draft " ++ $3 ++ ".)\n\nNAMED POINTS:\n- " ++ $join%($get%($get%($1, $2, {}), 'points', []), "\n- ") ++ "\n\nADDITIONS:\n- " ++ $join%($get%($get%($1, $2, {}), 'additions', []), "\n- ") ++ "\n\nSPECIFICATION:\n" ++ $json%$0), =>($gf_preamble%$2 ++ "Write the " ++ $2 ++ " field of a document from the SPECIFICATION below: state concisely what the specification requires for it, at its strength and with its qualifiers. Return only the field's prose. (Draft " ++ $3 ++ ".)\n\nSPECIFICATION:\n" ++ $json%$0))};
+
+-- Keep only what states a listed item; a field with no listed items is left untouched (lists, field, draft).
+-- A trim never erases a field: if nothing in the draft states a listed item, or the call fails, the draft is kept.
+gf_trim = {$if%($gt%(#($gf_items%($0, $1)), 0), $try%(=>("Rewrite the DRAFT keeping only what states a LISTED item; delete everything else; keep its wording for what you keep; add nothing. If nothing in the DRAFT states a listed item, return the DRAFT unchanged. Return only the prose.\n\nLISTED:\n- " ++ $join%($gf_items%($0, $1), "\n- ") ++ "\n\nDRAFT:\n" ++ $2), $2), $2)};
+
+-- Which listed items a draft states (lists, field, draft) -> {stated: [indices], partly: [indices], other: n}.
+-- A failed or unreadable judgement counts as covering nothing, so one bad call cannot abort a document.
+gf_cover = {$try%($parse%(=>("Number the LISTED items from 0. For each, decide whether the DRAFT states it faithfully, at its strength and with its qualifiers (stated), states it with a qualifier lost or weakened (partly), or not at all. Then count the draft's other clauses: requirements or claims that state no listed item.\n\nReply with JSON only: {\"stated\": [indices], \"partly\": [indices], \"other\": n}\n\nLISTED:\n" ++ $json%($gf_items%($0, $1)) ++ "\n\nDRAFT:\n" ++ $2)), {stated=[], partly=[], other=0})};
+
+-- Indices within range (indices, item count).
+gf_valid = {$filter%({$and%($gt%($0, -1), $lt%($0, $$1))}, $0)};
+
+-- Coverage of the listed items: stated, plus half for each only partly stated (cover, item count).
+gf_cov = {(#($gf_valid%($get%($0, 'stated', []), $1)) + (0.5 * #($gf_valid%($diff%($get%($0, 'partly', []), $get%($0, 'stated', [])), $1)))) / $1};
+
+-- Coverage less 0.05 per other clause; with no listed items, minus the other clauses (cover, item count).
+gf_score = {$if%($gt%($1, 0), $gf_cov%($0, $1) - (0.05 * $get%($0, 'other', 0)), 0 - $get%($0, 'other', 0))};
+
+-- The index of the first largest score. Pass the list wrapped, `$gf_argmax%[scores]`: `%` spreads a bare list into the argument frame.
+gf_argmax = {$nth%(0, $filter%({$nth%($0, $$0) == $nth%(#$$0 - 1, $sort%$$0)}, 0..(#$0 - 1)))};
+
+-- k trimmed drafts of one field (spec, lists, field, k).
+gf_drafts = {{$gf_trim%($$1, $$2, $gf_write%($$0, $$1, $$2, $0))} ↦ (1..$3)};
+
+-- The draft that covers the field's lists best (drafts, lists, field).
+gf_best = {$nth%($gf_argmax%[{$gf_score%($gf_cover%($$1, $$2, $0), #($gf_items%($$1, $$2)))} ↦ $0], $0)};
+
+-- Every field, each the best of k trimmed drafts (spec, lists, fields, k).
+gf_document = {$dict%({[$0, $gf_best%($gf_drafts%($$0, $$1, $0, $$3), $$1, $0)]} ↦ $2)}

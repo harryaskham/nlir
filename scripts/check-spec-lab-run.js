@@ -191,6 +191,13 @@ async page => {
   await page.locator('#runGo').click();
   await page.waitForFunction(n => document.querySelectorAll('.run-card').length > n && !document.querySelector('.run-card .state:not(.ok)'), before, { timeout: 60000 });
   if (!(await page.locator('#runCards > .run-card').first().innerText()).includes('B·clean')) throw new Error('B·clean run missing');
+  // B·structured: B·clean with a shared case list; its extra call goes to the endpoint like any other.
+  await page.locator('#runProgram').selectOption('B·structured');
+  const beforeS = await page.locator('.run-card').count();
+  await page.locator('#runGo').click();
+  await page.waitForFunction(n => document.querySelectorAll('.run-card').length > n && !document.querySelector('.run-card .state:not(.ok)'), beforeS, { timeout: 60000 });
+  const structuredCard = await page.locator('#runCards > .run-card').first().innerText();
+  if (!structuredCard.includes('B·structured') || /failed/i.test(structuredCard.slice(0, 200))) throw new Error('B·structured run missing or failed: ' + structuredCard.slice(0, 200));
   await page.locator('#runProgram').selectOption('B');
   // Narrow layout must not overflow.
   await page.setViewportSize({ width: 390, height: 844 });

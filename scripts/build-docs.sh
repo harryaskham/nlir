@@ -147,7 +147,7 @@ for f in "$out/index.html" "$out/spec.html" "$out/examples.html"; do
     -e 's#href="\./README\.md"#href="index.html"#g' \
     -e 's#href="README\.md"#href="index.html"#g' \
     -e "s#href=\"\./#href=\"$repo/blob/main/#g" \
-    -E -e "s#href=\"((examples|docs|src|scripts|crates|test|extensions)/[^\"]*)\"#href=\"$repo/blob/main/\\1\"#g" \
+    -E -e "s#href=\"((examples|docs|lib|src|scripts|crates|test|extensions)/[^\"]*)\"#href=\"$repo/blob/main/\\1\"#g" \
     -E -e "s#href=\"([A-Za-z0-9_.-]+\\.(yaml|yml|toml|nix|json))\"#href=\"$repo/blob/main/\\1\"#g" \
     "$f"
 done

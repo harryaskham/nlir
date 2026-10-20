@@ -305,6 +305,13 @@ similarity with GPT-6 Luna writing and 0.78 when GPT-6.1 Sol runs the same progr
 every version reviews clean at under 2 kB. The design is in
 [`docs/design/v2.md`](docs/design/v2.md).
 
+What a spec cannot supply is its authors' selection of points and the decisions it leaves
+open. [`lib/gapfill.nlir`](lib/gapfill.nlir) packages the method that closes that gap as
+reusable forms: read two short lists from authored prose, write each field from the spec
+plus its lists, trim to the lists, and keep the draft that covers them best
+([cookbook §17](docs/cookbook.md); checked offline by `examples/gapfill.sh`, end to end
+in `examples/gapfill-pipeline.sh`).
+
 ## Editing backwards — lenses
 
 A program maps inputs to output; `nlir put` runs it backwards. Edit the prose a

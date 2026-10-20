@@ -19,14 +19,20 @@ rev="$(git rev-parse HEAD)"
 export NLIR_WASM_GIT="$rev"
 (cd crates/nlir-wasm && cargo build --release --target wasm32-unknown-unknown)
 wasm="${CARGO_TARGET_DIR:-$root/crates/nlir-wasm/target}/wasm32-unknown-unknown/release/nlir_wasm.wasm"
-rm -rf site/workspace/pkg
-wasm-bindgen --target web --out-dir site/workspace/pkg "$wasm"
+# Build the glue into a scratch directory and swap it in only once every step has succeeded: a failed
+# build (e.g. wasm-bindgen missing outside the devshell) must not delete the last good evaluator, which
+# other builds (the health lab) embed.
+command -v wasm-bindgen >/dev/null 2>&1 || { echo "build-site: wasm-bindgen not found (run inside the flake devshell)" >&2; exit 1; }
+pkg_tmp="$(mktemp -d)"
+trap 'rm -rf "$pkg_tmp"' EXIT
+wasm-bindgen --target web --out-dir "$pkg_tmp" "$wasm"
 if command -v wasm-opt >/dev/null 2>&1; then
-  wasm-opt -O2 --all-features site/workspace/pkg/nlir_wasm_bg.wasm -o site/workspace/pkg/nlir_wasm_bg.wasm.opt \
-    && mv site/workspace/pkg/nlir_wasm_bg.wasm.opt site/workspace/pkg/nlir_wasm_bg.wasm
+  wasm-opt -O2 --all-features "$pkg_tmp/nlir_wasm_bg.wasm" -o "$pkg_tmp/nlir_wasm_bg.wasm.opt" \
+    && mv "$pkg_tmp/nlir_wasm_bg.wasm.opt" "$pkg_tmp/nlir_wasm_bg.wasm"
 fi
+printf '%s\n' "$rev" > "$pkg_tmp/BUILD_COMMIT"
+rm -rf site/workspace/pkg && mkdir -p site/workspace && cp -R "$pkg_tmp" site/workspace/pkg
 cp config.example.yaml site/workspace/config.example.yaml
-printf '%s\n' "$rev" > site/workspace/pkg/BUILD_COMMIT
 
 # 2. The docs (copies site/workspace and site/spec-lab into the output).
 bash scripts/build-docs.sh "$out" >/dev/null

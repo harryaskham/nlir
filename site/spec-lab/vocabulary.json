@@ -1,0 +1,77 @@
+{
+ "summary": {
+  "rules": 12,
+  "additions": 52,
+  "additions_in_shared": 22,
+  "shared_conventions": 2,
+  "conventions_confirmed": 31,
+  "conventions_checked": 32,
+  "points": 153,
+  "points_in_shared": 10,
+  "shared_concepts": 2,
+  "concepts_confirmed": 103,
+  "concepts_checked": 103
+ },
+ "conventions": [
+  {
+   "name": "Nonobvious Judgment Evaluation Cases",
+   "statement": "Prefer informative evaluation cases in which the relevant judgment is genuinely open rather than mechanically or immediately apparent.",
+   "additions": 6,
+   "rules": [
+    "CR V 1.1",
+    "CR V 1.3",
+    "CR V 2.1",
+    "CR V 2.3",
+    "CR V 3.2"
+   ]
+  },
+  {
+   "name": "Unresolved Evidence Means Uncertainty",
+   "statement": "Classify an assessment as uncertain when the available evidence leaves a fact or interpretation necessary to determine compliance unresolved.",
+   "additions": 16,
+   "rules": [
+    "CR V 1.1",
+    "CR V 1.2",
+    "CR V 1.4",
+    "CR V 2.1",
+    "CR V 2.2",
+    "CR V 2.3",
+    "CR V 3.1",
+    "CR V 3.2",
+    "CR V 4.1",
+    "CR V 4.2"
+   ]
+  }
+ ],
+ "concepts": {
+  "applicability": [
+   {
+    "name": "Approval And Merge Decisions",
+    "definition": "The assistant decides whether to approve a change or permit it to merge.",
+    "points": 5,
+    "rules": [
+     "CR V 1.1",
+     "CR V 1.2",
+     "CR V 1.3",
+     "CR V 1.4",
+     "CR V 3.3"
+    ]
+   }
+  ],
+  "decision_boundary": [],
+  "MET": [
+   {
+    "name": "Substantive explanatory support",
+    "definition": "Review judgments are assessed for explanations that meaningfully support their conclusions or identify the relevant risks.",
+    "points": 5,
+    "rules": [
+     "CR V 1.4",
+     "CR V 2.1",
+     "CR V 3.2"
+    ]
+   }
+  ],
+  "NOT_MET": [],
+  "UNCERTAIN": []
+ }
+}
