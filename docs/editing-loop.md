@@ -45,6 +45,7 @@ scripts/edit-loop.py $L --out d.json --undo                  # add an exception,
 scripts/edit-loop.py $L --out e.json --typed --kinds removal # delete an exception the model has
 scripts/edit-loop.py $L --out f.json --repair [--narrow]     # propose repairs of the authors' own overlaps and gaps
 scripts/edit-loop.py $L --out g.json --typed --seed-base 100 # an independent second sample of every call
+scripts/edit-loop.py $L --out h.json --convention "SENTENCE"  # append a profile-wide convention to every DECISION BOUNDARY
 ```
 
 Useful options: `--rules-file` (one id per line; ids may contain spaces), `--editor opus` (another model

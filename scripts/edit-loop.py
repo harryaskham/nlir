@@ -99,11 +99,16 @@ class Runner:
             args += ['-f', str(f)]
         if expr:
             args += ['-e', expr]
+        err = ''
         for seed in (self.a.seed_base, self.a.seed_base + 1, self.a.seed_base + 2):
-            r = subprocess.run(args + ['--seed', str(seed)], capture_output=True, text=True, timeout=1200)
+            try:
+                r = subprocess.run(args + ['--seed', str(seed)], capture_output=True, text=True, timeout=1200)
+            except subprocess.TimeoutExpired:  # a hung call is one failed attempt, not the end of the run
+                err = f'timed out (seed {seed})'; continue
             if r.returncode == 0:
                 return r.stdout
-        raise RuntimeError(f'{tag}: {r.stderr[-300:]}')
+            err = r.stderr[-300:]
+        raise RuntimeError(f'{tag}: {err}')
 
     def packet_edit(self, item, auth, m0, kind, txt):
         """The change starts in the specification: the packet gains a permission (exception) or a requirement in the rule
@@ -225,6 +230,23 @@ class Runner:
         col = self.ask(a.judge2 or a.judge, COLLATERAL + f"\n\nCASE: {finding.get('overlap_case') or finding.get('gap_case')}\n\nAUTHORED:\n" + json.dumps(auth, ensure_ascii=False) + '\n\nREPAIRED:\n' + json.dumps(fixed, ensure_ascii=False), f'{rid} repair collateral')
         return rid, out | {'repaired': True, 'why': r.get('why', ''), 'profile': fixed, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
                            'indep_after': indep(fixed, f'{rid} repair indep after'), 'collateral': col}
+
+    def convention(self, item, base_model):
+        """A profile-wide convention: one fixed sentence appended to the authored DECISION BOUNDARY (no model call), with the
+        same checks as a repair before and after, and the collateral judge on what else it changes."""
+        a, rid = self.a, item['id']
+        auth = {l: part(item['gold'], l) for l in LABELS}
+        rt = json.loads(self.nl(a.editor, {'model': base_model, 'p': item['packet'], 'profile': auth}, [LAB / 'lens-profile.nlir'], tag=f'{rid} rt'))
+        m0 = apply(base_model, rt.get('edits', []))
+        chk = lambda prof, tag: json.loads(self.nl(a.editor, {'p': item['packet'], 'model': m0, 'profile': prof}, [LAB / 'lens-check.nlir'], tag=f'{rid} {tag}'))
+        indep = lambda prof, tag: self.ask(a.judge2, CONSIST + f"\n\nMET: {prof['MET']}\n\nNOT MET: {prof['NOT MET']}\n\nUNCERTAIN: {prof['UNCERTAIN']}", tag) if a.judge2 else {}
+        indep_db = lambda prof, tag: self.ask(a.judge2, CONSIST + f"\n\nDECISION BOUNDARY: {prof['DECISION BOUNDARY']}\n\nMET: {prof['MET']}\n\nNOT MET: {prof['NOT MET']}\n\nUNCERTAIN: {prof['UNCERTAIN']}", tag) if a.judge2 else {}
+        conv = dict(auth); conv['DECISION BOUNDARY'] = auth['DECISION BOUNDARY'].rstrip() + ' ' + a.convention.strip()
+        before, after = chk(auth, 'repair check before'), chk(conv, 'convention check after')
+        col = self.ask(a.judge2 or a.judge, COLLATERAL.replace('should differ only in how it treats one CASE', 'adds one convention') + '\n\nCASE: a response that shows the excepted case and, elsewhere, the behaviour itself\n\nAUTHORED:\n' + json.dumps(auth, ensure_ascii=False) + '\n\nREPAIRED:\n' + json.dumps(conv, ensure_ascii=False), f'{rid} convention collateral')
+        return rid, {'title': item['packet'].get('title', ''), 'authored': auth, 'repaired': True, 'profile': conv,
+                     'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
+                     'indep_before': indep_db(auth, f'{rid} convention indep before'), 'indep_after': indep_db(conv, f'{rid} convention indep after'), 'collateral': col}
 
     def author_new(self, kind, cur, txt):
         fld = 'UNCERTAIN' if kind == 'fact' else 'MET'
@@ -397,6 +419,7 @@ def main():
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--convention', help='append this sentence to every authored DECISION BOUNDARY and check overlaps and gaps before and after')
     ap.add_argument('--narrow', action='store_true', help='with --repair: move only cases like the flagged one (fewer neighbours moved, more words)')
     ap.add_argument('--repair', action='store_true', help='check each authored profile and repair an overlap or gap with the smallest edit')
     ap.add_argument('--undo', action='store_true', help='add an exception, then delete it again: does the profile come back?')
@@ -410,9 +433,9 @@ def main():
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
     with ThreadPoolExecutor(a.workers) as ex:
-        res = dict(ex.map(lambda r: (R.repair if a.repair else R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
-    S = summary_repair(res) if a.repair else summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
-    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo, 'repair': a.repair, 'narrow': a.narrow, 'seed_base': a.seed_base}, indent=1, ensure_ascii=False) + '\n')
+        res = dict(ex.map(lambda r: (R.convention if a.convention else R.repair if a.repair else R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
+    S = summary_repair(res) if (a.repair or a.convention) else summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
+    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo, 'repair': a.repair, 'narrow': a.narrow, 'seed_base': a.seed_base, 'convention': a.convention}, indent=1, ensure_ascii=False) + '\n')
     print(json.dumps(S, indent=1))
 
 
