@@ -238,9 +238,12 @@ Edits compose. Applied in turn to the same profile — an exception, then a requ
 deciding fact, each starting from the previous step's patched profile and model
 (`edit-loop.py --sequence`) — every one of the three still holds at the end under both judges (8 of 8
 exceptions covered, 8 of 8 requirements gating MET, 8 of 8 facts in UNCERTAIN), and the final profile keeps
-75% of the authors' words after three changes. On representative data, the same three edits on twenty
-rules held at the end in 18–20 of 20 under both judges, with no overlap left where the authored profiles
-had five; the two lapses were exceptions whose wording a later requirement narrowed in NOT MET.
+76% of the authors' words after three changes. On representative data an earlier version lapsed twice
+in twenty rules: the backward pass read an added requirement as a narrower exception, which undid the
+exception added before it. `lens-concepts.nlir` now says so outright — a requirement and an exception
+work in opposite directions, so a new requirement is a new or narrowed condition, never an edit of an
+exception — and with it every edit held at the end in all twenty rules under both judges, with no
+change to single edits.
 
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
