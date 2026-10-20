@@ -632,7 +632,9 @@ $route        → MET / NOT MET       (an added exception or a changed condition
 [`site/spec-lab/patch-route.nlir`](../site/spec-lab/patch-route.nlir) is the
 routing and [`site/spec-lab/patch.nlir`](../site/spec-lab/patch.nlir) the patch
 (load both: `-f patch-route.nlir -f patch.nlir`); every unrouted field is
-returned byte-for-byte. On representative data, routing an author's edit this
+returned byte-for-byte. When a condition or an exception changes, `$gate` adds one
+instruction to the MET and NOT MET patches: the change must govern every way MET can
+be met, as a sentence, not a fragment on the clause it was appended to. On representative data, routing an author's edit this
 way carried every added exception and requirement into the profile's verdict
 logic while leaving the fields it does not reach untouched, and kept no deciding
 fact from leaking into MET or NOT MET; patching every field and trusting the
