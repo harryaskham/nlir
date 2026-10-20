@@ -20,6 +20,11 @@ gf_guide='';
 gf_field_guides={};
 gf_preamble={$if%($gt%(#$gf_guide, 0), "GUIDANCE:\n" ++ $gf_guide ++ "\n\n", "") ++ $if%($gt%(#($get%($gf_field_guides, $0, '')), 0), "FIELD GUIDANCE (" ++ $0 ++ "):\n" ++ $get%($gf_field_guides, $0, '') ++ "\n\n", "")};
 
+-- Derive a guide from worked examples when no good writer exists yet (examples, fields) -> {guide, fields}:
+-- examples are [{spec, document: {field: text}}]; one model call. Set the result as gf_guide / gf_field_guides.
+gf_guide_prompt = {"Below are worked EXAMPLES of a document format: each pairs a SPECIFICATION with the document its authors wrote from it, field by field (" ++ $join%($1, ', ') ++ "). Write guidance for a writer who must produce this document for a NEW specification: what the document is for; for each field, what it means and decides (including which way any verdict or label points), what it contains and never contains, its register and typical length. Generalise across the examples: do not copy their content, topics or wording.\n\nReply with JSON only: {\"guide\": \"<shared guidance>\", \"fields\": {\"<field>\": \"<instructions for that field>\"}} with one key per field.\n\nEXAMPLES:\n" ++ $json%$0};
+gf_derive_guide = {$parse%(=>($gf_guide_prompt%($0, $1)))};
+
 -- The listed items of one field, points first (lists, field).
 gf_items = {$get%($get%($0, $1, {}), 'points', []) ++ $get%($get%($0, $1, {}), 'additions', [])};
 

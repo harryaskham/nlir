@@ -41,4 +41,6 @@ contains "gf_guide='MET describes a violation.'; gf_field_guides={MET='One sente
 # Robustness: a failed or unreadable coverage judgement counts as covering nothing ($try); in det mode the
 # echoed prompt cannot be parsed, so this exercises the fallback.
 check "\$json%\$gf_cover%(\$lists, 'MET', 'draft')"                                 '{"stated":[],"partly":[],"other":0}'
+# Deriving a guide from worked examples is one call that names the fields and carries the examples.
+contains "\$gf_guide_prompt%([{spec={rule='r'}, document={MET='m'}}], ['MET'])" "field by field (MET)"
 echo "gapfill: all checks passed"
