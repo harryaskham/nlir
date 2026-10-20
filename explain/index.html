@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="a.skh.am:made" content="agents">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>nlir · explain a spec ⇄ prose pass</title>
+<link rel="stylesheet" href="../theme.css">
+<link rel="stylesheet" href="explain.css">
+</head>
+<body>
+<header class="bar">
+  <a class="mark" href="../index.html">nlir<i>·</i><small>explain</small></a>
+  <span id="badge" class="badge">recorded passes</span>
+  <a class="nav hide-sm" href="../index.html">Guide</a>
+  <a class="nav" href="../workspace/">Workspace</a>
+  <a class="nav" href="../spec-lab/">Spec lab</a>
+  <a class="nav" href="./" aria-current="page">Explain</a>
+  <a class="nav hide-sm" href="https://github.com/harryaskham/nlir">GitHub ↗</a>
+</header>
+
+<main class="explain">
+  <section class="intro">
+    <h1>How a program turns a rule into an evaluation profile — and how an edit travels</h1>
+    <p>Pick a rule from the invented code-review spec. The <b>concept layer</b> program first reads the rule into a small model — the action being judged, the conditions that must all hold, the exceptions that avoid a violation, the facts a verdict turns on — and then writes each part of the profile from that model. Step through it, then add an author's exception and watch it reach every part. Compare the <b>flat</b> program, whose parts are written independently, and the <b>chained</b> one, where each verdict part reads the previous.</p>
+  </section>
+
+  <section class="controls" aria-label="Controls">
+    <label>Rule <select id="rule"></select></label>
+    <div class="seg" role="tablist" id="program">
+      <button role="tab" data-program="concepts" aria-selected="true">Concept layer</button>
+      <button role="tab" data-program="chained" aria-selected="false">Chained</button>
+      <button role="tab" data-program="flat" aria-selected="false">Flat</button>
+    </div>
+    <div class="seg" role="tablist" id="scenario">
+      <button role="tab" data-scenario="base" aria-selected="true">Written from the spec</button>
+      <button role="tab" data-scenario="edit" aria-selected="false">With an author's exception</button>
+      <button role="tab" data-scenario="sentence" aria-selected="false" title="Edit MET's sentence and push the edit back to the rule model">Edit a sentence</button>
+      <button role="tab" data-scenario="negation" aria-selected="false" title="Reverse MET: an edit that contradicts the spec">Reverse the rule</button>
+    </div>
+    <div class="stepper" aria-label="Step through the pass">
+      <button id="prev" title="Previous step (←)">◀</button>
+      <span id="stepno" aria-live="polite">—</span>
+      <button id="next" title="Next step (→)">▶</button>
+      <button id="play" title="Play every step">Play</button>
+    </div>
+  </section>
+
+  <details class="live" id="live">
+    <summary><b>Run it live</b> — your own endpoint, any of these rules, any edit</summary>
+    <div id="liveForm" class="liveform">
+      <label>Base URL <input id="liveBase" placeholder="https://…/v1" autocomplete="off"></label>
+      <label>API key <input id="liveKey" type="password" autocomplete="off"></label>
+      <label>Writer <input id="liveWriter"></label>
+      <label>Judge <input id="liveJudge"></label>
+      <p class="muted small">Shared with the spec lab's Run tab; stored only in this browser. The writer writes the profile; the judge pushes edits back and checks consistency.</p>
+      <div class="liverow"><button id="liveRun" class="primary">Run the concept layer on this rule</button><button id="liveEdit" disabled title="Edit the rule model and the parts in place">Edit inline</button><span id="liveStatus" class="small muted"></span></div>
+      <div class="livecols">
+        <div><h3>Edit the rule model</h3><textarea id="liveModel" rows="12" spellcheck="false" disabled></textarea><button id="liveDerive" disabled>Re-derive every part from it</button></div>
+        <div><h3>Or edit a sentence</h3><select id="livePart"><option>MET</option><option>NOT MET</option><option>UNCERTAIN</option><option>DECISION BOUNDARY</option><option>APPLICABILITY</option></select>
+          <textarea id="liveSentence" rows="6" disabled></textarea><button id="livePush" disabled>Push it back to the model, then re-derive</button></div>
+      </div>
+    </div>
+  </details>
+
+  <section class="narrate" id="narrate" aria-live="polite"></section>
+
+  <section class="lanes" id="lanes">
+    <svg class="wires" id="wires" aria-hidden="true"></svg>
+    <div class="lane" id="lane-spec"><h2>Spec packet</h2><div class="body"></div></div>
+    <div class="lane" id="lane-model"><h2>Rule model</h2><div class="body"></div></div>
+    <div class="lane" id="lane-profile"><h2>Evaluation profile</h2><div class="body"></div></div>
+  </section>
+
+  <section class="call" id="call"></section>
+  <section class="verdict" id="verdict"></section>
+  <section class="library" id="library"></section>
+  <section class="playbook" id="playbook"></section>
+  <section class="patches" id="patches"></section>
+  <section class="questions" id="questions"></section>
+  <div class="livepatch" id="livePatch" hidden>
+    <label class="small">Your exception <input id="lpText" type="text" placeholder="a case that should not count as a violation"></label>
+    <button id="lpRun">Patch this rule's authored profile live</button>
+    <span id="lpStatus" class="small muted"></span>
+    <p class="small muted">Runs <code>patch-route.nlir</code> and <code>patch.nlir</code> in your browser on your endpoint: the exception is added to the rule model as a node, the routing picks the fields that read exceptions, and only those are patched.</p>
+  </div>
+
+  <p class="foot muted small" id="foot"></p>
+</main>
+<script src="explain.js"></script>
+<script type="module" src="explain-live.js"></script>
+</body>
+</html>

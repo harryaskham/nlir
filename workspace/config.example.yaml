@@ -811,6 +811,9 @@ tests:
   data-parse-roundtrip: { mode: det, expr: "$json%($parse%($json%{k=[1,true]}))", expected: '{"k":[1,true]}' }
   data-dict-from-pairs: { mode: det, expr: "_sep=',';d=$dict%({[$0, #$0]}↦[a, bb]);[$d.bb] ++ $keys%($dict%($entries%{x=1, y=2}))", expected: "2,x,y" }
   data-dict-computed-keys: { mode: det, expr: "$json%($dict%[[k1, 1], [k2, [true]], [k1, 3]])", expected: '{"k1":3,"k2":[true]}' }
+  data-omit-keys: { mode: det, expr: "$json%($omit%({a=1, _pin=2, b=3, _concepts=4}, [_pin, _concepts]))", expected: '{"a":1,"b":3}' }
+  data-omit-one-key: { mode: det, expr: "$json%($omit%({a=1, b=2}, b))", expected: '{"a":1}' }
+  data-pick-keys-in-order: { mode: det, expr: "$json%($pick%({c=3, a=1, b=2}, [b, a, z]))", expected: '{"a":1,"b":2}' }
   data-typed-literals: { mode: det, expr: "$json%[1, 2.5, -3, true, 007, 1.50, x]", expected: '[1,2.5,-3,true,"007","1.50","x"]' }
   draw-explicit-seeds:    { mode: det, expr: "_sep=\",\";_seed=10;$draw%({$0*2}, 3)", expected: "0,2,4" }
   call-then-access:       { mode: det, expr: "$get%({a={t=ok}}, a).t", expected: "ok" }

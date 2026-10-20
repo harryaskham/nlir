@@ -1,0 +1,9 @@
+-- Typed backward pass: an edit to one profile field can only change the rule-model groups that field reads.
+-- Load after patch-route.nlir (which defines $reads, the concept layer's dependencies). Binds $edits (the node edits a
+-- backward pass returned for an edited field: [{op, group, id, text, source}]) and $part (the field the author edited).
+-- Deterministic: edits in groups $part reads are kept and applied; the rest are dropped and returned as warnings — an edit
+-- to UNCERTAIN that seems to add a condition is the author's to make in MET, not the program's to infer.
+allowed=$get%($dict%({{key=$0.0, value=$0.1}}↦$reads), $part, []);
+kept=$filter%({$elem%($get%($0, 'group', ''), $allowed)}, $edits);
+dropped=$filter%({$not%($elem%($get%($0, 'group', ''), $allowed))}, $edits);
+{kept=$kept, dropped=$dropped}

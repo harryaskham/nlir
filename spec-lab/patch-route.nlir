@@ -1,0 +1,16 @@
+-- Routing for patch forward (patch.nlir): which profile fields an edit to the rule model can reach.
+-- Binds $model (the rule model before the edit) and $after (after it). Deterministic: $changed lists the model groups
+-- that differ, $route the profile fields whose derivation reads one of them (the concept layer's dependencies), $gate
+-- the extra instruction for MET and NOT MET when a condition or an exception changed (its scope: every way MET can be met), and $tidy the clean-up of a patched field. Evaluates to {changed, route}.
+groups=['action', 'setting', 'conditions', 'permissions', 'facts'];
+changed=$filter%({$json%($get%($model, $0, [])) != $json%($get%($after, $0, []))}, $groups);
+reads=[['APPLICABILITY', ['setting']], ['DECISION BOUNDARY', ['action']], ['MET', ['action', 'conditions', 'permissions']], ['NOT MET', ['action', 'conditions', 'permissions']], ['UNCERTAIN', ['facts']]];
+route={$0.0}↦($filter%({$len%($inter%($0.1, $changed)) != 0}, $reads));
+gate=$if%($elem%('conditions', $changed), " A new or narrowed condition must apply to every way MET can be met: where the field names several triggers or alternatives, make the condition govern each of them, not only the last.", "") ++ $if%($elem%('permissions', $changed), " A new exception must remove its case from every way MET can be met: state it as a grammatical sentence that governs each trigger or alternative the field names, not as a fragment attached to one clause.", "");
+-- In NOT MET an added exception is one more alternative, not a further requirement (a bare appended sentence reads as one).
+nmexc=$if%($elem%('permissions', $changed), " In NOT MET, state an added exception as one more alternative — the response is also NOT MET when it applies — not as a further requirement.", "");
+-- Tidy a patched field (deterministic): drop a leading field label the model echoed, and a trailing closing bracket it
+-- added without an opener. $tidy%(label, patched, authored).
+closers={$len%($sub%($0, '[^)]', '')) - $len%($sub%($0, '[^(]', ''))};
+tidy={$if%($gt%($closers%($trim%($sub%($1, '(?i)^\W*' ++ $0 ++ '\b\s*[:.\-–—]?\s*', ''))), $closers%$2), $trim%($sub%($trim%($sub%($1, '(?i)^\W*' ++ $0 ++ '\b\s*[:.\-–—]?\s*', '')), '\)\s*$', '')), $trim%($sub%($1, '(?i)^\W*' ++ $0 ++ '\b\s*[:.\-–—]?\s*', '')))};
+{changed=$changed, route=$route}

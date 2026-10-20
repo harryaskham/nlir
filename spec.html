@@ -39,6 +39,7 @@
 <a class="nav" href="spec.html" aria-current="page">Spec</a>
 <a class="nav" href="workspace/">Workspace</a>
 <a class="nav" href="spec-lab/">Spec lab</a>
+<a class="nav" href="explain/">Explain</a>
 <a class="nav" href="examples.html">Examples</a>
 <a class="nav hide-sm" href="https://github.com/harryaskham/nlir">GitHub ↗</a></header>
 <main class="doc">
@@ -539,6 +540,12 @@ default, else loud</td>
 <tr>
 <td><code>$has%(c, k)</code></td>
 <td>Bool: is <code>k</code> a key / valid index</td>
+</tr>
+<tr>
+<td><code>$omit%(d, keys)</code> / <code>$pick%(d, keys)</code></td>
+<td>the dict without / with only those keys (one key or a list), in its
+own order — e.g. keep reserved packet keys out of a prompt:
+<code>$json%($omit%($p, [_pin, _concepts]))</code></td>
 </tr>
 <tr>
 <td><code>$join%(list, sep)</code></td>

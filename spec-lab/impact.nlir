@@ -1,0 +1,12 @@
+-- Impact of a specification change across rules: does a changed definition reach this rule? Binds $model (the rule's
+-- model) and $definition ({title, text}: the definition before the change). Deterministic, no model call. Two signals:
+--   term   — the model's own wording uses the defined term (its nodes were built with the concept), and
+--   quoted — some node's source is quoted from the definition's text.
+-- A definition sits in every packet that mentions the concept, so "the packet includes it" over-routes; models mostly quote
+-- the rule rather than its definitions, so "quoted" under-routes. The term is the practical route (edit-loop.py --impact).
+--   nlir -f impact.nlir --bind model=m.json --bind definition=d.json
+nodes=$flat%($map%({$get%($model, $0, [])}, ['setting', 'conditions', 'permissions', 'facts']));
+source={$trim%($get%($0, 'source', ''))};
+quoted=$filter%({$and%($gt%($len%($source%$0), 12), $contains%($get%($definition, 'text', ''), $source%$0))}, $nodes);
+term=$contains%($lower%($json%$model), $lower%($get%($definition, 'title', '')));
+$json%{term=$term, quoted=$gt%($len%$quoted, 0)}
