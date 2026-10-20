@@ -245,6 +245,16 @@ work in opposite directions, so a new requirement is a new or narrowed condition
 exception — and with it every edit held at the end in all twenty rules under both judges, with no
 change to single edits.
 
+Removing an exception is not the inverse of adding one — unless the exception was a real one. Much of
+what NOT MET lists restates where MET's own conditions already stop (on the invented spec, half the rule
+models have no exception node at all); deleting such a sentence changes no verdict, and the backward
+pass rightly makes no model edit. On representative data, both judges read only 2 of 20 exceptions in
+the authored profiles as genuine carve-outs, and removing those worked. An exception an author has just
+added is genuine by construction, so the clean test is undo (`edit-loop.py --undo`): add an exception,
+then delete it again. The backward pass read every deletion as removing the node it had added (8 of
+8), and the profile came back to the authors' text — 36 of 40 fields byte-identical; on representative
+data, 98 of 100.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

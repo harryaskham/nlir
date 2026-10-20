@@ -39,8 +39,16 @@ JUDGES = {
                     'overlap: some concrete case would satisfy both MET and NOT MET as written.'),
     'fact': ('You check an evaluation profile for a policy rule after an author added one DECIDING FACT. '
              'Reply with JSON only: {"uncertain_names": true|false, "why": "<one sentence>"}. uncertain_names: UNCERTAIN, as written, names this fact (in any wording) as something that, when unclear, can leave the verdict undecided.')}
-NAME = {'exception': 'EXCEPTION', 'requirement': 'REQUIREMENT', 'fact': 'DECIDING FACT'}
-QUESTIONS = {'exception': ('not_met_covers', 'met_excludes', 'overlap'), 'requirement': ('met_requires', 'not_met_covers', 'overlap'), 'fact': ('uncertain_names',)}
+JUDGES['removal'] = ('You check an evaluation profile for a policy rule after an author REMOVED one exception from it: the case below should now count as a violation when the rule\'s behaviour and conditions hold. Answer about that case. '
+                      'Reply with JSON only: {"met_covers": true|false, "not_met_drops": true|false, "overlap": true|false, "why": "<one sentence>"}. '
+                      'met_covers: MET, as written, counts the case as a violation (it no longer carves it out). not_met_drops: NOT MET, as written, no longer counts the case as not a violation. '
+                      'overlap: some concrete case would satisfy both MET and NOT MET as written.')
+REMOVE = ('A policy evaluation rule\'s profile is below. Pick ONE exception or permitted case that its NOT MET field states — a case that does not count as a violation — which an author might decide to drop. '
+          'Reply with JSON only: {"exception": "<the case, a short clause starting with \'the\' or \'a\'>", "span": "<the exact words of NOT MET that state it, copied verbatim, one clause or sentence>"}')
+REMOVE_NODE = ('An author will delete one EXCEPTION from a rule\'s evaluation profile. Find the words in NOT MET that state this exception. '
+               'Reply with JSON only: {"span": "<the exact words of NOT MET that state it, copied verbatim — one clause or sentence — or empty if NOT MET does not state it>"}')
+NAME = {'exception': 'EXCEPTION', 'requirement': 'REQUIREMENT', 'fact': 'DECIDING FACT', 'removal': 'REMOVED EXCEPTION'}
+QUESTIONS = {'exception': ('not_met_covers', 'met_excludes', 'overlap'), 'requirement': ('met_requires', 'not_met_covers', 'overlap'), 'fact': ('uncertain_names',), 'removal': ('met_covers', 'not_met_drops', 'overlap')}
 
 
 def part(fields, label):
@@ -120,6 +128,76 @@ class Runner:
             e['before2'] = self.judge(a.judge2, kind, txt, auth, f'{rid} {kind} judge2 before'); e['after2'] = self.judge(a.judge2, kind, txt, patched, f'{rid} {kind} judge2 after')
         return e
 
+    def removal(self, item, auth, m0):
+        """The author deletes an exception NOT MET states; the rest of the loop is unchanged."""
+        a, rid = self.a, item['id']
+        perms = m0.get('permissions', [])
+        if not perms:  # nothing in the rule's logic to remove: NOT MET only restates failed conditions
+            return {'text': '', 'part': 'NOT MET', 'invalid': True, 'reason': 'no exception in the rule model'}
+        target = perms[0]
+        pick = self.ask(a.editor, REMOVE_NODE + f"\n\nEXCEPTION: {target['text']}\n\nNOT MET: {auth['NOT MET']}", f"{rid} removal locate {target['id']}")
+        span, txt = str(pick.get('span', '')).strip(), target['text'].strip().rstrip('.')
+        ws = lambda t: re.sub(r'\s+', ' ', t).strip()
+        nm = ws(auth['NOT MET'])
+        if not span or ws(span) not in nm:
+            return {'text': txt, 'part': 'NOT MET', 'invalid': True, 'span': span, 'reason': 'NOT MET does not state the exception verbatim'}
+        new = ws(nm.replace(ws(span), '', 1))
+        new = re.sub(r'\s+([,.;:])', r'\1', new); new = re.sub(r'([,;:])\s*([.;])', r'\2', new); new = re.sub(r'^[,;:\s]+', '', new)
+        back = json.loads(self.nl(a.editor, {'model': m0, 'p': item['packet'], 'part': 'NOT MET', 'old': auth['NOT MET'], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} removal back'))
+        kept, dropped = back.get('edits', []), []
+        if a.typed:
+            t = json.loads(self.nl(a.editor, {'model': m0, 'after': m0, 'edits': back.get('edits', []), 'part': 'NOT MET'}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'],
+                                   expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{rid} removal typed'))
+            kept, dropped = t['kept'], t['dropped']
+        m1 = apply(m0, kept)
+        edited = dict(auth); edited['NOT MET'] = new
+        note = 'An author deleted from NOT MET the exception: ' + txt + ' — it now counts as a violation when the behaviour and conditions hold'
+        routing = self.nl(a.editor, {'model': m0, 'after': m1}, [LAB / 'patch-route.nlir'], expr='$json%{changed=$changed, route=$route}', tag=f'{rid} removal route')
+        patched = json.loads(self.nl(a.editor, {'model': m0, 'after': m1, 'profile': edited, 'note': note}, [LAB / 'patch-route.nlir', LAB / 'patch.nlir'], tag=f'{rid} removal patch'))
+        patched = {l: patched.get(l, edited[l]) for l in LABELS}
+        e = {'text': txt, 'part': 'NOT MET', 'span': span, 'author_edit': new, 'model_edits': kept, 'warnings': dropped, 'routing': json.loads(routing), 'patched': patched,
+             'before': self.judge(a.judge, 'removal', txt, auth, f'{rid} removal judge before'), 'after': self.judge(a.judge, 'removal', txt, patched, f'{rid} removal judge after')}
+        if a.judge2:
+            e['before2'] = self.judge(a.judge2, 'removal', txt, auth, f'{rid} removal judge2 before'); e['after2'] = self.judge(a.judge2, 'removal', txt, patched, f'{rid} removal judge2 after')
+        return e
+
+    def undo(self, item, base_model):
+        """Add an exception, then delete it again from the patched NOT MET: the case should count as a violation again and the
+        profile come back close to the authors'. The added exception is genuine by construction."""
+        a, rid = self.a, item['id']
+        auth = {l: part(item['gold'], l) for l in LABELS}
+        rt = json.loads(self.nl(a.editor, {'model': base_model, 'p': item['packet'], 'profile': auth}, [LAB / 'lens-profile.nlir'], tag=f'{rid} rt'))
+        m0 = apply(base_model, rt.get('edits', []))
+        prop = self.ask(a.editor, PROPOSE + '\n\nPACKET:\n' + json.dumps(item['packet'], ensure_ascii=False) + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False), f'{rid} propose')
+        txt = str(prop['exception']).strip().rstrip('.')
+        def step(model, prof, fld, new, note, tag):
+            back = json.loads(self.nl(a.editor, {'model': model, 'p': item['packet'], 'part': fld, 'old': prof[fld], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} {tag} back'))
+            t = json.loads(self.nl(a.editor, {'model': model, 'after': model, 'edits': back.get('edits', []), 'part': fld}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'], expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{rid} {tag} typed'))
+            m1 = apply(model, t['kept']); edited = dict(prof); edited[fld] = new
+            routing = json.loads(self.nl(a.editor, {'model': model, 'after': m1}, [LAB / 'patch-route.nlir'], expr='$json%{changed=$changed, route=$route}', tag=f'{rid} {tag} route'))
+            patched = json.loads(self.nl(a.editor, {'model': model, 'after': m1, 'profile': edited, 'note': note}, [LAB / 'patch-route.nlir', LAB / 'patch.nlir'], tag=f'{rid} {tag} patch'))
+            return m1, {l: patched.get(l, edited[l]) for l in LABELS}, {'model_edits': t['kept'], 'warnings': t['dropped'], 'routing': routing, 'author_edit': new}
+        fld, new = self.author_new('exception', auth, txt)
+        m1, p1, s1 = step(m0, auth, fld, new, 'An author edited MET to add the exception: ' + txt, 'undo add')
+        added = next((e for e in s1['model_edits'] if e.get('op') == 'add' and e.get('group') == 'permissions'), None)
+        loc = self.ask(a.editor, REMOVE_NODE + f"\n\nEXCEPTION: {txt}\n\nNOT MET: {p1['NOT MET']}", f'{rid} undo locate')
+        span = str(loc.get('span', '')).strip(); ws = lambda t: re.sub(r'\s+', ' ', t).strip()
+        out = {'title': item['packet'].get('title', ''), 'authored': auth, 'text': txt, 'added_node': bool(added), 'add': s1 | {'profile': p1},
+               'after_add': self.judge(a.judge, 'exception', txt, p1, f'{rid} undo judge add'), 'before': self.judge(a.judge, 'exception', txt, auth, f'{rid} exception judge before')}
+        if not span or ws(span) not in ws(p1['NOT MET']):
+            return rid, out | {'invalid': True, 'span': span}
+        new2 = ws(ws(p1['NOT MET']).replace(ws(span), '', 1)); new2 = re.sub(r'\s+([,.;:])', r'\1', new2); new2 = re.sub(r'([,;:])\s*([.;])', r'\2', new2); new2 = re.sub(r'^[,;:\s]+', '', new2)
+        m2, p2, s2 = step(m1, p1, 'NOT MET', new2, 'An author deleted from NOT MET the exception: ' + txt + ' — it now counts as a violation when the behaviour and conditions hold', 'undo remove')
+        tok = lambda t_: re.findall(r'\S+', t_)
+        import difflib
+        out |= {'span': span, 'remove': s2 | {'profile': p2}, 'removed_node': any(e.get('op') == 'remove' and e.get('group') == 'permissions' for e in s2['model_edits']),
+                'after_undo': self.judge(a.judge, 'removal', txt, p2, f'{rid} undo judge removal'),
+                'final_similarity_to_authored': sum(difflib.SequenceMatcher(a=tok(auth[l]), b=tok(p2[l]), autojunk=False).ratio() for l in LABELS) / len(LABELS),
+                'final_untouched': sum(auth[l].strip() == p2[l].strip() for l in LABELS)}
+        if a.judge2:
+            out |= {'after_add2': self.judge(a.judge2, 'exception', txt, p1, f'{rid} undo judge2 add'), 'after_undo2': self.judge(a.judge2, 'removal', txt, p2, f'{rid} undo judge2 removal')}
+        return rid, out
+
     def author_new(self, kind, cur, txt):
         fld = 'UNCERTAIN' if kind == 'fact' else 'MET'
         new = (cur['MET'].rstrip().rstrip('.') + (f', unless {txt}.' if kind == 'exception' else f', and only when {txt}.')) if fld == 'MET' else (cur['UNCERTAIN'].rstrip() + ' ' + txt[0].upper() + txt[1:] + ' can leave the verdict undecided when unclear.')
@@ -177,7 +255,10 @@ class Runner:
         m0 = apply(base_model, rt.get('edits', []))
         prop = self.ask(a.editor, PROPOSE + '\n\nPACKET:\n' + json.dumps(item['packet'], ensure_ascii=False) + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False), f'{rid} propose')
         out = {'title': item['packet'].get('title', ''), 'authored': auth, 'm0': m0, 'proposals': prop, 'edits': {}}
-        for kind in (('exception', 'requirement') if a.source == 'packet' else ('exception', 'requirement', 'fact')):
+        for kind in (('exception', 'requirement') if a.source == 'packet' else a.kinds):
+            if kind == 'removal':
+                out['edits'][kind] = self.removal(item, auth, m0)
+                continue
             txt = str(prop[kind]).strip().rstrip('.')
             if a.source == 'packet':
                 out['edits'][kind] = self.packet_edit(item, auth, m0, kind, txt)
@@ -208,6 +289,19 @@ class Runner:
         return rid, out
 
 
+def summary_undo(results, judge2):
+    V = [x for x in results.values() if not x.get('invalid')]
+    c = lambda key, q: sum(bool(x.get(key, {}).get(q)) for x in V)
+    S = {'rules': len(results), 'valid': len(V), 'added_node': sum(x['added_node'] for x in V), 'removed_node': sum(x['removed_node'] for x in V),
+         'after_add': {'not_met_covers': c('after_add', 'not_met_covers'), 'met_excludes': c('after_add', 'met_excludes')},
+         'after_undo': {'met_covers': c('after_undo', 'met_covers'), 'not_met_drops': c('after_undo', 'not_met_drops'), 'overlap': c('after_undo', 'overlap')},
+         'final_similarity_to_authored': round(sum(x['final_similarity_to_authored'] for x in V) / max(1, len(V)), 3), 'final_untouched': sum(x['final_untouched'] for x in V), 'fields': 5 * len(V)}
+    if judge2:
+        S['after_add2'] = {'not_met_covers': c('after_add2', 'not_met_covers'), 'met_excludes': c('after_add2', 'met_excludes')}
+        S['after_undo2'] = {'met_covers': c('after_undo2', 'met_covers'), 'not_met_drops': c('after_undo2', 'not_met_drops'), 'overlap': c('after_undo2', 'overlap')}
+    return S
+
+
 def summary_sequence(results, judge2):
     import difflib
     tok = lambda s: re.findall(r'\S+', s)
@@ -231,12 +325,18 @@ def summary(results, judge2):
     for kind, qs in QUESTIONS.items():
         if not all(kind in x['edits'] for x in results.values()):
             continue
-        E = [x['edits'][kind] | {'authored': x['authored']} for x in results.values()]
+        E = [x['edits'][kind] | {'authored': x['authored']} for x in results.values() if not x['edits'][kind].get('invalid')]
+        if not E:
+            continue
         others = [(e['authored'][l], e['patched'][l]) for e in E for l in LABELS if l != e['part']]
         S[kind] = {q: {w: sum(bool(e[w].get(q)) for e in E) for w in (('before', 'after') + (('before2', 'after2') if judge2 else ()))} for q in qs} | {
             'rules': len(E), 'other_similarity': round(sum(difflib.SequenceMatcher(a=tok(x), b=tok(y), autojunk=False).ratio() for x, y in others) / len(others), 3),
             'other_unchanged': sum(x.strip() == y.strip() for x, y in others), 'other_fields': len(others),
-            'routed_fields': round(sum(len(e['routing']['route']) for e in E) / len(E), 2), 'warnings': sum(bool(e.get('warnings')) for e in E)}
+            'routed_fields': round(sum(len(e['routing']['route']) for e in E) / len(E), 2), 'warnings': sum(bool(e.get('warnings')) for e in E),
+            'invalid': sum(bool(x['edits'][kind].get('invalid')) for x in results.values())}
+        if kind == 'removal':
+            S[kind]['removed_permission'] = sum(any(m.get('op') == 'remove' and m.get('group') == 'permissions' for m in e['model_edits']) for e in E)
+            S[kind]['invalid_reasons'] = sorted({x['edits'][kind].get('reason', '') for x in results.values() if x['edits'][kind].get('invalid')})
         if E and E[0].get('provenance'):
             S[kind]['provenance'] = {'nodes': sum(e['provenance']['nodes'] for e in E), 'quote_new_passage': sum(e['provenance']['quote_new_passage'] for e in E)}
             S[kind]['unrouted_unchanged'] = sum(e['authored'][l].strip() == e['patched'][l].strip() for e in E for l in LABELS if l not in e['routing']['route'])
@@ -250,6 +350,8 @@ def main():
     ap.add_argument('--data', required=True); ap.add_argument('--models', required=True); ap.add_argument('--out', required=True)
     ap.add_argument('--rules', nargs='*'); ap.add_argument('--rules-file', help='one rule id per line (ids may contain spaces)'); ap.add_argument('--config'); ap.add_argument('--cache', default='target/edit-loop-cache.jsonl')
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
+    ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--undo', action='store_true', help='add an exception, then delete it again: does the profile come back?')
     ap.add_argument('--sequence', action='store_true', help='apply an exception, a requirement and a deciding fact in turn to the same profile (do edits compose?)')
     ap.add_argument('--source', choices=('author', 'packet'), default='author', help='where the change starts: an author\'s sentence, or the rule\'s packet')
     ap.add_argument('--typed', action='store_true', help='keep only backward node edits in groups the edited field reads; the rest become warnings')
@@ -260,9 +362,9 @@ def main():
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
     with ThreadPoolExecutor(a.workers) as ex:
-        res = dict(ex.map(lambda r: (R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
-    S = summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
-    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence}, indent=1, ensure_ascii=False) + '\n')
+        res = dict(ex.map(lambda r: (R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
+    S = summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
+    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo}, indent=1, ensure_ascii=False) + '\n')
     print(json.dumps(S, indent=1))
 
 
