@@ -27,8 +27,10 @@ def tidy(label, patched, authored):
 
 def main():
     *runs, traces_path = map(Path, sys.argv[1:])
-    P = json.loads(runs[0].read_text())
-    SP = json.loads(runs[1].read_text()) if len(runs) > 1 else None
+    loaded = [json.loads(r.read_text()) for r in runs]
+    P = next(x for x in loaded if not x.get('sequence') and x.get('source', 'author') == 'author')
+    SP = next((x for x in loaded if x.get('source') == 'packet'), None)
+    SQ = next((x for x in loaded if x.get('sequence')), None)
     doc = json.loads(traces_path.read_text())
     R = {rid: x for rid, x in P['results'].items() if rid.startswith('CR V')}
     S = P['summary']
@@ -66,6 +68,20 @@ def main():
         sx = SP['summary']
         note += (f" When the change starts in the specification instead, the new passage reaches the model as a node quoting it and the authored profile is patched the same way: "
                  f"an added permission reaches NOT MET {sx['exception']['not_met_covers']['after']} times and an added requirement gates MET {sx['requirement']['met_requires']['after']} times of {sx['exception']['rules']}.")
+    if SQ:  # three edits in turn on the same profile: the authors' text against the final profile
+        QR = {rid: x for rid, x in SQ['results'].items() if rid.startswith('CR V')}
+        sets['sequence'] = {'label': f"Three edits in turn ({len(QR)} rules)", 'checks': [{'key': 'exc', 'label': 'exception still covered'}, {'key': 'req', 'label': 'requirement still gates MET'}, {'key': 'fact', 'label': 'fact still in UNCERTAIN'}],
+            'note': "An exception, then a requirement, then a deciding fact, each applied to the previous step's patched profile and model; the diff is against the profile as the authors wrote it, and the checks read the final profile.",
+            'rules': {rid: {'title': x.get('title', ''), 'edit': ' → '.join(f"{st['kind']}: “{st['text']}”" for st in x['steps']),
+                            'before': {'exc': bool(x['final']['exception']['before'].get('not_met_covers')), 'req': bool(x['final']['requirement']['before'].get('met_requires')), 'fact': bool(x['final']['fact']['before'].get('uncertain_names'))},
+                            'after': {'exc': bool(x['final']['exception']['after'].get('not_met_covers')), 'req': bool(x['final']['requirement']['after'].get('met_requires')), 'fact': bool(x['final']['fact']['after'].get('uncertain_names'))},
+                            'changed': sorted({g for st in x['steps'] for g in st['routing']['changed']}), 'route': sorted({f for st in x['steps'] for f in st['routing']['route']}),
+                            'warnings': [w | {'part': st['part']} for st in x['steps'] for w in st['warnings']], 'part': 'the edited field',
+                            'fields': {l: {'before': x['authored'][l], 'after': tidy(l, x['final_profile'][l], x['authored'][l])} for l in x['authored']}}
+                      for rid, x in QR.items()}}
+        sq = SQ['summary']
+        note += (f" Three edits in turn on the same profile compose: at the end every exception is still covered ({sq['exception']['not_met_covers']['final']} of {len(QR)}), every requirement still gates MET "
+                 f"({sq['requirement']['met_requires']['final']}), every fact is still in UNCERTAIN ({sq['fact']['uncertain_names']['final']}), and the final profile keeps {round(100 * sq['final_profile']['similarity'])}% of the authors' words.")
     doc['patches'] = {'note': note, 'sets': sets}
     traces_path.write_text(json.dumps(doc, ensure_ascii=False, separators=(',', ':')))
     print(json.dumps({'patched_rules': len(R), 'sets': list(sets), 'bytes': traces_path.stat().st_size}))

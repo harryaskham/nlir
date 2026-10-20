@@ -234,6 +234,14 @@ new passage (27 of 27), an added permission reached NOT MET 8 times and was excl
 written. A requirement in the specification also tends to bring a deciding fact (whether it holds), so
 UNCERTAIN is patched more often than when an author edits MET.
 
+Edits compose. Applied in turn to the same profile — an exception, then a requirement, then a
+deciding fact, each starting from the previous step's patched profile and model
+(`edit-loop.py --sequence`) — every one of the three still holds at the end under both judges (8 of 8
+exceptions covered, 8 of 8 requirements gating MET, 8 of 8 facts in UNCERTAIN), and the final profile keeps
+75% of the authors' words after three changes. On representative data, the same three edits on twenty
+rules held at the end in 18–20 of 20 under both judges, with no overlap left where the authored profiles
+had five; the two lapses were exceptions whose wording a later requirement narrowed in NOT MET.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,
