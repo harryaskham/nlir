@@ -350,6 +350,16 @@ clashes and none of its compatible pairs (on representative design rules not use
 none of 14); the miss here is a clash the backward pass never turned into a model edit. In the explainer each
 merged rule shows the contradicting requirement the check would have sent back to the authors.
 
+Which rules does a specification change touch (`impact.nlir`, `edit-loop.py --impact`)? A definition sits
+in the packet of every rule that uses the concept, so a changed definition reaches many rules on paper. On
+representative data (six widely shared definitions, each changed once, 85 rule–definition pairs), two
+judges who agreed on 81 of the 85 found that about one exposed rule in six needed its profile changed —
+from none of 18 for one change to half of 16 for another. Neither deterministic route is enough: rules
+whose model uses the defined term are nearly all of them (77, precision about 0.2), while rules whose model
+quotes the definition are certain (7 of 7) but only half of those that need a change. Route a definition
+change to every rule that includes it and spend one check per rule; patch only those it says need it. (The
+invented spec shares too few definitions to show this; `examples/patch.sh` checks the routes offline.)
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

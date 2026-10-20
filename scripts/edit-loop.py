@@ -69,6 +69,11 @@ def text_merge(base, ours, theirs):
 CONTRADICT = ('Below are an evaluation profile for a policy rule and an EXCEPTION one author added. Write the requirement for a violation that a second '
               'author, working independently, might add which makes exactly the excepted case a violation — a direct contradiction of the exception — '
               'as one sentence in the profile\'s style. Reply with JSON only: {"requirement": "<the sentence, without a final full stop>"}')
+IMPACT_CHANGE = ('Below is a DEFINITION from a policy specification. Write one substantive change a policy team might make to it — add, narrow or widen one '
+                 'requirement — as the full new definition text. Reply with JSON only: {"text": "<the new definition>", "change": "<the change, in one sentence>"}')
+IMPACT_JUDGE = ('A policy specification changed one DEFINITION (before and after below). Below is the evaluation profile one rule\'s authors wrote. Does the profile '
+                'need to change to stay consistent with the new definition — would a verdict it describes change, or does it state something the definition no '
+                'longer says? Reply with JSON only: {"needs_change": true | false, "why": "<one sentence>"}')
 ANCHORS = {}  # rule id -> settled model (--anchor without --roundtrip)
 ROUNDTRIP = ('Below are an INTENDED edit to a rule model and the EDITS recovered by reading a profile back into the model. Does any recovered edit make the intended '
              'change (the same kind of node, the same meaning)? How many recovered edits make some other change? Reply with JSON only: '
@@ -271,6 +276,20 @@ class Runner:
         return rid, {'title': item['packet'].get('title', ''), 'authored': auth, 'repaired': True, 'profile': conv,
                      'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
                      'indep_before': indep_db(auth, f'{rid} convention indep before'), 'indep_after': indep_db(conv, f'{rid} convention indep after'), 'collateral': col}
+
+    def impact_change(self, did, d):
+        return did, self.ask(self.a.editor, IMPACT_CHANGE + '\n\nDEFINITION (' + d['title'] + '):\n' + d['text'], f'impact change {did}')
+
+    def impact(self, item, model, did, d, new):
+        """One exposed rule and one changed definition: the deterministic routes (impact.nlir) and the judges' reading of the authored profile."""
+        a, rid = self.a, item['id']
+        routes = json.loads(self.nl(a.editor, {'model': model, 'definition': {'title': d['title'], 'text': d['text']}}, [LAB / 'impact.nlir'], tag=f'{rid} impact {did}'))
+        auth = {l: part(item['gold'], l) for l in LABELS}
+        q = IMPACT_JUDGE + '\n\nDEFINITION (' + d['title'] + ') BEFORE:\n' + d['text'] + '\n\nAFTER:\n' + new['text'] + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False)
+        out = {'rule': rid, 'definition': did, 'routes': routes, 'judge': self.ask(a.judge, q, f'{rid} impact {did} judge')}
+        if a.judge2:
+            out['judge2'] = self.ask(a.judge2, q, f'{rid} impact {did} judge2')
+        return out
 
     def conflicts(self, item, x):
         """Merge-conflict detection: the recorded exception against (a) the recorded requirement, which merges, and (b) a requirement
@@ -545,6 +564,8 @@ def main():
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--impact', help='comma-separated definition ids: change each, and check which rules it reaches (impact.nlir) against two judges')
+    ap.add_argument('--impact-models', help='with --impact: comma-separated recorded runs whose m0 models to use')
     ap.add_argument('--conflicts', help='a recorded author run: write a requirement contradicting each exception and check merge-check.nlir flags it (and not the recorded, compatible requirement)')
     ap.add_argument('--merge', help='a recorded author run: merge its exception and requirement edits, made independently, through the model; judge both')
     ap.add_argument('--anchor', help='a --fixpoint run: with --roundtrip, read back from its fixed points; otherwise maintain from them instead of m0')
@@ -565,6 +586,33 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.impact:  # which rules does a definition change touch? deterministic routes against two judges
+        MD = {}
+        for f in a.impact_models.split(','):
+            MD.update({k: v['m0'] for k, v in json.loads(Path(f).read_text())['results'].items() if 'm0' in v})
+        ALL = {d['id']: d for d in json.loads(Path(a.data).read_text())}
+        dids = a.impact.split(',')
+        DEF = {}
+        for d in ALL.values():
+            for df in d['packet'].get('definitions', []):
+                DEF.setdefault(df['id'], df)
+        with ThreadPoolExecutor(a.workers) as ex:
+            NEW = dict(ex.map(lambda did: R.impact_change(did, DEF[did]), dids))
+        jobs = [(ALL[r], MD[r], did) for did in dids for r in sorted(ALL) if r in MD and any(df['id'] == did for df in ALL[r]['packet'].get('definitions', []))]
+        with ThreadPoolExecutor(a.workers) as ex:
+            rows = list(ex.map(lambda j: R.impact(j[0], j[1], j[2], DEF[j[2]], NEW[j[2]]), jobs))
+        need = lambda r, w: bool((r.get(w) or {}).get('needs_change'))
+        S = {'definitions': len(dids), 'exposed_pairs': len(rows)}
+        for w in ('judge', 'judge2'):
+            if not all(w in r for r in rows): continue
+            pos = [r for r in rows if need(r, w)]
+            S[w] = {'needs_change': len(pos)}
+            for route, sel in (('exposure', lambda r: True), ('term', lambda r: bool(r['routes'].get('term'))), ('quoted', lambda r: bool(r['routes'].get('quoted'))),
+                               ('term_or_quoted', lambda r: bool(r['routes'].get('term') or r['routes'].get('quoted')))):
+                chosen = [r for r in rows if sel(r)]; tp = sum(need(r, w) for r in chosen)
+                S[w][route] = {'routed': len(chosen), 'precision': round(tp / max(1, len(chosen)), 3), 'recall': round(tp / max(1, len(pos)), 3)}
+        Path(a.out).write_text(json.dumps({'summary': S, 'changes': NEW, 'rows': rows, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'impact': True}, indent=1, ensure_ascii=False) + '\n')
+        print(json.dumps(S, indent=1)); return
     if a.conflicts:  # does the merge check flag a real contradiction, and leave compatible edits alone?
         FIN = json.loads(Path(a.conflicts).read_text())['results']
         with ThreadPoolExecutor(a.workers) as ex:

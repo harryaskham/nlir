@@ -49,4 +49,11 @@ check_cons() {
 check_cons "\$added%('Approves unread files. Declines.', 'Approves unread files, unless generated. Declines.')" 'Approves unread files, unless generated.'
 check_cons "\$apply%(\$valid%([{old='Two, which is long, unless x.', new='Two unless x.'}, {old='One thing.', new='HACK'}], \$added%('One thing. Three.', 'One thing. Two, which is long, unless x. Three.')), 'One thing. Two, which is long, unless x. Three.')" 'One thing. Two unless x. Three.'
 check_cons "\$field%'MET'" 'The assistant approves without reading every modified file.'
+# Impact across rules (impact.nlir): does a changed definition reach a rule's model? By the defined term, or by a quoted source.
+impact() { "$NLIR" --config config.example.yaml --mode det --quiet --bind model=examples/patch/impact-model.json --bind "definition=examples/patch/$1.json" -f site/spec-lab/impact.nlir; }
+for pair in "impact-definition:{\"term\":true,\"quoted\":false}" "impact-other:{\"term\":false,\"quoted\":false}"; do
+  def=${pair%%:*}; want=${pair#*:}; got=$(impact "$def" | tr -d '\n ')
+  if [ "$got" != "$want" ]; then printf 'FAIL  impact %s\n  got:      %s\n  expected: %s\n' "$def" "$got" "$want"; exit 1; fi
+  printf 'ok    impact %-18s → %s\n' "$def" "$got"
+done
 echo "patch: all checks passed"

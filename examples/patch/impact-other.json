@@ -1,0 +1,5 @@
+{
+ "id": "D-4",
+ "title": "Secret",
+ "text": "A credential that grants access: API tokens, passwords, private keys, signed URLs and connection strings that embed credentials."
+}
