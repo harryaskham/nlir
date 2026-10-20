@@ -32,4 +32,7 @@ check "\$gf_trim%(\$lists, 'UNCERTAIN', 'Abstain on generated code.')"          
 contains "\$gf_write%({rule='r'}, \$lists, 'MET', 1)"                                "NAMED POINTS:"
 contains "\$gf_write%({rule='r'}, \$lists, 'MET', 1)"                                "- names the test file"
 check "#(\$gf_drafts%({rule='r'}, \$lists, 'UNCERTAIN', 3))"                        "3"
+# A field with no listed items is written from the spec alone, never told to add nothing to empty lists.
+contains "\$gf_write%({rule='r'}, \$lists, 'UNCERTAIN', 1)"                          "state concisely what the specification requires"
+check "_sep=',';\$contains%(\$gf_write%({rule='r'}, \$lists, 'UNCERTAIN', 1), 'NAMED POINTS')" "false"
 echo "gapfill: all checks passed"

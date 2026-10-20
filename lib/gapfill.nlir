@@ -16,8 +16,9 @@ gf_extract = {$parse%(=>("You compare a TEXT written for a SPECIFICATION with th
 -- The listed items of one field, points first (lists, field).
 gf_items = {$get%($get%($0, $1, {}), 'points', []) ++ $get%($get%($0, $1, {}), 'additions', [])};
 
--- One draft of a field from the spec plus its lists (spec, lists, field, draft number).
-gf_write = {=>("Write the " ++ $2 ++ " field of a document from the SPECIFICATION below. For each NAMED POINT, state what the specification requires about it, at its strength and with its qualifiers; state each ADDITION as well; add no other points. Return only the field's prose. (Draft " ++ $3 ++ ".)\n\nNAMED POINTS:\n- " ++ $join%($get%($get%($1, $2, {}), 'points', []), "\n- ") ++ "\n\nADDITIONS:\n- " ++ $join%($get%($get%($1, $2, {}), 'additions', []), "\n- ") ++ "\n\nSPECIFICATION:\n" ++ $json%$0)};
+-- One draft of a field from the spec plus its lists (spec, lists, field, draft number). A field with no listed
+-- items is written from the spec alone: told to add nothing beyond empty lists, a writer rightly returns nothing.
+gf_write = {$if%($gt%(#($gf_items%($1, $2)), 0), =>("Write the " ++ $2 ++ " field of a document from the SPECIFICATION below. For each NAMED POINT, state what the specification requires about it, at its strength and with its qualifiers; state each ADDITION as well; add no other points. Return only the field's prose. (Draft " ++ $3 ++ ".)\n\nNAMED POINTS:\n- " ++ $join%($get%($get%($1, $2, {}), 'points', []), "\n- ") ++ "\n\nADDITIONS:\n- " ++ $join%($get%($get%($1, $2, {}), 'additions', []), "\n- ") ++ "\n\nSPECIFICATION:\n" ++ $json%$0), =>("Write the " ++ $2 ++ " field of a document from the SPECIFICATION below: state concisely what the specification requires for it, at its strength and with its qualifiers. Return only the field's prose. (Draft " ++ $3 ++ ".)\n\nSPECIFICATION:\n" ++ $json%$0))};
 
 -- Keep only what states a listed item; a field with no listed items is left untouched (lists, field, draft).
 gf_trim = {$if%($gt%(#($gf_items%($0, $1)), 0), =>("Rewrite the DRAFT keeping only what states a LISTED item; delete everything else; keep its wording for what you keep; add nothing. Return only the prose.\n\nLISTED:\n- " ++ $join%($gf_items%($0, $1), "\n- ") ++ "\n\nDRAFT:\n" ++ $2), $2)};
