@@ -276,13 +276,15 @@ gaps stay at 5 of 5 — and takes about twice the words; on representative data,
 neighbour, and 20 rather than 7 of 21 gaps remained. Settling the class or only the case is the authors'
 choice, and the explainer offers both.
 
-Mixed responses — the excepted case beside the behaviour itself, elsewhere in the same response — are
-the overlaps both judges keep finding. Neither a NOT MET wording nor a convention sentence in the
-decision boundary (`--convention`: "judge each instance of the behaviour on its own…") settles them: on
-the invented spec the convention changed no check (6 overlaps before and 6 after), and on representative data
-one judge saw fewer overlaps and the other more. Whether an exception covers a response or an instance is
-a question about how the evaluation is applied, best settled once in the evaluation procedure rather than
-in every profile.
+Mixed responses — the excepted case beside the behaviour itself, elsewhere in the same response — are one
+kind of overlap the judges find, but not the main one. Neither a NOT MET wording nor a convention sentence in
+the decision boundary (`--convention`: "judge each instance of the behaviour on its own…") settled them, and
+putting the same rule in the judge's procedure instead, with the profiles unchanged, barely moved the
+stricter judge (on the invented spec 8 overlaps without it and 7 with it). Classified one by one, half the
+overlaps it offers here (4 of 8) — and on representative data most (19 of 27) — are not mixed responses but single
+responses the authors' wording leaves open. Whether an exception covers a response or an instance belongs
+in the evaluation procedure, settled once; the boundary cases are what any rule written in prose leaves,
+and the place for them is a proposal the authors decide.
 
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
