@@ -322,6 +322,12 @@ authors' own, unedited profile (0.5–0.75 a profile against 0.62). The misses s
 edit — the right kind with a different scope, or the same content as another kind — so the program and the
 prose stay a pair through maintenance.
 
+Most of the other edits are the backward pass finishing its first account, not noise from the patch: read
+back from the model it produced, the authored profile gives 0.62 edits, then 0.25, then none
+(`--fixpoint`; on representative data 0.50, then none). Settled to that fixed point first, the round trip
+is close to exact — the other edits halve (0.67 to 0.38 a profile; on representative data 0.50 to 0.23,
+about one recovered edit a profile, the intended one) and the authored profile reads back with none.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

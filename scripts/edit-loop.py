@@ -255,11 +255,24 @@ class Runner:
                      'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
                      'indep_before': indep_db(auth, f'{rid} convention indep before'), 'indep_after': indep_db(conv, f'{rid} convention indep after'), 'collateral': col}
 
+    def fixpoint(self, item, x, rounds=3):
+        """Is the backward pass idempotent? From m0, read the authored profile back, apply the edits, and read it again — up to `rounds`
+        times or until a round proposes nothing. The model it stops at is a fixed point of the profile."""
+        a, rid = self.a, item['id']
+        model, hist = x['m0'], []
+        for i in range(rounds):
+            got = json.loads(self.nl(a.editor, {'model': model, 'p': item['packet'], 'profile': x['authored']}, [LAB / 'lens-profile.nlir'], tag=f'{rid} rtm authored' if i == 0 else f'{rid} fix {i}')).get('edits', [])
+            hist.append(got)
+            if not got: break
+            model = apply(model, got)
+        return rid, {'rounds': hist, 'fixpoint': model, 'reached': not hist[-1]}
+
     def roundtrip(self, item, x):
         """Does a maintained profile read back to the edited model? lens-profile.nlir from m0 on each patched profile, and on the authored
         profile as the baseline (m0 was derived from it, so any edit there is spurious)."""
         a, rid = self.a, item['id']
-        read = lambda prof, tag: json.loads(self.nl(a.editor, {'model': x['m0'], 'p': item['packet'], 'profile': prof}, [LAB / 'lens-profile.nlir'], tag=tag)).get('edits', [])
+        anchor = x.get('anchor', x['m0'])  # the model read back from: m0, or a fixed point of the authored profile (--anchor)
+        read = lambda prof, tag: json.loads(self.nl(a.editor, {'model': anchor, 'p': item['packet'], 'profile': prof}, [LAB / 'lens-profile.nlir'], tag=tag)).get('edits', [])
         base = read(x['authored'], f'{rid} rtm authored')
         out = {'baseline_edits': base, 'edits': {}}
         for kind, e in x['edits'].items():
@@ -477,6 +490,8 @@ def main():
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--anchor', help='with --roundtrip: a --fixpoint run whose fixed points to read back from instead of m0')
+    ap.add_argument('--fixpoint', help='a recorded author run: iterate the backward pass on each authored profile from m0 until it proposes nothing (is the lens idempotent?)')
     ap.add_argument('--roundtrip', help='a recorded author run: read every patched profile back into the model (lens-profile.nlir from m0) and check the intended edit is recovered')
     ap.add_argument('--consolidate', help='a recorded --sequence run: consolidate each final profile (consolidate.nlir) and judge every edit again')
     ap.add_argument('--questions', help='an open-questions file (rows with rule, case, open): answer each open case both ways and check it is settled')
@@ -493,8 +508,20 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.fixpoint:  # iterate the backward pass on the authored profile from m0 until it proposes nothing
+        FIN = json.loads(Path(a.fixpoint).read_text())['results']
+        with ThreadPoolExecutor(a.workers) as ex:
+            res = dict(ex.map(lambda kv: R.fixpoint(data[kv[0]], kv[1]), [(k, v) for k, v in FIN.items() if k in data]))
+        S = {'rules': len(res), 'reached': sum(x['reached'] for x in res.values()),
+             'edits_per_round': [round(sum(len(x['rounds'][i]) if i < len(x['rounds']) else 0 for x in res.values()) / len(res), 2) for i in range(3)],
+             'clean_per_round': [sum((i < len(x['rounds']) and not x['rounds'][i]) or i >= len(x['rounds']) for x in res.values()) for i in range(3)]}
+        Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor}, 'fixpoint': True}, indent=1, ensure_ascii=False) + '\n')
+        print(json.dumps(S, indent=1)); return
     if a.roundtrip:  # read every patched profile of a recorded author run back into the model
         FIN = json.loads(Path(a.roundtrip).read_text())['results']
+        if a.anchor:  # read back from each rule's fixed point (a --fixpoint run) instead of m0
+            FX = json.loads(Path(a.anchor).read_text())['results']
+            FIN = {k: dict(v, anchor=FX[k]['fixpoint']) for k, v in FIN.items() if k in FX}
         with ThreadPoolExecutor(a.workers) as ex:
             res = dict(ex.map(lambda kv: R.roundtrip(data[kv[0]], kv[1]), [(k, v) for k, v in FIN.items() if k in data]))
         kinds = sorted({k for x in res.values() for k in x['edits']})

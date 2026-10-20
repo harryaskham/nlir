@@ -47,7 +47,9 @@ scripts/edit-loop.py $L --out f.json --repair [--narrow]     # propose repairs o
 scripts/edit-loop.py $L --out g.json --typed --seed-base 100 # an independent second sample of every call
 scripts/edit-loop.py $L --out h.json --convention "SENTENCE"  # append a profile-wide convention to every DECISION BOUNDARY
 scripts/edit-loop.py $L --out i.json --questions OPEN.json      # answer each open question both ways: is it settled?
+scripts/edit-loop.py $L --out l.json --fixpoint AUTHOR.json     # settle each model to a fixed point of its authored profile
 scripts/edit-loop.py $L --out k.json --roundtrip AUTHOR.json    # read every patched profile back into the model: is the edit recovered?
+scripts/edit-loop.py $L --out m.json --roundtrip AUTHOR.json --anchor l.json   # ... read back from the fixed point
 scripts/edit-loop.py $L --out j.json --consolidate SEQ.json    # tighten what a --sequence run added, judge every edit again (not carried)
 ```
 
