@@ -225,21 +225,28 @@ class Runner:
             m1 = apply(model, t['kept']); edited = dict(prof); edited[fld] = new
             p1, routing = patch(model, m1, edited, note, tag)
             return m1, p1, {'kind': tag, 'author_edit': new, 'model_edits': t['kept'], 'warnings': t['dropped'], 'routing': routing, 'profile': p1}
-        steps = []
+        steps = []; m_start_cf = model
         # 1. an author's exception
         fld, new = self.author_new('exception', auth, exc)
         model, cur, st = author(model, auth, fld, new, 'An author edited MET to add the exception: ' + exc, 'session exception'); steps.append(st)
-        # 2. the specification gains a requirement
         passage = f'This counts as a violation only when {req}.'
         after_packet = json.loads(json.dumps(packet)); after_packet['rule'] = after_packet['rule'].rstrip() + ' ' + passage
-        lens = json.loads(self.nl(a.editor, {'model': model, 'before': packet, 'after': after_packet}, [LAB / 'lens-packet.nlir'], tag=f'{rid} session spec lens'))
-        m1 = apply(model, lens.get('edits', []))
-        cur2, routing = patch(model, m1, cur, f'The rule\'s specification changed: it now says "{passage}"', 'session spec')
-        steps.append({'kind': 'session spec', 'passage': passage, 'model_edits': lens.get('edits', []), 'routing': routing, 'profile': cur2})
-        model, cur, packet = m1, cur2, after_packet
-        # 3. an author's deciding fact
-        fld, new = self.author_new('fact', cur, fact)
-        model, cur, st = author(model, cur, fld, new, 'An author edited UNCERTAIN to add the deciding fact: ' + fact, 'session fact'); steps.append(st)
+        def spec_and_fact(model, cur, pre=''):
+            """Steps 2 and 3 from any starting point (pre names a counterfactual run in the cache tags)."""
+            nonlocal packet
+            out_steps = []
+            lens = json.loads(self.nl(a.editor, {'model': model, 'before': item['packet'], 'after': after_packet}, [LAB / 'lens-packet.nlir'], tag=f'{rid} {pre}session spec lens'))
+            m1 = apply(model, lens.get('edits', []))
+            cur2, routing = patch(model, m1, cur, f'The rule\'s specification changed: it now says "{passage}"', f'{pre}session spec')
+            out_steps.append({'kind': f'{pre}session spec', 'passage': passage, 'model_edits': lens.get('edits', []), 'routing': routing, 'profile': cur2})
+            saved, packet = packet, after_packet
+            fld, new = self.author_new('fact', cur2, fact)
+            m2, cur3, st = author(m1, cur2, fld, new, 'An author edited UNCERTAIN to add the deciding fact: ' + fact, f'{pre}session fact'); out_steps.append(st)
+            packet = saved
+            return m2, cur3, out_steps
+        m_start = model
+        # 2. the specification gains a requirement; 3. an author's deciding fact
+        model, cur, st23 = spec_and_fact(model, cur); steps += st23; packet = after_packet
         # 4. the author undoes the exception: deletes it from NOT MET
         loc = self.ask(a.editor, REMOVE_NODE + f"\n\nEXCEPTION: {exc}\n\nNOT MET: {cur['NOT MET']}", f'{rid} session undo locate')
         span = str(loc.get('span', '')).strip(); ws = lambda t_: re.sub(r'\s+', ' ', t_).strip()
@@ -256,8 +263,17 @@ class Runner:
             final['removal' + w] = self.judge(model_j, 'removal', exc, cur, f'{rid} session final removal {w}')
             final['consist' + w] = self.ask(model_j, CONSIST + '\n\nPROFILE:\n' + json.dumps(cur, ensure_ascii=False), f'{rid} session final consist {w}')
             final['consist_authored' + w] = self.ask(model_j, CONSIST + '\n\nPROFILE:\n' + json.dumps(auth, ensure_ascii=False), f'{rid} session authored consist {w}')
-        return rid, {'title': item['packet'].get('title', ''), 'authored': auth, 'proposals': {'exception': exc, 'requirement': req, 'fact': fact}, 'steps': steps,
-                     'undone': undone, 'span': span, 'final_profile': cur, 'final': final}
+        out = {'title': item['packet'].get('title', ''), 'authored': auth, 'proposals': {'exception': exc, 'requirement': req, 'fact': fact}, 'steps': steps,
+               'undone': undone, 'span': span, 'final_profile': cur, 'final': final}
+        if a.counterfactual:  # undo == never added: the same session without the exception, and a verdict on the excepted case under both
+            packet = item['packet']
+            _, cf, _ = spec_and_fact(m_start_cf, auth, 'cf ')
+            case = f"A response that shows the rule's behaviour, in a case where {exc}."
+            verdict = lambda model_j, prof, tag: str(self.ask(model_j, VERDICT + '\n\nPROFILE:\n' + json.dumps(prof, ensure_ascii=False) + '\n\nCASE: ' + case, tag).get('verdict', '')).upper().strip()
+            out['counterfactual'] = {'profile': cf, 'case': case,
+                                     'verdicts': {w: {'session': verdict(m_j, cur, f'{rid} cf verdict session {w}'), 'never': verdict(m_j, cf, f'{rid} cf verdict never {w}')}
+                                                  for w, m_j in (('judge', a.judge), ('judge2', a.judge2)) if m_j}}
+        return rid, out
 
     def undo(self, item, base_model):
         """Add an exception, then delete it again from the patched NOT MET: the case should count as a violation again and the
@@ -621,6 +637,12 @@ def summary_session(results, judge2):
             'exception_undone': sum(bool(f(x, 'removal').get('met_covers') and f(x, 'removal').get('not_met_drops')) for x in rs),
             'overlaps_final': sum(bool(f(x, 'consist').get('overlap')) for x in rs), 'overlaps_authored': sum(bool(f(x, 'consist_authored').get('overlap')) for x in rs)}
     S['untouched'] = {l: sum(x['authored'][l].strip() == x['final_profile'][l].strip() for x in rs) for l in ('APPLICABILITY', 'DECISION BOUNDARY')}
+    cf = [x['counterfactual'] for x in rs if x.get('counterfactual')]
+    if cf:
+        import difflib
+        tok = lambda t_: re.findall(r'\S+', t_)
+        S['counterfactual'] = {w: {'agree': sum(c['verdicts'][w]['session'] == c['verdicts'][w]['never'] for c in cf if w in c['verdicts']), 'rules': len(cf)} for w in ('judge', 'judge2') if all(w in c['verdicts'] for c in cf)}
+        S['counterfactual']['similarity'] = round(sum(difflib.SequenceMatcher(a=tok(x['counterfactual']['profile'][l]), b=tok(x['final_profile'][l]), autojunk=False).ratio() for x in rs if x.get('counterfactual') for l in LABELS) / (5 * len(cf)), 3)
     return S
 
 
@@ -680,6 +702,7 @@ def main():
     ap.add_argument('--impact-apply', help='a recorded --impact run: patch the rules its first judge selected for each changed definition, then ask the judges again')
     ap.add_argument('--impact-models', help='with --impact: comma-separated recorded runs whose m0 models to use')
     ap.add_argument('--conflicts', help='a recorded author run: write a requirement contradicting each exception and check merge-check.nlir flags it (and not the recorded, compatible requirement)')
+    ap.add_argument('--counterfactual', action='store_true', help='with --session: also run it without the exception steps and compare verdicts on the excepted case (undo == never added)')
     ap.add_argument('--session', action='store_true', help='a maintenance session per rule: author exception, specification requirement, author fact, undo the exception; all checked at the end')
     ap.add_argument('--retry-declined', action='store_true', help='typed: when every node edit of an author sentence is declined, ask the backward pass once more')
     ap.add_argument('--merge', help='a recorded author run: merge its exception and requirement edits, made independently, through the model; judge both')

@@ -386,6 +386,12 @@ requirement and fact held in all 20. The undo is harder to score: a judge asked 
 counts as a violation again said no in about a quarter of the rules — but in nearly all of them because the
 case fails a requirement the profile now states (often the one the specification added), so not counting it
 is right. A removal check alone cannot score an undo inside a mixed session.
+The fair test is counterfactual (`--session --counterfactual`): undoing an exception should leave the
+profile as if it had never been added. Run again without the exception steps, the session's final verdict on
+the excepted case matched the never-added one in all 8 of the invented spec's rules under both judges (the
+two profiles 92% the same words). On representative data the session's verdict was among a judge's own
+three readings of the never-added profile in 19 of 20 rules for one judge and 16 of 20 for the other,
+whose readings agree with themselves 83% of the time — an undo is close to never having made the edit.
 
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
