@@ -442,6 +442,14 @@ two profiles 92% the same words). On representative data the session's verdict w
 three readings of the never-added profile in 19 of 20 rules for one judge and 16 of 20 for the other,
 whose readings agree with themselves 83% of the time — an undo is close to never having made the edit.
 
+Prose back to the specification (`spec-propose.nlir`, `edit-loop.py --specback`). An author's edit to their
+own profile becomes a model edit the specification does not state. One call writes the passage that would
+state it — a new permission entry for an exception, a sentence added to the rule for a requirement, in the
+packet's own style — and `lens-packet.nlir` reads the changed packet forward again: on the invented spec it
+gave back the author's model edit for all 8 exceptions and all 8 requirements, from passages of about 15
+words (on representative data 19 of 20 and 20 of 20). The explainer shows each proposed passage beside
+the patch it came from.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

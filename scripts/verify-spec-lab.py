@@ -162,6 +162,7 @@ def check_explain_traces():
     for sk_, S_ in (doc.get('patches') or {}).get('sets', {}).items():
         for rid_, R_ in S_.get('rules', {}).items():
             assert 'readback' not in R_ or rid_.startswith('CR V'), f"explain/traces.json: read-back for a non-toy rule {rid_}"
+            assert 'specback' not in R_ or rid_.startswith('CR V'), f"explain/traces.json: specification proposal for a non-toy rule {rid_}"
     for q in (doc.get('questions') or {}).get('items', []):
         assert q['rule'].startswith('CR V') and q['a'].get('verdict') != q['b'].get('verdict'), f"explain/traces.json: question {q['rule']} is not open or not toy"
     for sk, S in (doc.get('patches') or {}).get('sets', {}).items():

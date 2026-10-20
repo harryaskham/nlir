@@ -47,6 +47,7 @@ scripts/edit-loop.py $L --out f.json --repair [--narrow]     # propose repairs o
 scripts/edit-loop.py $L --out g.json --typed --seed-base 100 # an independent second sample of every call
 scripts/edit-loop.py $L --out h.json --convention "SENTENCE"  # append a profile-wide convention to every DECISION BOUNDARY
 scripts/edit-loop.py $L --out i.json --questions OPEN.json      # answer each open question both ways: is it settled?
+scripts/edit-loop.py $L --out u.json --specback AUTHOR.json     # prose -> specification: propose the passage, read it forward again
 scripts/edit-loop.py $L --out s.json --session                  # a maintenance session: exception, spec requirement, fact, undo — checked at the end
 scripts/edit-loop.py $L --out t.json --session --counterfactual # ... and the same session without the exception: is the undo as if never added?
 scripts/edit-loop.py $L --out n.json --merge AUTHOR.json        # two authors at once: merge exception + requirement through the model (and as text)

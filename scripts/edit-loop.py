@@ -353,6 +353,29 @@ class Runner:
                      'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
                      'indep_before': indep_db(auth, f'{rid} convention indep before'), 'indep_after': indep_db(conv, f'{rid} convention indep after'), 'collateral': col}
 
+    def specback(self, item, x, kinds=('exception', 'requirement')):
+        """Prose -> specification: for an author's recorded model edit, the packet passage that would state it (spec-propose.nlir),
+        applied to the packet and read forward again by lens-packet.nlir; a judge checks the author's edit comes back."""
+        a, rid = self.a, item['id']
+        out = {}
+        for k in kinds:
+            e = x['edits'].get(k)
+            if not e or not e.get('model_edits'):
+                out[k] = {'skipped': 'no model edit'}; continue
+            prop = json.loads(self.nl(a.editor, {'model': x['m0'], 'edits': e['model_edits'], 'p': item['packet']}, [LAB / 'spec-propose.nlir'], tag=f'{rid} specback {k} propose'))
+            passages = [q for q in prop.get('passages', []) if str(q.get('text', '')).strip()]
+            after = json.loads(json.dumps(item['packet']))
+            for i, q in enumerate(passages):
+                if q.get('where') == 'permissions':
+                    after.setdefault('permissions', []).append({'code': f'{rid} (proposed {i + 1})', 'title': str(q.get('title', 'Proposed')), 'text': str(q['text']).strip()})
+                else:
+                    after['rule'] = after['rule'].rstrip() + ' ' + str(q['text']).strip()
+            lens = json.loads(self.nl(a.editor, {'model': x['m0'], 'before': item['packet'], 'after': after}, [LAB / 'lens-packet.nlir'], tag=f'{rid} specback {k} lens')) if passages else {'edits': []}
+            v = self.ask(a.judge, ROUNDTRIP + '\n\nINTENDED:\n' + json.dumps(e['model_edits'], ensure_ascii=False) + '\n\nRECOVERED:\n' + json.dumps(lens.get('edits', []), ensure_ascii=False), f'{rid} specback {k} judge')
+            out[k] = {'author_edits': e['model_edits'], 'passages': passages, 'words': sum(len(re.findall(r'\S+', str(q['text']))) for q in passages),
+                      'read_forward': lens.get('edits', []), 'recovered': bool(v.get('recovered')), 'other': int(v.get('other') or 0), 'why': v.get('why', '')}
+        return item['id'], out
+
     def impact_change(self, did, d):
         return did, self.ask(self.a.editor, IMPACT_CHANGE + '\n\nDEFINITION (' + d['title'] + '):\n' + d['text'], f'impact change {did}')
 
@@ -699,6 +722,7 @@ def main():
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
     ap.add_argument('--impact', help='comma-separated definition ids: change each, and check which rules it reaches (impact.nlir) against two judges')
+    ap.add_argument('--specback', help='a recorded author run: propose the specification passage for each exception/requirement model edit (spec-propose.nlir) and check lens-packet.nlir reads it back')
     ap.add_argument('--impact-apply', help='a recorded --impact run: patch the rules its first judge selected for each changed definition, then ask the judges again')
     ap.add_argument('--impact-models', help='with --impact: comma-separated recorded runs whose m0 models to use')
     ap.add_argument('--conflicts', help='a recorded author run: write a requirement contradicting each exception and check merge-check.nlir flags it (and not the recorded, compatible requirement)')
@@ -724,6 +748,19 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.specback:  # prose -> specification: propose the passage for each recorded author edit and read it forward again
+        FIN = json.loads(Path(a.specback).read_text())['results']
+        with ThreadPoolExecutor(a.workers) as ex:
+            res = dict(ex.map(lambda kv: R.specback(data[kv[0]], kv[1]), [(k, v) for k, v in FIN.items() if k in data]))
+        import statistics as _st
+        S = {}
+        for k in ('exception', 'requirement'):
+            rows = [x[k] for x in res.values() if k in x and 'skipped' not in x[k]]
+            S[k] = {'edits': len(rows), 'skipped': sum('skipped' in x.get(k, {}) for x in res.values()), 'recovered': sum(r['recovered'] for r in rows),
+                    'no_passage': sum(not r['passages'] for r in rows), 'median_words': _st.median([r['words'] for r in rows]) if rows else 0,
+                    'other_per_edit': round(sum(r['other'] for r in rows) / max(1, len(rows)), 2)}
+        Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge}, 'specback': True}, indent=1, ensure_ascii=False) + '\n')
+        print(json.dumps(S, indent=1)); return
     if a.impact_apply:  # patch the rules the one-call check selected for each changed definition, and ask again
         IMP = json.loads(Path(a.impact_apply).read_text())
         MD = {}
