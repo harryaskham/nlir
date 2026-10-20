@@ -298,6 +298,14 @@ judges then gave the author's answer for every one (16 of 16 on the invented spe
 28). The author's sentence does most of that by itself (14 of 16 without the loop); what the loop adds is the
 other field: it patched the opposite one in 8 of 16 answers so that it no longer says otherwise.
 
+The maintained profiles still read like the authors'. Scored with the series' style score — each part's
+length, sentence count and anything no author writes, relative to the authored part (1 = the authors' own
+shape) — the invented spec's profiles score 0.92 after an author's edit, 0.89 after a spec change, 0.79
+after three edits in turn (each adds a clause) and 1.00 after an edit and its undo. On representative data,
+for one definition edit on the same fifteen rules, the patched profile scores 0.89 while the profile
+re-derived from the edited model scores 0.74 — and already 0.76 before the edit: re-deriving costs the
+authors' shape whatever the edit.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,
