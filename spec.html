@@ -723,14 +723,21 @@ more operands' truthiness, returning a <code>Bool</code>. They
 short-circuit left to right: an operand that is not needed is never
 evaluated (no model call, no error), so
 <code>$and%($has%($x, 'k'), $gt%($x.k, 0))</code> is a safe guard.
-(<code>&amp;</code> is not boolean AND: it is a semantic operator.)
-Unlike <code>!</code> (which is <em>textual</em> negation, e.g.
-<code>!(3&gt;=5)</code> → the string "not (false)"), <code>$not</code>
-inverts any Bool — including a fuzzy <code>~&gt;</code> result — so it
-composes in fold-fusion count-if-NOT. Since Bools coerce true→1 under
-<code>+</code>, map a predicate then fold to count:
-<code>$fold%({$0+$1},$map%({$lt%($0,5)},0..10))</code> → 5. The sigil
-alias <code>¬</code> (config operator, prefix) completes
+(<code>&amp;</code> is not boolean AND: it is a semantic operator.)</p>
+<p><strong><code>$try%(expr, fallback)</code></strong> —
+<code>expr</code>'s value or, if evaluating it fails (a model call that
+errors or returns nothing, a missing key, an index out of range),
+<code>fallback</code>'s. Lazy like <code>$if</code>: the fallback is
+evaluated only when needed, and a failing fallback still fails. Use it
+where one failed call should degrade a long pipeline rather than abort
+it: <code>$try%(=&gt;('Trim: ' ++ $d), $d)</code> keeps the draft if the
+trim fails. Unlike <code>!</code> (which is <em>textual</em> negation,
+e.g. <code>!(3&gt;=5)</code> → the string "not (false)"),
+<code>$not</code> inverts any Bool — including a fuzzy
+<code>~&gt;</code> result — so it composes in fold-fusion count-if-NOT.
+Since Bools coerce true→1 under <code>+</code>, map a predicate then
+fold to count: <code>$fold%({$0+$1},$map%({$lt%($0,5)},0..10))</code> →
+5. The sigil alias <code>¬</code> (config operator, prefix) completes
 <code>∧ ∨ ¬</code> — see the operator table.</p>
 <h3 id="rounding-builtins-floor--ceil--round">Rounding builtins
 (<code>$floor</code> / <code>$ceil</code> / <code>$round</code>)</h3>
