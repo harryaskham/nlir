@@ -613,7 +613,10 @@ not what each field means. Run as is on the spec lab's eight evaluation rules, t
 library scores 0.32 strict F1, no better than the spec alone (0.35): its generic
 writer does not know, for instance, that a `MET` field describes the violation, and
 writes it as an obligation. Set `gf_guide` (and `gf_field_guides`) to the guidance a
-good writer for your format needs — the spec lab's learned writer is one source:
+good writer for your format needs. With the spec lab's learned writer's guidance as data
+([`examples/data/code-review-guide.json`](../examples/data/code-review-guide.json)), the library
+scores 0.48 (+0.13 over the spec alone, better on 7 of 8 rules), within noise of the
+research pipeline's 0.50 — and the same with that pipeline's lists instead of its own:
 
 ```
 gf_guide=$g.guide; gf_field_guides=$g.fields;
