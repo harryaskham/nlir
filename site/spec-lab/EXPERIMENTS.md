@@ -292,6 +292,12 @@ invented spec; on representative data 21 of 27 and 23 of 31): the profile decide
 disagree on are the real questions, and the explainer lists them by rule with both readings — a short
 review list for the authors rather than a defect in every profile.
 
+Answering a question settles it (`edit-loop.py --questions`). Each open case was answered both ways — the
+author adds "Cases like … are MET" (or NOT MET) to that field and the loop runs as for any edit — and both
+judges then gave the author's answer for every one (16 of 16 on the invented spec; on representative data 28 of
+28). The author's sentence does most of that by itself (14 of 16 without the loop); what the loop adds is the
+other field: it patched the opposite one in 8 of 16 answers so that it no longer says otherwise.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

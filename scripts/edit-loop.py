@@ -51,6 +51,10 @@ CONSIST = ('You check an evaluation profile for a policy rule. Reply with JSON o
            '"gap": true|false, "gap_case": "<a concrete case where the rule applies that neither MET nor NOT MET covers and UNCERTAIN does not name, or empty>"}')
 COLLATERAL = ('Below are an evaluation profile for a policy rule as its authors wrote it and a REPAIRED version that should differ only in how it treats one CASE. '
               'Does the repair change the verdict for any OTHER kind of case? Reply with JSON only: {"collateral": true|false, "example": "<a case whose verdict changed, or empty>"}')
+VERDICT = ('Below are an evaluation profile for a policy rule and one CASE. Under this profile as written, what is the verdict for the case? '
+           'Reply with JSON only: {"verdict": "MET" | "NOT MET" | "UNCERTAIN", "why": "<one sentence>"}')
+SUMMARISE = ('Summarise the CASE below as one short noun phrase that names what kind of response it is, for an author to write "Cases like <phrase> are MET" — '
+             'specific enough to pick out this kind of case, general enough to cover others like it. Reply with JSON only: {"phrase": "<the phrase>"}')
 NAME = {'exception': 'EXCEPTION', 'requirement': 'REQUIREMENT', 'fact': 'DECIDING FACT', 'removal': 'REMOVED EXCEPTION'}
 QUESTIONS = {'exception': ('not_met_covers', 'met_excludes', 'overlap'), 'requirement': ('met_requires', 'not_met_covers', 'overlap'), 'fact': ('uncertain_names',), 'removal': ('met_covers', 'not_met_drops', 'overlap')}
 
@@ -248,6 +252,29 @@ class Runner:
                      'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
                      'indep_before': indep_db(auth, f'{rid} convention indep before'), 'indep_after': indep_db(conv, f'{rid} convention indep after'), 'collateral': col}
 
+    def answer(self, item, base_model, case, verdict):
+        """An author answers an open question: "Cases like <phrase> are <verdict>." appended to that field; the loop as for any edit;
+        both judges re-read the case under the patched profile."""
+        a, rid = self.a, item['id']
+        auth = {l: part(item['gold'], l) for l in LABELS}
+        rt = json.loads(self.nl(a.editor, {'model': base_model, 'p': item['packet'], 'profile': auth}, [LAB / 'lens-profile.nlir'], tag=f'{rid} rt'))
+        m0 = apply(base_model, rt.get('edits', []))
+        phrase = self.ask(a.editor, SUMMARISE + '\n\nCASE: ' + case, f'{rid} answer phrase {hash(case) % 10**8}')['phrase'].strip().rstrip('.')
+        fld = verdict
+        new = auth[fld].rstrip() + f' Cases like {phrase} are {verdict}.'
+        back = json.loads(self.nl(a.editor, {'model': m0, 'p': item['packet'], 'part': fld, 'old': auth[fld], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} answer {verdict} back {hash(case) % 10**8}'))
+        t = json.loads(self.nl(a.editor, {'model': m0, 'after': m0, 'edits': back.get('edits', []), 'part': fld}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'], expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{rid} answer typed {verdict} {hash(case) % 10**8}'))
+        m1 = apply(m0, t['kept']); edited = dict(auth); edited[fld] = new
+        note = f'An author answered an open question: cases like {phrase} are {verdict}.'
+        routing = json.loads(self.nl(a.editor, {'model': m0, 'after': m1}, [LAB / 'patch-route.nlir'], expr='$json%{changed=$changed, route=$route}', tag=f'{rid} answer route {verdict} {hash(case) % 10**8}'))
+        patched = json.loads(self.nl(a.editor, {'model': m0, 'after': m1, 'profile': edited, 'note': note}, [LAB / 'patch-route.nlir', LAB / 'patch.nlir'], tag=f'{rid} answer patch {verdict} {hash(case) % 10**8}'))
+        patched = {l: patched.get(l, edited[l]) for l in LABELS}
+        read = lambda model, prof, tag: self.ask(model, VERDICT + '\n\nPROFILE:\n' + json.dumps(prof, ensure_ascii=False) + '\n\nCASE: ' + case, tag)
+        h = hash(case) % 10**8
+        return {'rule': rid, 'case': case, 'answer': verdict, 'phrase': phrase, 'author_edit': new, 'model_edits': t['kept'], 'warnings': t['dropped'], 'routing': routing,
+                'authored': auth, 'patched': patched,
+                'after': read(a.judge, patched, f'{rid} answer read1 {verdict} {h}'), 'after2': read(a.judge2, patched, f'{rid} answer read2 {verdict} {h}') if a.judge2 else {}}
+
     def author_new(self, kind, cur, txt):
         fld = 'UNCERTAIN' if kind == 'fact' else 'MET'
         new = (cur['MET'].rstrip().rstrip('.') + (f', unless {txt}.' if kind == 'exception' else f', and only when {txt}.')) if fld == 'MET' else (cur['UNCERTAIN'].rstrip() + ' ' + txt[0].upper() + txt[1:] + ' can leave the verdict undecided when unclear.')
@@ -419,6 +446,7 @@ def main():
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--questions', help='an open-questions file (rows with rule, case, open): answer each open case both ways and check it is settled')
     ap.add_argument('--convention', help='append this sentence to every authored DECISION BOUNDARY and check overlaps and gaps before and after')
     ap.add_argument('--narrow', action='store_true', help='with --repair: move only cases like the flagged one (fewer neighbours moved, more words)')
     ap.add_argument('--repair', action='store_true', help='check each authored profile and repair an overlap or gap with the smallest edit')
@@ -432,6 +460,21 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.questions:  # answer every open question both ways
+        Qs = [q for q in json.loads(Path(a.questions).read_text())['rows'] if q.get('open') and q['rule'] in data and q['rule'] in M]
+        jobs = [(q, v) for q in Qs for v in ('MET', 'NOT MET')]
+        with ThreadPoolExecutor(a.workers) as ex:
+            rows = list(ex.map(lambda j: R.answer(data[j[0]['rule']], M[j[0]['rule']], j[0]['case'], j[1]), jobs))
+        import difflib
+        tok = lambda t_: re.findall(r'\S+', t_)
+        settled = lambda r, k: str((r.get(k) or {}).get('verdict', '')).upper().strip() == r['answer']
+        others = [(r['authored'][l], r['patched'][l]) for r in rows for l in LABELS if l != r['answer']]
+        S = {'questions': len(Qs), 'answers': len(rows), 'settled_judge1': sum(settled(r, 'after') for r in rows), 'settled_judge2': sum(settled(r, 'after2') for r in rows),
+             'settled_both': sum(settled(r, 'after') and settled(r, 'after2') for r in rows),
+             'by_answer': {v: {'n': sum(r['answer'] == v for r in rows), 'both': sum(r['answer'] == v and settled(r, 'after') and settled(r, 'after2') for r in rows)} for v in ('MET', 'NOT MET')},
+             'other_similarity': round(sum(difflib.SequenceMatcher(a=tok(x), b=tok(y), autojunk=False).ratio() for x, y in others) / max(1, len(others)), 3), 'warnings': sum(bool(r['warnings']) for r in rows)}
+        Path(a.out).write_text(json.dumps({'summary': S, 'rows': rows, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'answers': True}, indent=1, ensure_ascii=False) + '\n')
+        print(json.dumps(S, indent=1)); return
     with ThreadPoolExecutor(a.workers) as ex:
         res = dict(ex.map(lambda r: (R.convention if a.convention else R.repair if a.repair else R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
     S = summary_repair(res) if (a.repair or a.convention) else summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
