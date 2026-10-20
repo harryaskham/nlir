@@ -632,6 +632,12 @@ representative data, about 0.39 → 0.62 strict F1, confirmed by a second judge)
 The lab's Run tab has the loop live (**Gap-filled specification**) and a recorded
 run for each rule.
 
+**Robust by construction.** A pipeline of dozens of model calls should not die on
+one bad reply. The library wraps the trim and the coverage judgement in
+`$try%(expr, fallback)`: a trim that fails keeps the draft, and a judgement that fails
+counts as covering nothing. (Told to delete everything not listed, a trimmer given a
+draft that states nothing listed once returned an empty reply and aborted the run.)
+
 **Gotcha — don't name a form after a builtin.** A form called `trim` shadows
 `$trim`; nlir warns (`eval::shadowed_builtins`), and the original version of
 this program failed every call until it was renamed `keep_listed`.

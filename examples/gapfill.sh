@@ -38,4 +38,7 @@ check "_sep=',';\$contains%(\$gf_write%({rule='r'}, \$lists, 'UNCERTAIN', 1), 'N
 # Optional guidance (what the document and its fields mean) is prepended only when set, after loading.
 check "_sep=',';\$contains%(\$gf_write%({rule='r'}, \$lists, 'MET', 1), 'GUIDANCE')"   "false"
 contains "gf_guide='MET describes a violation.'; gf_field_guides={MET='One sentence.'}; \$gf_write%({rule='r'}, \$lists, 'MET', 1)" "FIELD GUIDANCE (MET):"
+# Robustness: a failed or unreadable coverage judgement counts as covering nothing ($try); in det mode the
+# echoed prompt cannot be parsed, so this exercises the fallback.
+check "\$json%\$gf_cover%(\$lists, 'MET', 'draft')"                                 '{"stated":[],"partly":[],"other":0}'
 echo "gapfill: all checks passed"

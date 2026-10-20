@@ -1296,6 +1296,7 @@ impl<'a> Evaluator<'a> {
                     | "not"
                     | "and"
                     | "or"
+                    | "try"
                     | "floor"
                     | "ceil"
                     | "round"
@@ -1478,6 +1479,19 @@ impl<'a> Evaluator<'a> {
                     }
                 }
                 Ok(Value::bool(!want))
+            }
+            // `$try%(expr, fallback)`: `expr`'s value, or — if evaluating it fails (a model call
+            // that errors or returns nothing, a missing key, a bad index) — `fallback`'s. Lazy
+            // like `$if`: the fallback is evaluated only when needed. Keeps one failed call from
+            // aborting a long pipeline, e.g. `$try%(=>(...), $draft)`.
+            "try" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(expr, fallback)", args.len()));
+                }
+                match self.eval(&args[0]) {
+                    Ok(v) => Ok(v),
+                    Err(_) => self.eval(&args[1]),
+                }
             }
             // Modulo builtin (mathy golf, msm-3): mathematical modulo via
             // rem_euclid — non-negative result in [0, |b|), so `$mod%(-1,3)`→2
@@ -1663,6 +1677,15 @@ impl<'a> Evaluator<'a> {
                     }
                 }
                 Ok(Value::bool(!want))
+            }
+            "try" => {
+                if args.len() != 2 {
+                    return Err(builtin_arity_err(name, "(expr, fallback)", args.len()));
+                }
+                match self.eval_async(&args[0], realiser).await {
+                    Ok(v) => Ok(v),
+                    Err(_) => self.eval_async(&args[1], realiser).await,
+                }
             }
             "mod" => {
                 if args.len() != 2 {
@@ -1890,8 +1913,8 @@ pub const BUILTIN_NAMES: &[&str] = &[
     "access", "and", "ceil", "contains", "dict", "diff", "draw", "elem", "entries", "filter",
     "flat", "floor", "fold", "get", "gt", "has", "if", "inter", "join", "json", "keys", "len",
     "lines", "lower", "lt", "map", "match", "matches", "medoid", "mod", "not", "nth", "or",
-    "parse", "replace", "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "type", "union",
-    "upper", "values", "zip",
+    "parse", "replace", "round", "scan", "slice", "sort", "sqrt", "sub", "trim", "try", "type",
+    "union", "upper", "values", "zip",
 ];
 
 const PURE_BUILTIN_OPS: &[&str] = &[
@@ -2415,6 +2438,7 @@ impl<'a> Evaluator<'a> {
                                 | "not"
                                 | "and"
                                 | "or"
+                                | "try"
                                 | "floor"
                                 | "ceil"
                                 | "round"
@@ -6000,6 +6024,58 @@ operators:
             det("_sep=',';$filter%({$and%($gt%($0,1), $lt%($0,4))}, 1..5)"),
             "2,3"
         );
+    }
+
+    #[test]
+    fn try_builtin_falls_back_on_error_only() {
+        // $try%(expr, fallback): expr's value, or fallback's when evaluating expr fails.
+        assert_eq!(det("$try%($nosuch%1, 'fallback')"), "fallback");
+        assert_eq!(det("$try%($nth%(5, [1,2]), 0)"), "0");
+        assert_eq!(det("$try%(1+1, 'fallback')"), "2");
+        // Lazy: the fallback is not evaluated when expr succeeds (an unknown key would error).
+        assert_eq!(det("$try%(7, $nosuch%1)"), "7");
+        // Nested: the first fallback that succeeds.
+        assert_eq!(det("$try%($nosuch%1, $try%($nosuch%2, 'third'))"), "third");
+        // A failing fallback still fails.
+        assert!(
+            evaluate(
+                "$try%($nosuch%1, $nosuch%2)",
+                &config(),
+                &mut Context::empty(&config().context),
+                Mode::Det
+            )
+            .is_err()
+        );
+        assert!(
+            evaluate(
+                "$try%(1)",
+                &config(),
+                &mut Context::empty(&config().context),
+                Mode::Det
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn try_builtin_matches_on_the_async_path() {
+        use crate::realiser::{NativeRealiser, block_on_ready};
+        let cfg = config();
+        for (src, want) in [
+            ("$try%($nosuch%1, 'fallback')", "fallback"),
+            ("$try%(7, $nosuch%1)", "7"),
+        ] {
+            let mut ctx = Context::empty(&cfg.context);
+            let out = block_on_ready(evaluate_async(
+                src,
+                &cfg,
+                &mut ctx,
+                Mode::Det,
+                &NativeRealiser,
+            ))
+            .expect("async try");
+            assert_eq!(out.render(&ctx.sep()), want, "{src}");
+        }
     }
 
     #[test]
