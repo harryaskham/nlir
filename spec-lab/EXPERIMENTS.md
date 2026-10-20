@@ -220,3 +220,25 @@ Its rules were invented to be distinct. On representative data from a real polic
 experts, about 82% of the additions were instances of a dozen shared conventions and 58% of the
 named points of about eighty shared concepts — yet substituting the shared item for the authors'
 specific one cost about 0.08 strict F1 there every time.
+
+## The method as a library
+
+[`lib/gapfill.nlir`](https://github.com/harryaskham/nlir/blob/main/lib/gapfill.nlir) packages the
+gap-filled writer as reusable forms: read the two lists from authored prose, write each field from
+the spec plus its lists, trim each draft to the lists, keep the best of four by list coverage. On
+this spec's eight evaluation rules (four seeds each, the same strict judge):
+
+| | strict F1 |
+|---|---:|
+| the spec alone (learned writer) | 0.35 |
+| the library, no guidance | 0.32 |
+| the library with the learned writer's guidance as data | 0.48 |
+| the same, with the research pipeline's lists | 0.46 |
+| the research pipeline (learned writer + lists, trimmed) | 0.50 |
+
+Without guidance the library's generic writer does not know what the profile's fields mean — it
+writes MET as an obligation rather than as the violation — and is no better than the spec alone.
+With the guidance (`examples/data/code-review-guide.json`, set as `gf_guide` / `gf_field_guides`)
+it is within noise of the research pipeline, whichever lists it is given. The lists carry the
+authors' selection; what the format means has to come from the writer.
+
