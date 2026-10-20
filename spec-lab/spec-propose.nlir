@@ -1,0 +1,18 @@
+-- Prose -> specification: the passage a policy specification would need for a rule model edit an author made by
+-- editing their own profile. Binds $model (the rule model before the edit), $edits (the author's model edits, as the
+-- backward pass returned them) and $p (the rule's packet). Replies with passages, each either a new permission entry
+-- ({"where": "permissions", "title", "text"}) or a sentence to append to the rule text ({"where": "rule", "text"}), in the
+-- packet's own style. Applying a passage is deterministic; lens-packet.nlir then reads the changed packet forward again,
+-- so a proposal can be checked: it should give back the author's model edit (edit-loop.py --specback).
+--   nlir -f spec-propose.nlir --bind model=m.json --bind edits=e.json --bind p=packet.json
+$json%($parse%(=>("A policy RULE's PACKET is its specification. An author edited the rule's evaluation profile, and the edit was read as the RULE MODEL EDITS below, which the packet does not yet state. Write the smallest addition to the packet that would state them, in the packet's own style: a new permitted case is a new permission entry; a new requirement for a violation is a sentence appended to the rule text. Do not restate anything the packet already says, and do not add anything the edits do not.
+Reply with JSON only: {\"passages\": [{\"where\": \"permissions\" | \"rule\", \"title\": \"<short title, for a permission>\", \"text\": \"<the passage>\"}]}
+
+RULE MODEL:
+" ++ $json%($omit%($model, ['_pin'])) ++ "
+
+RULE MODEL EDITS:
+" ++ $json%$edits ++ "
+
+PACKET:
+" ++ $json%$p)))
