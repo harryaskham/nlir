@@ -443,6 +443,7 @@
       <p class="small"><b>Edit:</b> ${esc(R.edit || S.edit || '')}</p>
       <p class="small">Authored ${verdict(R.before)} &nbsp;→&nbsp; patched ${verdict(R.after)}</p>
       ${S.note ? `<p class="small muted">${esc(S.note)}</p>` : ''}
+      ${R.collateral ? `<p class="pwarn small">Also moves an adjacent case — review before applying: ${esc(R.collateral)}</p>` : ''}
       ${(R.warnings || []).map(w => { const g = (GROUPS.find(x => x[0] === w.group) || [w.group, w.group])[1]; const where = Object.keys(READS).filter(f => READS[f].includes(w.group)).join(' or ');
         return `<p class="pwarn small">Not applied: the backward pass also read this edit as a change to the rule's ${esc(g)} (“${esc(w.text || '')}”). An edit to ${esc(R.part || 'this field')} can change only what that field reads; if the author means it, edit ${esc(where)}.</p>`; }).join('')}
       ${(R.sources || []).length ? `<p class="small">Model edits, each quoting the passage it rests on: ${R.sources.map(x => `<span class="chip">${esc((GROUPS.find(g => g[0] === x.group) || [x.group, x.group])[1])}</span> ${esc(x.text)} <span class="muted">— “${esc(x.source)}”</span>`).join('; ')}</p>` : ''}

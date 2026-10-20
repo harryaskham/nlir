@@ -263,6 +263,15 @@ the other way round: of 72 exceptions across 34 rules, both judges read only 6 a
 a profile states mark where the conditions already stop — and the check agreed with the judges'
 earlier readings, made from the authored profile rather than the model, on 31–32 of 34.
 
+The same machinery can propose repairs to the authors' own inconsistencies (`edit-loop.py --repair`,
+`patch-repair.nlir`): a consistency check finds a case that meets both MET and NOT MET, or neither, and
+the repair places it with the fewest words. On the invented spec it cut the check's overlaps from 6 to
+2 and its gaps from 5 to 3 at about 7 words a repair — but a second judge, asked independently,
+still found edge cases in nearly every profile and read 6 of 8 repairs as also moving an adjacent case. A
+repair settles a class of cases, not one, and which way an adjacent case should go is the authors'
+decision; the explainer shows each repair as a proposal with the adjacent case it moves. On
+representative data the pattern is the same (15 of 24 repairs moved an adjacent case).
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,

@@ -47,6 +47,10 @@ REMOVE = ('A policy evaluation rule\'s profile is below. Pick ONE exception or p
           'Reply with JSON only: {"exception": "<the case, a short clause starting with \'the\' or \'a\'>", "span": "<the exact words of NOT MET that state it, copied verbatim, one clause or sentence>"}')
 REMOVE_NODE = ('An author will delete one EXCEPTION from a rule\'s evaluation profile. Find the words in NOT MET that state this exception. '
                'Reply with JSON only: {"span": "<the exact words of NOT MET that state it, copied verbatim — one clause or sentence — or empty if NOT MET does not state it>"}')
+CONSIST = ('You check an evaluation profile for a policy rule. Reply with JSON only: {"overlap": true|false, "overlap_case": "<a concrete case satisfying both MET and NOT MET as written, or empty>", '
+           '"gap": true|false, "gap_case": "<a concrete case where the rule applies that neither MET nor NOT MET covers and UNCERTAIN does not name, or empty>"}')
+COLLATERAL = ('Below are an evaluation profile for a policy rule as its authors wrote it and a REPAIRED version that should differ only in how it treats one CASE. '
+              'Does the repair change the verdict for any OTHER kind of case? Reply with JSON only: {"collateral": true|false, "example": "<a case whose verdict changed, or empty>"}')
 NAME = {'exception': 'EXCEPTION', 'requirement': 'REQUIREMENT', 'fact': 'DECIDING FACT', 'removal': 'REMOVED EXCEPTION'}
 QUESTIONS = {'exception': ('not_met_covers', 'met_excludes', 'overlap'), 'requirement': ('met_requires', 'not_met_covers', 'overlap'), 'fact': ('uncertain_names',), 'removal': ('met_covers', 'not_met_drops', 'overlap')}
 
@@ -198,6 +202,30 @@ class Runner:
             out |= {'after_add2': self.judge(a.judge2, 'exception', txt, p1, f'{rid} undo judge2 add'), 'after_undo2': self.judge(a.judge2, 'removal', txt, p2, f'{rid} undo judge2 removal')}
         return rid, out
 
+    def repair(self, item, base_model):
+        """Repair the authors' own inconsistency: check the authored profile; where MET and NOT MET overlap or leave a gap, make
+        the smallest edit (patch-repair.nlir) and check again; an independent judge reads both and looks for collateral changes."""
+        a, rid = self.a, item['id']
+        auth = {l: part(item['gold'], l) for l in LABELS}
+        rt = json.loads(self.nl(a.editor, {'model': base_model, 'p': item['packet'], 'profile': auth}, [LAB / 'lens-profile.nlir'], tag=f'{rid} rt'))
+        m0 = apply(base_model, rt.get('edits', []))
+        chk = lambda prof, tag: json.loads(self.nl(a.editor, {'p': item['packet'], 'model': m0, 'profile': prof}, [LAB / 'lens-check.nlir'], tag=f'{rid} {tag}'))
+        before = chk(auth, 'repair check before')
+        indep = lambda prof, tag: self.ask(a.judge2, CONSIST + f"\n\nMET: {prof['MET']}\n\nNOT MET: {prof['NOT MET']}\n\nUNCERTAIN: {prof['UNCERTAIN']}", tag) if a.judge2 else {}
+        out = {'title': item['packet'].get('title', ''), 'authored': auth, 'check_before': {k: before.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')}, 'indep_before': indep(auth, f'{rid} repair indep before')}
+        if not (before.get('overlap') or before.get('gap')):
+            return rid, out | {'repaired': False}
+        finding = out['check_before']
+        r = json.loads(self.nl(a.editor, {'model': m0, 'profile': auth, 'finding': finding}, [LAB / 'patch-repair.nlir'], tag=f'{rid} repair'))
+        fixed = dict(auth)
+        for l in ('MET', 'NOT MET', 'UNCERTAIN'):
+            if (r.get(l) or '').strip():
+                fixed[l] = json.loads(self.nl(a.editor, {'model': {}, 'after': {}, 'label': l, 'text': r[l], 'orig': auth[l]}, [LAB / 'patch-route.nlir'], expr='$json%($tidy%($label, $text, $orig))', tag=f'{rid} repair tidy {l}'))
+        after = chk(fixed, 'repair check after')
+        col = self.ask(a.judge2 or a.judge, COLLATERAL + f"\n\nCASE: {finding.get('overlap_case') or finding.get('gap_case')}\n\nAUTHORED:\n" + json.dumps(auth, ensure_ascii=False) + '\n\nREPAIRED:\n' + json.dumps(fixed, ensure_ascii=False), f'{rid} repair collateral')
+        return rid, out | {'repaired': True, 'why': r.get('why', ''), 'profile': fixed, 'check_after': {k: after.get(k) for k in ('overlap', 'overlap_case', 'gap', 'gap_case')},
+                           'indep_after': indep(fixed, f'{rid} repair indep after'), 'collateral': col}
+
     def author_new(self, kind, cur, txt):
         fld = 'UNCERTAIN' if kind == 'fact' else 'MET'
         new = (cur['MET'].rstrip().rstrip('.') + (f', unless {txt}.' if kind == 'exception' else f', and only when {txt}.')) if fld == 'MET' else (cur['UNCERTAIN'].rstrip() + ' ' + txt[0].upper() + txt[1:] + ' can leave the verdict undecided when unclear.')
@@ -289,6 +317,21 @@ class Runner:
         return rid, out
 
 
+def summary_repair(results):
+    import difflib
+    tok = lambda s: re.findall(r'\S+', s)
+    R_ = [x for x in results.values() if x.get('repaired')]
+    flag = lambda d, k: bool((d or {}).get(k))
+    pairs = [(x['authored'][l], x['profile'][l]) for x in R_ for l in LABELS]
+    return {'rules': len(results), 'flagged': len(R_),
+            'check': {k: {'before': sum(flag(x['check_before'], k) for x in results.values()), 'after': sum(flag(x.get('check_after', x['check_before']), k) for x in results.values())} for k in ('overlap', 'gap')},
+            'independent': {k: {'before': sum(flag(x['indep_before'], k) for x in results.values()), 'after': sum(flag(x.get('indep_after', x['indep_before']), k) for x in results.values())} for k in ('overlap', 'gap')},
+            'collateral': sum(flag(x.get('collateral'), 'collateral') for x in R_),
+            'similarity': round(sum(difflib.SequenceMatcher(a=tok(a), b=tok(b), autojunk=False).ratio() for a, b in pairs) / max(1, len(pairs)), 3),
+            'untouched': sum(a.strip() == b.strip() for a, b in pairs), 'fields': len(pairs),
+            'words_added_per_repair': round(sum(sum(j2 - j1 for op, i1, i2, j1, j2 in difflib.SequenceMatcher(a=tok(a), b=tok(b), autojunk=False).get_opcodes() if op in ('insert', 'replace')) for a, b in pairs) / max(1, len(R_)), 1)}
+
+
 def summary_undo(results, judge2):
     V = [x for x in results.values() if not x.get('invalid')]
     c = lambda key, q: sum(bool(x.get(key, {}).get(q)) for x in V)
@@ -351,6 +394,7 @@ def main():
     ap.add_argument('--rules', nargs='*'); ap.add_argument('--rules-file', help='one rule id per line (ids may contain spaces)'); ap.add_argument('--config'); ap.add_argument('--cache', default='target/edit-loop-cache.jsonl')
     ap.add_argument('--editor', default='sol'); ap.add_argument('--judge', default='sol'); ap.add_argument('--judge2'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
+    ap.add_argument('--repair', action='store_true', help='check each authored profile and repair an overlap or gap with the smallest edit')
     ap.add_argument('--undo', action='store_true', help='add an exception, then delete it again: does the profile come back?')
     ap.add_argument('--sequence', action='store_true', help='apply an exception, a requirement and a deciding fact in turn to the same profile (do edits compose?)')
     ap.add_argument('--source', choices=('author', 'packet'), default='author', help='where the change starts: an author\'s sentence, or the rule\'s packet')
@@ -362,9 +406,9 @@ def main():
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
     with ThreadPoolExecutor(a.workers) as ex:
-        res = dict(ex.map(lambda r: (R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
-    S = summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
-    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo}, indent=1, ensure_ascii=False) + '\n')
+        res = dict(ex.map(lambda r: (R.repair if a.repair else R.undo if a.undo else R.sequence if a.sequence else R.rule)(data[r], M[r]), rules))
+    S = summary_repair(res) if a.repair else summary_undo(res, a.judge2) if a.undo else summary_sequence(res, a.judge2) if a.sequence else summary(res, a.judge2)
+    Path(a.out).write_text(json.dumps({'summary': S, 'results': res, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'typed': a.typed, 'source': a.source, 'sequence': a.sequence, 'undo': a.undo, 'repair': a.repair}, indent=1, ensure_ascii=False) + '\n')
     print(json.dumps(S, indent=1))
 
 

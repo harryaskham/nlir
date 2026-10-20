@@ -31,6 +31,7 @@ def main():
     P = next(x for x in loaded if not x.get('sequence') and x.get('source', 'author') == 'author')
     SP = next((x for x in loaded if x.get('source') == 'packet'), None)
     SQ = next((x for x in loaded if x.get('sequence')), None)
+    RP = next((x for x in loaded if x.get('repair')), None)
     doc = json.loads(traces_path.read_text())
     R = {rid: x for rid, x in P['results'].items() if rid.startswith('CR V')}
     S = P['summary']
@@ -82,6 +83,16 @@ def main():
         sq = SQ['summary']
         note += (f" Three edits in turn on the same profile compose: at the end every exception is still covered ({sq['exception']['not_met_covers']['final']} of {len(QR)}), every requirement still gates MET "
                  f"({sq['requirement']['met_requires']['final']}), every fact is still in UNCERTAIN ({sq['fact']['uncertain_names']['final']}), and the final profile keeps {round(100 * sq['final_profile']['similarity'])}% of the authors' words.")
+    if RP:  # repairs of the authors' own inconsistencies, offered as proposals with the adjacent cases they would also move
+        RR = {rid: x for rid, x in RP['results'].items() if rid.startswith('CR V') and x.get('repaired')}
+        sets['repair'] = {'label': f"Repair proposals ({len(RR)} rules)", 'checks': [{'key': 'overlap', 'label': 'no overlap', 'bad': True}, {'key': 'gap', 'label': 'no gap', 'bad': True}],
+            'note': "A consistency check reads the authors' profile; where MET and NOT MET overlap or leave a gap, patch-repair.nlir proposes the smallest edit that places the case. A proposal, not an edit: an independent judge often finds it also moves an adjacent case, shown below it.",
+            'rules': {rid: {'title': x.get('title', ''), 'edit': 'The check found: ' + (x['check_before'].get('overlap_case') or x['check_before'].get('gap_case') or ''),
+                            'before': x['check_before'], 'after': x['check_after'], 'collateral': (x.get('collateral') or {}).get('example', '') if (x.get('collateral') or {}).get('collateral') else '',
+                            'fields': {l: {'before': x['authored'][l], 'after': x['profile'][l]} for l in x['authored']}} for rid, x in RR.items()}}
+        rs = RP['summary']
+        note += (f" Repairs of the authors' own inconsistencies are offered as proposals: the check's overlaps fall from {rs['check']['overlap']['before']} to {rs['check']['overlap']['after']} and its gaps from "
+                 f"{rs['check']['gap']['before']} to {rs['check']['gap']['after']} at about {round(rs['words_added_per_repair'])} words a repair, but an independent judge reads {rs['collateral']} of {rs['flagged']} repairs as also moving an adjacent case.")
     doc['patches'] = {'note': note, 'sets': sets}
     traces_path.write_text(json.dumps(doc, ensure_ascii=False, separators=(',', ':')))
     print(json.dumps({'patched_rules': len(R), 'sets': list(sets), 'bytes': traces_path.stat().st_size}))
