@@ -74,6 +74,8 @@ IMPACT_CHANGE = ('Below is a DEFINITION from a policy specification. Write one s
 IMPACT_JUDGE = ('A policy specification changed one DEFINITION (before and after below). Below is the evaluation profile one rule\'s authors wrote. Does the profile '
                 'need to change to stay consistent with the new definition — would a verdict it describes change, or does it state something the definition no '
                 'longer says? Reply with JSON only: {"needs_change": true | false, "why": "<one sentence>"}')
+READS = {'MET': 'the behaviour, the conditions and the exceptions (permissions)', 'NOT MET': 'the behaviour, the conditions and the exceptions (permissions)',
+         'UNCERTAIN': 'the facts', 'APPLICABILITY': 'the testing setting', 'DECISION BOUNDARY': 'the behaviour'}
 ANCHORS = {}  # rule id -> settled model (--anchor without --roundtrip)
 ROUNDTRIP = ('Below are an INTENDED edit to a rule model and the EDITS recovered by reading a profile back into the model. Does any recovered edit make the intended '
              'change (the same kind of node, the same meaning)? How many recovered edits make some other change? Reply with JSON only: '
@@ -120,6 +122,8 @@ class Runner:
         self.a, self.work = a, Path(a.out).with_suffix('.work'); self.work.mkdir(parents=True, exist_ok=True)
 
     def nl(self, model, binds, files=(), expr=None, tag='call'):
+        if any(Path(f).name == 'lens-concepts.nlir' for f in files):
+            binds = {'hint': '', **binds}  # lens-concepts.nlir reads $hint; empty leaves its prompt as it was
         d = self.work / re.sub(r'[^A-Za-z0-9]+', '-', tag); d.mkdir(parents=True, exist_ok=True)
         args = [NLIR, '--quiet', '--model', model] + (['--config', self.a.config] if self.a.config and model not in self.a.default_route else []) + ['--cache-file', self.a.cache]
         for k, v in binds.items():
@@ -433,6 +437,7 @@ class Runner:
             back = json.loads(self.nl(a.editor, {'model': model, 'p': item['packet'], 'part': fld, 'old': cur[fld], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} seq {kind} back'))
             t = json.loads(self.nl(a.editor, {'model': model, 'after': model, 'edits': back.get('edits', []), 'part': fld}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'],
                                    expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{rid} seq {kind} typed'))
+            t['kept'], t['dropped'], _ = self.retry_declined(model, item, fld, cur[fld], new, t['kept'], t['dropped'], f'{rid} seq {kind}')
             after_model = apply(model, t['kept'])
             edited = dict(cur); edited[fld] = new
             note = {'exception': 'An author edited MET to add the exception: ', 'requirement': 'An author edited MET to add the requirement for a violation: ', 'fact': 'An author edited UNCERTAIN to add the deciding fact: '}[kind] + txt
@@ -460,6 +465,19 @@ class Runner:
     def ask(self, model, q, tag):
         return json.loads(self.nl(model, {'q': {'q': q}}, expr='$json%($parse%(=>($q.q)))', tag=tag))
 
+    def retry_declined(self, model, item, fld, old, new, kept, dropped, tag):
+        """--retry-declined: when the typed pass declines every node edit of an author's sentence, nothing would reach the profile; ask the
+        backward pass once more, saying what it read and what the edited field can change."""
+        if kept or not dropped or not self.a.retry_declined:
+            return kept, dropped, None
+        groups = sorted({d_.get('group', '?') for d_ in dropped})
+        hint = (f'A previous reading of this edit changed only the {", ".join(groups)} group(s), which {fld} does not read, so it was declined and nothing reached the '
+                f'profile. An edit to {fld} can change only {READS.get(fld, "the groups it reads")}. Read the author\'s change again in those terms.')
+        back = json.loads(self.nl(self.a.editor, {'model': model, 'p': item['packet'], 'part': fld, 'old': old, 'new': new, 'hint': hint}, [LAB / 'lens-concepts.nlir'], tag=f'{tag} retry'))
+        t = json.loads(self.nl(self.a.editor, {'model': model, 'after': model, 'edits': back.get('edits', []), 'part': fld}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'],
+                               expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{tag} retry typed'))
+        return t['kept'], t['dropped'], {'first_dropped': dropped, 'hint': hint}
+
     def judge(self, model, kind, text, prof, tag):
         return self.ask(model, JUDGES[kind] + f"\n\n{NAME[kind]}: {text}\n\nMET: {prof['MET']}\n\nNOT MET: {prof['NOT MET']}\n\nUNCERTAIN: {prof['UNCERTAIN']}", tag)
 
@@ -484,11 +502,12 @@ class Runner:
             back = json.loads(self.nl(a.editor, {'model': m0, 'p': item['packet'], 'part': fld, 'old': auth[fld], 'new': new}, [LAB / 'lens-concepts.nlir'], tag=f'{rid} {kind} back'))
             # Typed backward (lens-typed.nlir): an edited field can only change the model groups it reads; node edits
             # elsewhere are not applied but kept as warnings for the author.
-            kept, dropped = back.get('edits', []), []
+            kept, dropped, retried = back.get('edits', []), [], None
             if a.typed:
                 t = json.loads(self.nl(a.editor, {'model': m0, 'after': m0, 'edits': back.get('edits', []), 'part': fld}, [LAB / 'patch-route.nlir', LAB / 'lens-typed.nlir'],
                                        expr='$json%{kept=$kept, dropped=$dropped}', tag=f'{rid} {kind} typed'))
                 kept, dropped = t['kept'], t['dropped']
+                kept, dropped, retried = self.retry_declined(m0, item, fld, auth[fld], new, kept, dropped, f'{rid} {kind}')
             m1 = apply(m0, kept)
             edited = dict(auth); edited[fld] = new
             note = {'exception': 'An author edited MET to add the exception: ', 'requirement': 'An author edited MET to add the requirement for a violation: ', 'fact': 'An author edited UNCERTAIN to add the deciding fact: '}[kind] + txt
@@ -499,6 +518,8 @@ class Runner:
             patched = {l: patched.get(l, edited[l]) for l in LABELS}
             e = {'text': txt, 'part': fld, 'author_edit': new, 'model_edits': kept, 'warnings': dropped, 'routing': json.loads(routing), 'patched': patched,
                  'before': self.judge(a.judge, kind, txt, auth, f'{rid} {kind} judge before'), 'after': self.judge(a.judge, kind, txt, patched, f'{rid} {kind} judge after')}
+            if retried:
+                e['retried'] = retried
             if a.judge2:
                 e['before2'] = self.judge(a.judge2, kind, txt, auth, f'{rid} {kind} judge2 before'); e['after2'] = self.judge(a.judge2, kind, txt, patched, f'{rid} {kind} judge2 after')
             out['edits'][kind] = e
@@ -589,6 +610,7 @@ def main():
     ap.add_argument('--impact-apply', help='a recorded --impact run: patch the rules its first judge selected for each changed definition, then ask the judges again')
     ap.add_argument('--impact-models', help='with --impact: comma-separated recorded runs whose m0 models to use')
     ap.add_argument('--conflicts', help='a recorded author run: write a requirement contradicting each exception and check merge-check.nlir flags it (and not the recorded, compatible requirement)')
+    ap.add_argument('--retry-declined', action='store_true', help='typed: when every node edit of an author sentence is declined, ask the backward pass once more')
     ap.add_argument('--merge', help='a recorded author run: merge its exception and requirement edits, made independently, through the model; judge both')
     ap.add_argument('--anchor', help='a --fixpoint run: with --roundtrip, read back from its fixed points; otherwise maintain from them instead of m0')
     ap.add_argument('--fixpoint', help='a recorded author run: iterate the backward pass on each authored profile from m0 until it proposes nothing (is the lens idempotent?)')

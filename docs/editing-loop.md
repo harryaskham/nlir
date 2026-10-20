@@ -59,7 +59,9 @@ scripts/edit-loop.py $L --out j.json --consolidate SEQ.json    # tighten what a 
 ```
 
 Useful options: `--rules-file` (one id per line; ids may contain spaces), `--editor opus` (another model
-writes the model edits and patches), `--workers`. Each output holds, per rule, the authored profile, the
+writes the model edits and patches), `--retry-declined` (when the typed pass declines every node edit of an
+author's sentence, ask the backward pass once more through `lens-concepts.nlir`'s `$hint`; it rarely fires and
+is not the default), `--workers`. Each output holds, per rule, the authored profile, the
 model edits and warnings, the routing, the patched fields and both judges' readings before and after, plus
 a `summary`. `scripts/test_edit_loop.py` tests the deterministic parts without a model.
 

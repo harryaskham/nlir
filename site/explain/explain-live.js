@@ -185,7 +185,7 @@ async function main() {
     if (!neu || neu === old) throw new Error('Edit the sentence first.');
     const base = E.D.rules.find(r => r.id === L.base);
     status('Pushing the edit back to the rule model…');
-    const back = JSON.parse(await evaluate(SRC.back, { model: L.concepts.model, p: base.packet, part, old, new: neu }, ep.judge));
+    const back = JSON.parse(await evaluate(SRC.back, { model: L.concepts.model, p: base.packet, part, old, new: neu, hint: '' }, ep.judge));
     const model = applyEdits(L.concepts.model, back.edits || []);
     L.sentence = { part, old, new: neu, edits: back.edits || [], why: back.why || '', model, parts: { ...L.concepts.parts } };
     E.show(L, 'sentence', 1);

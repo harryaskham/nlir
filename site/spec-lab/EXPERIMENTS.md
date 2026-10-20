@@ -228,6 +228,10 @@ added exceptions came out differently — each because Opus read the author's ex
 deciding fact, which the typed pass declined; as a narrowed condition; as a carve-out of one sentence), not
 because of the routing or the patch. The programs depend little on the editor; the reading of an exception
 does.
+On fourteen further representative rules not used to design the loop, Opus editing held every edit under
+both judges, so its misreadings are 3 of 34 added exceptions. Asking the backward pass once more when every
+node edit is declined (`--retry-declined`) fired once: the edit then reached MET and NOT MET, but read as a
+condition again, and one judge still found MET not excluding it — so it is offered, not the default.
 
 The change can also start in the specification. `lens-packet.nlir` reads the rule model and the packet
 before and after a change and returns the model edits it implies, each quoting the new passage it rests
