@@ -291,6 +291,27 @@ class Runner:
             out['judge2'] = self.ask(a.judge2, q, f'{rid} impact {did} judge2')
         return out
 
+    def impact_apply(self, item, model, did, new):
+        """A rule the check selected for a changed definition: the packet's definition replaced, lens-packet.nlir's model edits routed and
+        patched into the authored profile, and the judges' question asked again of the patched profile."""
+        a, rid = self.a, item['id']
+        auth = {l: part(item['gold'], l) for l in LABELS}
+        before = item['packet']; after = json.loads(json.dumps(before))
+        old = next(df for df in after.get('definitions', []) if df['id'] == did)
+        d = dict(old); old['text'] = new['text']
+        lens = json.loads(self.nl(a.editor, {'model': model, 'before': before, 'after': after}, [LAB / 'lens-packet.nlir'], tag=f'{rid} def {did} lens'))
+        edits = lens.get('edits', []); m1 = apply(model, edits)
+        note = f'The specification\'s definition of "{d["title"]}" changed: it now says "{new["text"]}"'
+        routing = json.loads(self.nl(a.editor, {'model': model, 'after': m1}, [LAB / 'patch-route.nlir'], expr='$json%{changed=$changed, route=$route}', tag=f'{rid} def {did} route'))
+        patched = json.loads(self.nl(a.editor, {'model': model, 'after': m1, 'profile': auth, 'note': note}, [LAB / 'patch-route.nlir', LAB / 'patch.nlir'], tag=f'{rid} def {did} patch'))
+        patched = {l: patched.get(l, auth[l]) for l in LABELS}
+        q = IMPACT_JUDGE + '\n\nDEFINITION (' + d['title'] + ') BEFORE:\n' + d['text'] + '\n\nAFTER:\n' + new['text'] + '\n\nPROFILE:\n' + json.dumps(patched, ensure_ascii=False)
+        out = {'rule': rid, 'definition': did, 'model_edits': edits, 'routing': routing, 'authored': auth, 'patched': patched,
+               'after': self.ask(a.judge, q, f'{rid} def {did} judge after')}
+        if a.judge2:
+            out['after2'] = self.ask(a.judge2, q, f'{rid} def {did} judge2 after')
+        return out
+
     def conflicts(self, item, x):
         """Merge-conflict detection: the recorded exception against (a) the recorded requirement, which merges, and (b) a requirement
         written to make exactly the excepted case a violation, taken through the author loop to a model edit. merge-check.nlir judges both."""
@@ -565,6 +586,7 @@ def main():
     ap.add_argument('--seed-base', type=int, default=0, help='first seed for every model call (retries use the next two); another base draws an independent sample')
     ap.add_argument('--kinds', nargs='*', default=['exception', 'requirement', 'fact'], help='author edits to run: exception, requirement, fact, removal')
     ap.add_argument('--impact', help='comma-separated definition ids: change each, and check which rules it reaches (impact.nlir) against two judges')
+    ap.add_argument('--impact-apply', help='a recorded --impact run: patch the rules its first judge selected for each changed definition, then ask the judges again')
     ap.add_argument('--impact-models', help='with --impact: comma-separated recorded runs whose m0 models to use')
     ap.add_argument('--conflicts', help='a recorded author run: write a requirement contradicting each exception and check merge-check.nlir flags it (and not the recorded, compatible requirement)')
     ap.add_argument('--merge', help='a recorded author run: merge its exception and requirement edits, made independently, through the model; judge both')
@@ -586,6 +608,26 @@ def main():
     M = json.loads(Path(a.models).read_text()); M = {r: x['model'] for r, x in M['results'].items()} if 'results' in M else M
     rules = a.rules or ([l.strip() for l in Path(a.rules_file).read_text().splitlines() if l.strip()] if a.rules_file else sorted(M))
     R = Runner(a)
+    if a.impact_apply:  # patch the rules the one-call check selected for each changed definition, and ask again
+        IMP = json.loads(Path(a.impact_apply).read_text())
+        MD = {}
+        for f in a.impact_models.split(','):
+            MD.update({k: v['m0'] for k, v in json.loads(Path(f).read_text())['results'].items() if 'm0' in v})
+        ALL = {d['id']: d for d in json.loads(Path(a.data).read_text())}
+        sel = [r for r in IMP['rows'] if (r.get('judge') or {}).get('needs_change')]
+        with ThreadPoolExecutor(a.workers) as ex:
+            rows = list(ex.map(lambda r: R.impact_apply(ALL[r['rule']], MD[r['rule']], r['definition'], IMP['changes'][r['definition']]), sel))
+        import difflib
+        tok = lambda t_: re.findall(r'\S+', t_)
+        no = lambda r, w: not bool((r.get(w) or {}).get('needs_change'))
+        routed = lambda r: set(r['routing'].get('route', []))
+        others = [(r['authored'][l], r['patched'][l]) for r in rows for l in LABELS if l not in routed(r)]
+        S = {'selected': len(rows), 'settled_judge': sum(no(r, 'after') for r in rows), 'settled_judge2': sum(no(r, 'after2') for r in rows) if a.judge2 else None,
+             'settled_both': sum(no(r, 'after') and (no(r, 'after2') if a.judge2 else True) for r in rows),
+             'no_model_edit': sum(not r['model_edits'] for r in rows), 'unrouted_untouched': f"{sum(x.strip() == y.strip() for x, y in others)} of {len(others)}",
+             'kept_all': round(sum(difflib.SequenceMatcher(a=tok(r['authored'][l]), b=tok(r['patched'][l]), autojunk=False).ratio() for r in rows for l in LABELS) / max(1, 5 * len(rows)), 3)}
+        Path(a.out).write_text(json.dumps({'summary': S, 'rows': rows, 'models': {'editor': a.editor, 'judge': a.judge, 'judge2': a.judge2}, 'impact_apply': True}, indent=1, ensure_ascii=False) + '\n')
+        print(json.dumps(S, indent=1)); return
     if a.impact:  # which rules does a definition change touch? deterministic routes against two judges
         MD = {}
         for f in a.impact_models.split(','):

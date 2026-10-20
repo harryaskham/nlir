@@ -360,6 +360,14 @@ quotes the definition are certain (7 of 7) but only half of those that need a ch
 change to every rule that includes it and spend one check per rule; patch only those it says need it. (The
 invented spec shares too few definitions to show this; `examples/patch.sh` checks the routes offline.)
 
+End to end (`edit-loop.py --impact-apply`): each rule the check selected had the definition replaced in its
+packet, `lens-packet.nlir` turned the change into model edits, and only the fields that read them were
+patched. At first a quarter of the selected rules on representative data were still out of date: the change
+had been recorded as a deciding fact, which reaches UNCERTAIN only, though the term decides MET and NOT MET.
+`lens-packet.nlir` now edits the conditions and permissions that use a changed term; on definitions not used
+to make that change, 8 of 10 selected rules were brought up to date under both judges, with every field the
+routing did not reach left as written.
+
 On representative data, the same loop on twenty rules never used to design it carried every added
 exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
 out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,
