@@ -164,3 +164,10 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 .qans { margin-top: .35rem; }
 .qans summary { cursor: pointer; font: 500 .8rem var(--sans); color: var(--accent-ink); }
 .qans .pfield { margin-top: .3rem; }
+.playbook { margin-top: 1.6rem; border-top: 1px solid var(--rule); padding-top: 1rem; }
+.playbook h2 { font: 600 1rem var(--sans); margin: 0 0 .4rem; }
+.pbtab { border-collapse: collapse; width: 100%; font-size: .85rem; }
+.pbtab th { text-align: left; font: 600 .75rem var(--sans); color: var(--muted); border-bottom: 1px solid var(--rule); padding: .3rem .4rem; }
+.pbtab td { border-bottom: 1px solid var(--rule); padding: .35rem .4rem; vertical-align: top; }
+.pbgo { font: 500 .75rem var(--sans); border: 1px solid var(--rule); background: var(--paper); border-radius: var(--r-sm); padding: .15rem .45rem; margin: 0 .2rem .2rem 0; cursor: pointer; color: var(--accent-ink); }
+.pbgo:hover { border-color: var(--accent); }

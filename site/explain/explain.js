@@ -456,6 +456,33 @@
     $('prule').onchange = e => { state.prule = e.target.value; renderPatches(); };
   }
 
+  // The playbook: which kind of change goes through which programs, with a button for each recorded set that shows it.
+  const PLAYBOOK = [
+    { when: 'An author edits their own sentence', programs: 'lens-concepts · lens-typed · patch-route · patch', sets: ['exception', 'requirement', 'fact', 'final-exception', 'final-requirement', 'final-fact', 'fresh-exception', 'fresh-requirement', 'fresh-fact', 'sentence'] },
+    { when: "The rule's specification changes", programs: 'lens-packet · patch-route · patch', sets: ['spec-exception', 'spec-requirement'] },
+    { when: 'A shared definition changes', programs: 'impact, one check per rule · lens-packet · patch', sets: ['definition-fresh', 'definition'] },
+    { when: 'Edits pile up, one after another', programs: 'the same loop, each from the last', sets: ['sequence'] },
+    { when: 'Two authors edit at once', programs: 'patch-route · patch · merge-check', sets: ['merge'] },
+    { when: "The authors' own inconsistencies", programs: 'lens-check · patch-repair, as proposals', sets: ['repair', 'repair-narrow'] },
+    { when: 'A profile is reviewed', programs: 'lens-check · two judges, one verdict each', anchor: 'questions' },
+  ];
+  function renderPlaybook() {
+    const box = $('playbook'), sets = D.patches?.sets || {};
+    if (!box) return;
+    const rows = PLAYBOOK.map(r => {
+      const have = (r.sets || []).filter(k => sets[k]);
+      const go = have.map(k => `<button class="pbgo" data-set="${esc(k)}" title="${esc(sets[k].label)}">${esc(sets[k].label.replace(/\s*\(.*$/, ''))}</button>`).join(' ')
+        + (r.anchor && D[r.anchor]?.items?.length ? `<button class="pbgo" data-anchor="${esc(r.anchor)}">Questions for the authors</button>` : '');
+      return go ? `<tr><td>${esc(r.when)}</td><td class="mono small">${esc(r.programs)}</td><td>${go}</td></tr>` : '';
+    }).join('');
+    if (!rows) { box.innerHTML = ''; return; }
+    box.innerHTML = `<h2>Which change goes where</h2><p class="muted small">Each kind of change to a policy and the nlir programs that carry it into the authored profiles; the buttons open the recorded runs below.</p><table class="pbtab"><thead><tr><th>When</th><th>Programs</th><th>Recorded</th></tr></thead><tbody>${rows}</tbody></table>`;
+    box.querySelectorAll('.pbgo').forEach(b => b.onclick = () => {
+      if (b.dataset.set) { state.pset = b.dataset.set; state.prule = null; renderPatches(); $('patches').scrollIntoView({ behavior: 'smooth' }); }
+      else $(b.dataset.anchor)?.scrollIntoView({ behavior: 'smooth' });
+    });
+  }
+
   // Questions for the authors (when the data has them): cases the authored profile leaves open — two judges, each asked for a
   // single verdict under the profile as written, disagree — listed by rule with both readings.
   function renderQuestions() {
@@ -491,6 +518,7 @@
   renderLibrary();
   renderPatches();
   renderQuestions();
+  renderPlaybook();
   window.EXPLAIN = {
     D, state, render, steps, rule, renderPatches,
     // Add or replace a rule entry (a live run) and show it in the given scenario.
