@@ -142,3 +142,13 @@ del { color: var(--danger); text-decoration-color: var(--danger); opacity: .8; }
 .livepatch { margin-top: .6rem; padding: .5rem .6rem; border: 1px dashed var(--rule-strong); border-radius: var(--r-sm); }
 .livepatch input { font: inherit; width: min(36rem, 100%); }
 .livepatch p { margin: .3rem 0 0; }
+.routefig { margin: .5rem 0 .3rem; }
+.routefig svg { width: 100%; max-width: 44rem; height: auto; font: 500 11px var(--sans); }
+.routefig .hd { font-weight: 600; fill: var(--ink); text-anchor: middle; }
+.routefig .node rect { fill: var(--paper); stroke: var(--rule-strong); }
+.routefig .node text { fill: var(--ink); text-anchor: middle; }
+.routefig .node .note { text-anchor: start; fill: var(--muted); font-size: 10px; }
+.routefig .node.hot rect, .routefig .node.routed rect { stroke: var(--accent); stroke-width: 1.6; }
+.routefig .node.hot rect, .routefig .node.patched rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; }
+.routefig line.dep { stroke: var(--rule); stroke-width: 1; }
+.routefig line.rt { stroke: var(--accent); stroke-width: 2.2; }

@@ -25,6 +25,7 @@ async function boot() {
   cfgJson = m.defaultConfigJson?.() || '{}';
   // patch-route.nlir ends with {changed, route} for standalone use; joined to patch.nlir only its definitions are kept.
   SRC = { lib: strip(lib), prog: strip(prog), back: strip(back), check: strip(check),
+          routeDefs: strip(route).replace(/\{changed=\$changed, route=\$route\}\s*$/, '').trim().replace(/;\s*$/, ''),
           patch: strip(route).replace(/\{changed=\$changed, route=\$route\}\s*$/, '').trim().replace(/;\s*$/, '') + ';\n' + strip(patch) };
 }
 
@@ -212,9 +213,10 @@ async function livePatch() {
   const profile = Object.fromEntries(Object.entries(P.rules[rid].fields).map(([l, f]) => [l, f.before]));
   const calls = [];
   $('lpStatus').textContent = 'Patching…';
+  const routing = JSON.parse(await evaluate(SRC.routeDefs + ';\n$json%{changed=$changed, route=$route}', { model, after }, ep.judge));  // deterministic: no model call
   const out = JSON.parse(await evaluate(SRC.patch, { model, after, profile, note: 'An author added the exception: ' + text }, ep.judge, e => calls.push(e)));
   E.D.patches.sets.live = { label: `Live: your exception on ${rid}`, checks: [], note: `Patched in your browser with ${ep.judge}: ${calls.length} model call${calls.length === 1 ? '' : 's'}, one per routed field; the other fields are returned exactly as written.`,
-    rules: { [rid]: { title: P.rules[rid].title, edit: 'You added the exception: ' + text, fields: Object.fromEntries(Object.keys(profile).map(l => [l, { before: profile[l], after: out[l] ?? profile[l] }])) } } };
+    rules: { [rid]: { title: P.rules[rid].title, edit: 'You added the exception: ' + text, changed: routing.changed, route: routing.route, fields: Object.fromEntries(Object.keys(profile).map(l => [l, { before: profile[l], after: out[l] ?? profile[l] }])) } } };
   E.state.pset = 'live'; E.state.prule = rid;
   E.renderPatches();
   $('lpStatus').textContent = `Done: ${calls.length} routed field${calls.length === 1 ? '' : 's'} patched.`;

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Merge a recorded patch-forward run into the explainer's traces (site/explain/traces.json → "patches").
+"""Merge a recorded editing-loop run into the explainer's traces (site/explain/traces.json → "patches").
 
-Usage: export-explain-patches.py PATCH_JSON TRACES_JSON
+Usage: export-explain-patches.py EDIT_LOOP_JSON TRACES_JSON
 
-PATCH_JSON is a recorded run (rules → exception, authored and patched fields, judge verdicts before and after). The
-page shows each field as a word diff against the authored text, untouched fields marked. Toy rules only; no model calls.
+EDIT_LOOP_JSON is scripts/edit-loop.py's output: per rule, the authored profile and, for each kind of author edit, the
+model edits, the routing (changed groups, routed fields), the patched fields and the judge's readings before and after.
+The page shows each field as a word diff against the authored text, with the routing drawn as the program's graph.
+Toy rules only; no model calls.
 """
 import json
 import sys
@@ -26,22 +28,32 @@ def tidy(label, patched, authored):
 def main():
     patch_path, traces_path = map(Path, sys.argv[1:3])
     P = json.loads(patch_path.read_text())
-    S = P['summary']
-    rules = {rid: {'title': x.get('title', ''), 'edit': 'An author added the exception: ' + x['exception'], 'before': x['before'], 'after': x['after'],
-                   'fields': {l: {'before': x['authored'][l], 'after': tidy(l, x['patched'][l], x['authored'][l])} for l in x['authored']}}
-             for rid, x in P['results'].items() if rid.startswith('CR V')}
-    mixed = sum(1 for x in P['results'].values() if x['after'].get('overlap') and x['before'].get('overlap'))
-    note = (f"An author's exception is added to the rule model as a node; then one call per field makes the smallest edit to the AUTHORED field that is consistent with "
-            f"the edited model, leaving every other word. Across the {S['rules']} rules NOT MET covers the exception {S['not_met_covers']['after']} times "
-            f"(authored: {S['not_met_covers']['before']}) and MET excludes it {S['met_excludes']['after']} times (authored: {S['met_excludes']['before']}); "
-            f"{S['unchanged']} of {S['fields']} fields are untouched and the patched fields keep most of the authors' words. The overlaps the judge still finds are mixed "
-            f"responses — an exception case together with a separate violation — and {mixed} of the {S['overlap']['after']} were there before the edit.")
     doc = json.loads(traces_path.read_text())
-    doc['patches'] = {'note': note, 'sets': {'exception': {'label': f"An added exception ({len(rules)} rules)",
-                      'checks': [{'key': 'not_met_covers', 'label': 'NOT MET covers it'}, {'key': 'met_excludes', 'label': 'MET excludes it'}, {'key': 'overlap', 'label': 'no overlap', 'bad': True}],
-                      'rules': rules}}}
+    R = {rid: x for rid, x in P['results'].items() if rid.startswith('CR V')}
+    S = P['summary']
+    CHECKS = {'exception': [{'key': 'not_met_covers', 'label': 'NOT MET covers it'}, {'key': 'met_excludes', 'label': 'MET excludes it'}, {'key': 'overlap', 'label': 'no overlap', 'bad': True}],
+              'requirement': [{'key': 'met_requires', 'label': 'MET requires it'}, {'key': 'not_met_covers', 'label': 'NOT MET covers its failure'}, {'key': 'overlap', 'label': 'no overlap', 'bad': True}],
+              'fact': [{'key': 'uncertain_names', 'label': 'UNCERTAIN names it'}]}
+    LABEL = {'exception': 'An added exception', 'requirement': 'An added requirement', 'fact': 'An added deciding fact'}
+    sets = {}
+    for kind in ('exception', 'requirement', 'fact'):
+        sets[kind] = {'label': f"{LABEL[kind]} ({len(R)} rules)", 'checks': CHECKS[kind], 'rules': {
+            rid: {'title': x.get('title', ''), 'edit': f"The author edited {e['part']}: “…{e['author_edit'][-180:]}”", 'before': e['before'], 'after': e['after'],
+                  'changed': e['routing']['changed'], 'route': e['routing']['route'],
+                  'fields': {l: {'before': x['authored'][l], 'after': tidy(l, e['patched'][l], x['authored'][l])} for l in x['authored']}}
+            for rid, x in R.items() for e in [x['edits'][kind]]}}
+    ex, rq, fc = S['exception'], S['requirement'], S['fact']
+    note = (f"The editing loop, run by scripts/edit-loop.py through nlir programs: the author edits their own sentence; lens-concepts.nlir turns it into "
+            f"rule-model edits; patch-route.nlir decides which fields read what changed, and patch.nlir patches only those. Across the {ex['rules']} rules, "
+            f"an added exception reaches NOT MET {ex['not_met_covers']['after']} times and is excluded from MET {ex['met_excludes']['after']} times (authored: "
+            f"{ex['not_met_covers']['before']} and {ex['met_excludes']['before']}); an added requirement gates MET {rq['met_requires']['after']} times; an added "
+            f"deciding fact reaches UNCERTAIN {fc['uncertain_names']['after']} times and leaves MET and NOT MET as written {fc['verdict_untouched']} times — the "
+            f"others are edits the backward pass also read as a new condition. The fields an edit does not reach keep "
+            f"{round(100 * (ex['other_similarity'] + rq['other_similarity'] + fc['other_similarity']) / 3)}% of the authors' words. Judge {P['models']['judge']}"
+            + (f"; a second judge ({P['models']['judge2']}) agrees on these counts." if P['models'].get('judge2') and ex['not_met_covers']['after2'] == ex['not_met_covers']['after'] else '.'))
+    doc['patches'] = {'note': note, 'sets': sets}
     traces_path.write_text(json.dumps(doc, ensure_ascii=False, separators=(',', ':')))
-    print(json.dumps({'patched_rules': len(rules), 'bytes': traces_path.stat().st_size}))
+    print(json.dumps({'patched_rules': len(R), 'sets': list(sets), 'bytes': traces_path.stat().st_size}))
 
 
 if __name__ == '__main__':

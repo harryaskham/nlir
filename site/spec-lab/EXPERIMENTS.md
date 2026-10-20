@@ -192,3 +192,31 @@ profile for each rule. With your own endpoint, **Write 3 and pick** runs the sam
 drafts, one coverage check per draft by the judge model, and a picked run you can judge like any other. On representative data, picking from four drafts
 raised strict F1 from 0.586 to 0.619 on twenty untouched rules, about +0.02 of it confirmed by an independent judge
 that also did the picking; picking from eight drafts did no better than from four.
+
+## Maintaining authored profiles — the editing loop (`../explain/`, `scripts/edit-loop.py`)
+
+Profiles that authors have already written should change only where a change to the rule reaches.
+The loop keeps their prose and puts the decision in the rule model: the author edits their own
+sentence; `lens-concepts.nlir` turns the edit into model edits; `patch-route.nlir` computes, from the
+two models, which fields read what changed (MET and NOT MET read the behaviour, conditions and
+exceptions; UNCERTAIN reads the facts; applicability the testing setting); `patch.nlir` gives only
+those fields the smallest consistent edit, telling the patch that a changed condition or exception
+governs every way MET can be met; every other field is returned exactly as written.
+
+`scripts/edit-loop.py` runs the whole loop through these programs. On the 8 evaluation rules of the
+invented spec, with three author edits per rule proposed by a model and two judges: an added
+exception reaches NOT MET 8 times and is excluded from MET 8 times (in the authored profiles:
+0 and 1); an added requirement gates MET 8 times and NOT MET covers its failure 8 times; an added deciding
+fact reaches UNCERTAIN 8 times and leaves MET and NOT MET as written 6 times — the other two are edits
+the backward pass also read as a new condition, which routing then follows. The fields an edit does
+not reach keep 94% of the authors' words, and the second judge gives the same counts for coverage,
+exclusion and gating. Overlaps between MET and NOT MET that remain are mixed responses (an exception
+case beside a separate violation), most of them present before the edit. The explainer shows every
+edit as a word diff with its routing drawn as the program's graph, and patches a rule's authored
+profile live with your own exception.
+
+On representative data, the same loop on twenty rules never used to design it carried every added
+exception and requirement into MET, every exception into NOT MET, and kept every added deciding fact
+out of MET and NOT MET, keeping 95–100% of the other fields' words; patching every field instead,
+and trusting the model to leave the rest alone, did worse on each, and an independent judge agreed
+once the patch was told an exception governs every way MET can be met.

@@ -403,6 +403,26 @@
 
   // Patch forward (when the data has patches): an edit made to the model and patched into the authors' own prose —
   // each field as a word diff against the authored text, untouched fields marked, with the judge's verdict before and after.
+  // The routing behind one patch, as the program's own graph: the rule model's groups, the fields that read them (grey),
+  // the groups the edit changed and the routes to the fields that read them (accent), and which routed fields changed.
+  const GROUPS = [['setting', 'testing setting'], ['action', 'behaviour judged'], ['conditions', 'conditions'], ['permissions', 'exceptions'], ['facts', 'facts']];
+  const READS = { APPLICABILITY: ['setting'], 'DECISION BOUNDARY': ['action'], MET: ['action', 'conditions', 'permissions'], 'NOT MET': ['action', 'conditions', 'permissions'], UNCERTAIN: ['facts'] };
+  function routeSvg(R) {
+    if (!R.changed) return '';
+    const fields = Object.keys(READS), rowH = 30, top = 22, W = 560, H = top + rowH * 5 + 4, lx = 8, lw = 150, rx = 330, rw = 170;
+    const gy = i => top + i * rowH, ch = new Set(R.changed), route = new Set(R.route || []);
+    const edges = fields.flatMap((f, fi) => READS[f].map(g => {
+      const gi = GROUPS.findIndex(x => x[0] === g), hot = ch.has(g);
+      return `<line class="${hot ? 'rt' : 'dep'}" x1="${lx + lw}" y1="${gy(gi) + 11}" x2="${rx}" y2="${gy(fi) + 11}"/>`;
+    })).sort((x, y) => (x.includes('"rt"') ? 1 : 0) - (y.includes('"rt"') ? 1 : 0)).join('');
+    const gnodes = GROUPS.map(([g, label], i) => `<g class="node${ch.has(g) ? ' hot' : ''}"><rect x="${lx}" y="${gy(i)}" width="${lw}" height="22" rx="4"/><text x="${lx + lw / 2}" y="${gy(i) + 15}">${esc(label)}</text></g>`).join('');
+    const fnodes = fields.map((f, i) => { const changed = R.fields[f] && R.fields[f].before.trim() !== R.fields[f].after.trim();
+      const cls = changed ? ' patched' : route.has(f) ? ' routed' : '';
+      return `<g class="node${cls}"><rect x="${rx}" y="${gy(i)}" width="${rw}" height="22" rx="4"/><text x="${rx + rw / 2}" y="${gy(i) + 15}">${esc(f)}</text><text class="note" x="${rx + rw + 8}" y="${gy(i) + 15}">${changed ? 'patched' : route.has(f) ? 'routed, no change needed' : 'kept as written'}</text></g>`; }).join('');
+    return `<figure class="routefig"><svg viewBox="0 0 ${W + 120} ${H}" role="img" aria-label="Which profile fields read the model groups this edit changed"><text class="hd" x="${lx + lw / 2}" y="13">rule model</text><text class="hd" x="${rx + rw / 2}" y="13">profile</text>${edges}${gnodes}${fnodes}</svg>
+      <figcaption class="small muted">Changed: ${esc([...ch].map(g => (GROUPS.find(x => x[0] === g) || [g, g])[1]).join(', ') || 'nothing')}. Only the fields that read a changed group are routed to the patch; the rest are returned exactly as written.</figcaption></figure>`;
+  }
+
   function renderPatches() {
     const box = $('patches'), Pt = D.patches;
     if (!box) return;
@@ -420,9 +440,10 @@
       <p class="muted small">${esc(Pt.note || '')}</p>
       <div class="prow"><label>Edit <select id="pset">${keys.map(k => `<option value="${esc(k)}"${k === sk ? ' selected' : ''}>${esc(Pt.sets[k].label)}</option>`).join('')}</select></label>
         <label>Rule <select id="prule">${rids.map(r => `<option value="${esc(r)}"${r === rid ? ' selected' : ''}>${esc(r)}${S.rules[r].title ? ' · ' + esc(S.rules[r].title) : ''}</option>`).join('')}</select></label></div>
-      <p class="small"><b>Edit to the model:</b> ${esc(R.edit || S.edit || '')}</p>
+      <p class="small"><b>Edit:</b> ${esc(R.edit || S.edit || '')}</p>
       <p class="small">Authored ${verdict(R.before)} &nbsp;→&nbsp; patched ${verdict(R.after)}</p>
       ${S.note ? `<p class="small muted">${esc(S.note)}</p>` : ''}
+      ${routeSvg(R)}
       <div class="pfields">${fields}</div>`;
     $('pset').onchange = e => { state.pset = e.target.value; state.prule = null; renderPatches(); };
     $('prule').onchange = e => { state.prule = e.target.value; renderPatches(); };
