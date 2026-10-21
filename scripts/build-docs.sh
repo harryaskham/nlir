@@ -125,7 +125,8 @@ render "$root/SPEC.md"   "nlir — spec"                "$out/spec.html"  "spec.
 # Examples: the canonical v2 programs (examples/README.md) with each script inlined.
 cp "$root/site/og.png" "$out/og.png"
 {
-  sed 's#(\([a-z-]*\.sh\))#(\#\1)#g' "$root/examples/README.md"
+  # scripts become in-page anchors; other example files (programs, data) link to the repository
+  sed -e 's#(\([a-z-]*\.sh\))#(\#\1)#g' -e 's#(\([a-z-]*\.nlir\))#(examples/\1)#g' "$root/examples/README.md"
   for script in "$root"/examples/*.sh; do
     name="$(basename "$script")"
     printf '\n## %s {#%s}\n\n```sh\n' "$name" "$name"
