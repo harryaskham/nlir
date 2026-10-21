@@ -700,9 +700,17 @@ instruction was built from. On a learned spec→prose program, adding a
 clause to one generated MET paragraph comes back as a one-sentence edit
 to the rule's text; re-running forward keeps the edit's meaning (≈
 0.95). Two edits that disagree come back as edits to two fields plus a
-named <strong>tension</strong> between them. The <a
-href="https://a.skh.am/nlir/spec-lab/">spec lab</a>'s <em>Backward
-pass</em> tab replays that session.</p>
+named <strong>tension</strong> between them.</p>
+<p>Where code has no exact inverse — <code>the highest card</code> has
+many hands — the author can write the put (<code>_puts</code>), and
+<code>nlir put --alternatives N</code> finds the other consistent
+explanations, each verified by running forward: in <a
+href="https://github.com/harryaskham/nlir/blob/main/examples/cards.sh"><code>examples/cards.sh</code></a>, asking for
+a 5 on a later turn comes back as <em>rule 3 says highest</em>, or
+<em>it is the first turn</em>, or <em>the hand is [5, 5, 5, 5, 5]</em>;
+asking the program to call "uno" comes back as outside what it can
+produce. The <a href="https://a.skh.am/nlir/spec-lab/">spec lab</a>'s
+<em>Backward pass</em> tab replays that session.</p>
 <h2 id="seeing-programs">Seeing programs</h2>
 <p><strong><code>nlir help</code></strong> prints every operator from
 your config; <strong><code>nlir step '&lt;expr&gt;'</code></strong>

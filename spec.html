@@ -839,6 +839,50 @@ that contradict each other — across fields, or within one edited text
 (edits can merge textually — text edits to one value merge three-way
 when their regions do not overlap — and still contradict each
 other).</p>
+<h3 id="authored-puts-and-alternatives">Authored puts and
+alternatives</h3>
+<p>Some code has no exact put: a selection
+(<code>the highest card</code>), a summary, a comparison, an
+<code>$if</code> whose branch would have to flip. Such an edit has many
+possible inputs, or none the construct rules can reach, and
+<code>nlir put</code> reports it as stuck. Three ways back cover it:</p>
+<ul>
+<li><strong>Authored puts</strong> —
+<code>_puts={highest='put_highest'}</code> names a put form for a form:
+<code>put_highest%(edited, old_arg_0, …)</code> returns the new argument
+(or, for several arguments, the list of new arguments), and the exact
+rules carry it further back. The author says what a backward edit means,
+e.g. "clamp every card above the new highest to it". (Quote names
+containing <code>_</code> in dict literals: a bare
+<code>put_highest</code> lexes as the repeat operator
+<code>_</code>.)</li>
+<li><strong>Search</strong> — <code>nlir put --alternatives N</code>
+(det mode, programs without model calls) enumerates edits to the
+program's input leaves, breadth-first by how many leaves change: numbers
+take values from the edited output and their neighbours (a non-negative
+input stays non-negative); strings swap one of the program's one-word
+quoted literals for another (the categorical values it tests and
+branches on, not template prose); booleans flip. Each candidate runs
+forward and is kept only if it reproduces the edit; supersets of an
+explanation already found are skipped, so every alternative is minimal
+and different. It is a generator of possible inputs: the report says how
+many it found within <code>--depth</code> and <code>--budget</code>, and
+shows the smallest first.</li>
+<li><strong>Model</strong> — with <code>--mode llm</code>, a large model
+proposes whole input edits — a plausible preimage a person might write,
+e.g. a hand of <code>[5, 6, 7, 8, 9]</code> rather than
+<code>[5, 5, 5, 5, 5]</code> — and each is run forward and kept only if
+it reproduces the edit (by <code>≈</code> when the program calls
+models).</li>
+</ul>
+<p><code>--partial</code> (JSON-object outputs) makes only the fields
+the edit changed binding; the others are recomputed, so editing the
+played card shows the reason that follows. <code>--freeze PATH</code>
+(repeatable) keeps an input fixed, which asks for a particular kind of
+explanation. An edit that adds a field the program never outputs is
+reported at once as outside what the program can produce: no input edit
+can make it, the program must change. <code>examples/cards.sh</code>
+runs all of this on a card game.</p>
 <h2 id="whitespace-escapes--quoting">Whitespace, escapes &amp;
 quoting</h2>
 <ul>
