@@ -1,0 +1,18 @@
+-- cards.nlir: which card does the player play, and why? The rules and the state are data ($game);
+-- the program reads the rule that applies, finds the card it names and says why.
+--
+-- `highest` and `lowest` have many preimages (many hands share a highest card), so their author
+-- says how to go back (`_puts`): every card past the new value is clamped to it, and the old
+-- extreme card becomes it. `nlir put --alternatives` adds the other explanations it can find.
+highest = {$nth%(#($sort%$0) - 1, $sort%$0)};
+lowest = {$nth%(0, $sort%$0)};
+put_highest = {{$if%($gt%($0, $$0), $$0, $if%($0 == $highest%$$1, $$0, $0))} ↦ $1};
+put_lowest = {{$if%($lt%($0, $$0), $$0, $if%($0 == $lowest%$$1, $$0, $0))} ↦ $1};
+_puts = {highest='put_highest', lowest='put_lowest'};
+g = $game;
+first = $g.state.turn == 0;
+rule = $if%($first, $nth%(1, $g.rules), $nth%(2, $g.rules));
+which = $if%($contains%($rule, 'highest'), 'highest', 'lowest');
+card = $if%($which == 'highest', $highest%$g.state.hand, $lowest%$g.state.hand);
+reason = "It is " ++ $if%($first, "the player's first turn", "a later turn") ++ " and " ++ $card ++ " is their " ++ $which ++ " card";
+$json%{played_card=$card, reason=$reason}

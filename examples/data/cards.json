@@ -1,0 +1,8 @@
+{
+ "rules": [
+  "1. All players draw five cards.",
+  "2. On a player's first turn they must play their highest card.",
+  "3. On every turn after the first, a player must play their lowest card."
+ ],
+ "state": {"player": 0, "turn": 0, "hand": [1, 2, 3, 4, 5]}
+}

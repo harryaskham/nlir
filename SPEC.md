@@ -451,6 +451,35 @@ judged: `put_get_similarity` is `≈` between the edited output and the re-run; 
 one edited text (edits can merge textually — text edits to one value merge three-way
 when their regions do not overlap — and still contradict each other).
 
+### Authored puts and alternatives
+
+Some code has no exact put: a selection (`the highest card`), a summary, a comparison, an `$if` whose
+branch would have to flip. Such an edit has many possible inputs, or none the construct rules can
+reach, and `nlir put` reports it as stuck. Three ways back cover it:
+
+- **Authored puts** — `_puts={highest='put_highest'}` names a put form for a form: `put_highest%(edited,
+  old_arg_0, …)` returns the new argument (or, for several arguments, the list of new arguments), and the
+  exact rules carry it further back. The author says what a backward edit means, e.g. "clamp every card
+  above the new highest to it". (Quote names containing `_` in dict literals: a bare `put_highest` lexes as
+  the repeat operator `_`.)
+- **Search** — `nlir put --alternatives N` (det mode, programs without model calls) enumerates edits to the
+  program's input leaves, breadth-first by how many leaves change: numbers take values from the edited
+  output and their neighbours (a non-negative input stays non-negative); strings swap one of the program's
+  one-word quoted literals for another (the categorical values it tests and branches on, not template
+  prose); booleans flip. Each candidate runs forward and is kept only if it reproduces the edit; supersets
+  of an explanation already found are skipped, so every alternative is minimal and different. It is a
+  generator of possible inputs: the report says how many it found within `--depth` and `--budget`, and
+  shows the smallest first.
+- **Model** — with `--mode llm`, a large model proposes whole input edits — a plausible preimage a person
+  might write, e.g. a hand of `[5, 6, 7, 8, 9]` rather than `[5, 5, 5, 5, 5]` — and each is run forward and
+  kept only if it reproduces the edit (by `≈` when the program calls models).
+
+`--partial` (JSON-object outputs) makes only the fields the edit changed binding; the others are recomputed,
+so editing the played card shows the reason that follows. `--freeze PATH` (repeatable) keeps an input fixed,
+which asks for a particular kind of explanation. An edit that adds a field the program never outputs is
+reported at once as outside what the program can produce: no input edit can make it, the program must
+change. `examples/cards.sh` runs all of this on a card game.
+
 ## Whitespace, escapes & quoting
 
 - **Whitespace between tokens is non-semantic** (spaces/tabs/newlines stripped) —

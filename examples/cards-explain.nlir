@@ -1,0 +1,17 @@
+-- cards-explain.nlir: cards.nlir with the reason written by a model from the facts the program worked out.
+-- Backwards (`nlir put --mode llm --alternatives N --partial`), an edit to the reason is an edit to a model
+-- operator's output: a large model proposes inputs that would produce it, and each is kept only if running
+-- the program forward with them gives an output that agrees with the edit. `highest` and `lowest` keep their
+-- authored puts, as in cards.nlir.
+highest = {$nth%(#($sort%$0) - 1, $sort%$0)};
+lowest = {$nth%(0, $sort%$0)};
+put_highest = {{$if%($gt%($0, $$0), $$0, $if%($0 == $highest%$$1, $$0, $0))} ↦ $1};
+put_lowest = {{$if%($lt%($0, $$0), $$0, $if%($0 == $lowest%$$1, $$0, $0))} ↦ $1};
+_puts = {highest='put_highest', lowest='put_lowest'};
+g = $game;
+first = $g.state.turn == 0;
+rule = $if%($first, $nth%(1, $g.rules), $nth%(2, $g.rules));
+which = $if%($contains%($rule, 'highest'), 'highest', 'lowest');
+card = $if%($which == 'highest', $highest%$g.state.hand, $lowest%$g.state.hand);
+reason = =>("In one short sentence, say why the player plays the card " ++ $card ++ ". It is turn " ++ $g.state.turn ++ " (turn 0 is their first turn), their hand is " ++ $json%$g.state.hand ++ ", and the rule that applies is: " ++ $rule);
+$json%{played_card=$card, reason=$reason}

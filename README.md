@@ -337,7 +337,13 @@ patches to each `=>` instruction, and the exact rules carry them back to the dat
 instruction was built from. On a learned spec→prose program, adding a clause to one
 generated MET paragraph comes back as a one-sentence edit to the rule's text; re-running
 forward keeps the edit's meaning (≈ 0.95). Two edits that disagree come back as edits
-to two fields plus a named **tension** between them. The
+to two fields plus a named **tension** between them.
+
+Where code has no exact inverse — `the highest card` has many hands — the author can write the put
+(`_puts`), and `nlir put --alternatives N` finds the other consistent explanations, each verified by
+running forward: in [`examples/cards.sh`](examples/cards.sh), asking for a 5 on a later turn comes back
+as *rule 3 says highest*, or *it is the first turn*, or *the hand is [5, 5, 5, 5, 5]*; asking the program
+to call "uno" comes back as outside what it can produce. The
 [spec lab](https://a.skh.am/nlir/spec-lab/)'s *Backward pass* tab replays that session.
 
 ## Seeing programs

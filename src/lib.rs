@@ -34,6 +34,7 @@ pub mod graph;
 pub mod graph_svg;
 pub mod index;
 pub mod lens;
+pub mod lens_search;
 pub mod lexer;
 pub mod llm;
 pub mod messages;

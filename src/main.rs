@@ -205,6 +205,25 @@ struct PutArgs {
     /// The edited output: a file path, or `-` for stdin.
     #[arg(long, value_name = "PATH")]
     edited: PathBuf,
+    /// Return up to N consistent ways back, smallest first: the structural put, inputs found
+    /// by search (det mode: a generator of possible inputs, with a count) and, in llm mode,
+    /// inputs a model proposes — each verified by running the program forward.
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    alternatives: usize,
+    /// With --alternatives: the most input leaves one alternative may change.
+    #[arg(long, value_name = "K", default_value_t = 4)]
+    depth: usize,
+    /// With --alternatives: the most forward runs the search may spend.
+    #[arg(long, value_name = "RUNS", default_value_t = 100_000)]
+    budget: usize,
+    /// With --alternatives: an input path (`name` or `name/key/0`) that must not change
+    /// (repeatable) — ask for a particular kind of explanation.
+    #[arg(long, value_name = "PATH")]
+    freeze: Vec<String>,
+    /// With --alternatives, for JSON-object outputs: only the fields you changed must match;
+    /// the others are recomputed (edit one field and see what follows).
+    #[arg(long)]
+    partial: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1734,6 +1753,42 @@ fn run_put(cli: &Cli, args: &PutArgs) -> Result<(), i32> {
     }
     let settings = nlir::config::resolve_defaults(&cfg, &cli_overrides(cli));
     let cache = eval_cache(cli, &ctx)?;
+    if args.alternatives > 0 {
+        let opts = nlir::lens_search::SearchOptions {
+            alternatives: args.alternatives,
+            depth: args.depth,
+            budget: args.budget,
+            freeze: args.freeze.clone(),
+            partial: args.partial,
+        };
+        let outcome = nlir::lens_search::put_alternatives(
+            &program,
+            &cfg,
+            &ctx,
+            edited,
+            settings.mode,
+            &cache,
+            &opts,
+        );
+        print_cache_stats(cli, &cache);
+        return match outcome {
+            Ok(report) => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).unwrap_or_default()
+                );
+                if report.alternatives.is_empty() {
+                    Err(1)
+                } else {
+                    Ok(())
+                }
+            }
+            Err(error) => {
+                eprintln!("nlir put: {error}");
+                Err(1)
+            }
+        };
+    }
     let outcome = nlir::lens::put_program_with(&program, &cfg, &ctx, edited, settings.mode, &cache);
     print_cache_stats(cli, &cache);
     match outcome {

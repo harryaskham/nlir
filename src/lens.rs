@@ -346,6 +346,10 @@ struct Put<'e, 'a> {
     program: &'e Program,
     binders: HashMap<String, usize>,
     inverses: BTreeMap<String, String>,
+    /// Authored puts (`_puts={form=put_form}`): `put_form%(edited, old_arg_0, …)` returns the new
+    /// argument (one-argument forms) or the list of new arguments — a lens's put, written by the
+    /// program's author for a form with no exact inverse (a selection, a summary, a surjection).
+    puts: BTreeMap<String, String>,
     frames: Vec<usize>,
     next_frame: usize,
     sep: String,
@@ -700,6 +704,53 @@ impl Put<'_, '_> {
         w: &mut Writes,
     ) -> Result<Vec<Option<Value>>, EvalError> {
         let n = arg_values.len();
+        if let Expr::ContextRead(name) = form
+            && let Some(put_form) = self.puts.get(name).cloned()
+        {
+            let mut args = vec![Expr::Value(new.clone())];
+            args.extend(arg_values.iter().cloned().map(Expr::Value));
+            let call = Expr::FormApply {
+                form: Box::new(Expr::ContextRead(put_form.clone())),
+                args,
+            };
+            let back = match self.eval(&call) {
+                Ok(v) => v,
+                // an authored put that cannot take this edit (e.g. a removed value) is a stuck
+                // edit naming it, not a failure of the whole backward pass
+                Err(error) => {
+                    self.stuck(
+                        w,
+                        at,
+                        format!("the authored put `{put_form}` failed: {error}"),
+                        old,
+                        &new,
+                    );
+                    return Ok(vec![None; n]);
+                }
+            };
+            let news: Vec<Value> = if n == 1 {
+                vec![back]
+            } else {
+                match back {
+                    Value::List(items) if items.len() == n => items,
+                    other => {
+                        self.stuck(
+                            w,
+                            at,
+                            format!("the authored put `{put_form}` must return a list of {n} arguments, got {}", other.render(&self.sep)),
+                            old,
+                            &new,
+                        );
+                        return Ok(vec![None; n]);
+                    }
+                }
+            };
+            return Ok(news
+                .into_iter()
+                .zip(arg_values.iter())
+                .map(|(v, a)| (v.render(&self.sep) != a.render(&self.sep)).then_some(v))
+                .collect());
+        }
         if let Expr::ContextRead(name) = form
             && let (Some(inverse), 1) = (self.inverses.get(name).cloned(), n)
         {
@@ -1432,12 +1483,23 @@ pub fn put_program_with(
                 inverses.insert(b, a);
             }
         }
+        let mut puts = BTreeMap::new();
+        if let Some(Value::Dict(pairs)) = ev
+            .context_ref()
+            .get("_puts")
+            .map(|json| crate::eval::json_to_value_pub(json, config))
+        {
+            for (form, put_form) in pairs {
+                puts.insert(form.clone(), put_form.render(&sep));
+            }
+        }
         let mut put = Put {
             ev: &mut ev,
             mode,
             program,
             binders: binders.clone(),
             inverses,
+            puts,
             frames: Vec::new(),
             next_frame: 0,
             sep: sep.clone(),
@@ -1613,6 +1675,28 @@ mod tests {
             ctx.set_transient((*k).to_owned(), v.clone());
         }
         put_program(&program, &cfg, &ctx, edited).expect("put")
+    }
+
+    #[test]
+    fn an_authored_put_inverts_a_selection_the_author_explains() {
+        // `highest` has many preimages; its author says how to go back: clamp every card to the new highest.
+        let src = "highest = {$nth%(#($sort%$0) - 1, $sort%$0)}; \
+                   put_highest = {{$if%($gt%($0, $$0), $$0, $0)} ↦ $1}; \
+                   _puts = {highest='put_highest'}; \
+                   $highest%$hand";
+        let r = report(src, "3", &[("hand", serde_json::json!([1, 2, 3, 4, 5]))]);
+        assert_eq!(r.put_get, Some(true), "{r:?}");
+        let e = r
+            .edits
+            .iter()
+            .find(|e| e.target == "hand")
+            .expect("an edit to the hand");
+        let news: Vec<_> = e.changes.iter().map(|c| c.new.clone()).collect();
+        assert_eq!(
+            news,
+            vec![serde_json::json!(3), serde_json::json!(3)],
+            "{e:?}"
+        );
     }
 
     #[test]
