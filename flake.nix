@@ -41,7 +41,7 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
 
         # macOS links libiconv transitively (via the ureq/rustls TLS stack used
