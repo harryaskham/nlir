@@ -98,6 +98,8 @@
           cargoLock = {
             lockFile = "${nlirSrc}/Cargo.lock";
           };
+          # Installs never run the test suite (a loaded builder must not break a switch); checks.build does.
+          doCheck = false;
 
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = darwinLibs;
@@ -149,8 +151,10 @@
           };
         };
 
-        # Sandbox-pure check: the package builds.
-        checks.build = nlir;
+        # Sandbox-pure check: the package builds and its tests pass.
+        checks.build = nlir.overrideAttrs (_: {
+          doCheck = true;
+        });
 
         devShells.default = pkgs.mkShell {
           inputsFrom = [ nlir ];
