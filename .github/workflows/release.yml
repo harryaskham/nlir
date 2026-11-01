@@ -1,8 +1,8 @@
 name: release
 
-# Triggered ONLY on a pushed version tag (v*.*.*). Runs on the azure-ephemeral
-# (x86) + aarch64-darwin runners using the SYSTEM Rust toolchain (rust-not-nix),
-# NATIVELY per target, so `nlir self-update` (updatable-cli) has per-target
+# Triggered ONLY on a pushed version tag (v*.*.*). Runs on GitHub-hosted
+# runners (ubuntu-latest, macos-latest) using the SYSTEM Rust toolchain
+# (rust-not-nix), NATIVELY per target, so `nlir self-update` (updatable-cli) has per-target
 # assets. This mirrors omni-cli's release.yml. nlir is deliberately rust-not-nix
 # on Linux (bd-aa78ee), so the native-cargo path is used rather than the flake.
 # The ecosystem crate deps (mcp-cli/updatable-cli/feedback-cli) are PUBLIC repos
@@ -36,7 +36,7 @@ env:
 jobs:
   resolve:
     name: resolve release context
-    runs-on: [self-hosted, azure-ephemeral]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       tag: ${{ steps.ctx.outputs.tag }}
@@ -53,7 +53,7 @@ jobs:
   test:
     name: test suite
     needs: resolve
-    runs-on: [self-hosted, azure-ephemeral]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Reset leftover git url rewrite (persistent-runner hygiene)
@@ -126,12 +126,12 @@ jobs:
       matrix:
         include:
           - target: x86_64-linux
-            runner: [self-hosted, azure-ephemeral]
+            runner: ubuntu-latest
           - target: aarch64-linux
-            runner: [self-hosted, azure-ephemeral]
+            runner: ubuntu-latest
             cross: aarch64-unknown-linux-gnu
           - target: aarch64-darwin
-            runner: [self-hosted, aarch64-darwin]
+            runner: macos-latest
     steps:
       - name: Reset leftover git url rewrite (persistent-runner hygiene)
         shell: bash
@@ -139,6 +139,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Move cargo home off the SMB build-cache (bd-f35766 rustup hardlink fix)
         shell: bash

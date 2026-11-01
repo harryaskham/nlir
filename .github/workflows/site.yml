@@ -17,11 +17,12 @@ permissions:
 jobs:
   site:
     name: build + check the site
-    runs-on: [self-hosted, nix, x86_64-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@v3
       - name: Build
         run: nix develop .#site --command bash scripts/build-site.sh _site

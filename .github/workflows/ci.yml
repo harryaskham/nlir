@@ -1,7 +1,7 @@
 name: CI
 
 # fmt · clippy · build · SPEC operator sync · config tests · examples · tests, inside the
-# flake's dev shell on the self-hosted nix runners.
+# flake's dev shell, on GitHub-hosted ubuntu-latest with Determinate Nix (public repository).
 
 on:
   push:
@@ -28,12 +28,13 @@ env:
 jobs:
   check:
     name: fmt · clippy · test · examples · spec ops
-    runs-on: [self-hosted, nix, x86_64-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Check
         run: |
